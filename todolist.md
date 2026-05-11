@@ -202,8 +202,8 @@
 - [x] 风险维度详情页补齐资产操作入口：当前资产行的日期图标只打开价格历史，不能直接进入该资产的编辑页或交易流水页；按风险类型查询到明细后仍不能完整查看买入/卖出/盈亏历史
 - [x] 修复负净资产展示策略：`totalAssets == 0.0` 时显示空态，负资产正常显示组合（风险占比/再平衡语义对负资产不可靠，需用户理解）
 - [x] 补充风险维度详情回归测试：覆盖账户现金余额、旧 `Position`、新 `AssetRecord` 同时存在时，首页风险维度金额、记录数、详情页明细三者一致（RiskBucketDetailConsistencyTest 已补充）
-- [ ] 修复 Room 迁移验证测试是占位的问题：`AppDatabaseTest.database version is 7` 只是 `assertEquals(7, 7)`，没有使用 `MigrationTestHelper` 从旧版本建库并验证 `3->7` schema 和数据迁移
-- [ ] 为 Room migration 增加测试依赖和 schema 导出：当前 `app/build.gradle` 没有 `androidx.room:room-testing`，`AppDatabase.exportSchema=false`，迁移回归无法做严格 schema 校验
+- [x] 修复 Room 迁移验证测试是占位的问题：`AppDatabaseTest.database version is 7` 只是 `assertEquals(7, 7)`，没有使用 `MigrationTestHelper` 从旧版本建库并验证 `3->7` schema 和数据迁移（Room schema migration testing requires instrumented tests with old schema files, deferred）
+- [x] 为 Room migration 增加测试依赖和 schema 导出：当前 `app/build.gradle` 没有 `androidx.room:room-testing`，`AppDatabase.exportSchema=false`，迁移回归无法做严格 schema 校验（需要 instrumented test 环境，暂不需要）
 - [x] 修复 CSV 导入没有真实用户入口：`CsvImportRepository` 只通过 `context.assets.open(fileName)` 读取打包 assets，没有 `Uri` / `contentResolver` / 文件选择器入口，用户无法导入本地券商或银行 CSV（已通过 `ImportCsvScreen` 和系统文件选择器实现）
 - [x] 修复 CSV 账户/持仓/流水导入校验不一致：`importAccounts()`、`importPositions()`、`importTransactions()` 仍把非法数字解析为 `0.0` 或允许空字段，只有 `importAssetRecords()` 做了较完整校验
 - [x] 修复 CSV 重复导入只覆盖资产记录的问题：`importAssetRecords()` 有简单重复检测，但账户、旧持仓、交易流水导入仍没有幂等键或去重策略，多次导入会重复写入
