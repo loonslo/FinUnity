@@ -89,9 +89,28 @@ class CsvImportRepository(private val database: AppDatabase) {
                             val parts = parseCsvLine(line)
                             if (parts.size >= 4) {
                                 val name = parts[0]
-                                val type = AccountType.valueOf(parts[1].uppercase())
+                                if (name.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 账户名称为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val typeStr = parts[1].uppercase()
+                                val type = try { AccountType.valueOf(typeStr) } catch (e: Exception) {
+                                    errors.add("行 ${index + 2}: 无效的账户类型 '$typeStr'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val currency = parts[2]
-                                val balance = parts[3].toDoubleOrNull() ?: 0.0
+                                if (currency.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 币种为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val balance = parts[3].toDoubleOrNull()
+                                if (balance == null) {
+                                    errors.add("行 ${index + 2}: 无效的余额 '${parts[3]}'，跳过此行")
+                                    return@forEachIndexed
+                                }
 
                                 val account = Account(
                                     name = name,
@@ -138,10 +157,34 @@ class CsvImportRepository(private val database: AppDatabase) {
                             val parts = parseCsvLine(line)
                             if (parts.size >= 5) {
                                 val accountName = parts[0]
+                                if (accountName.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 账户名称为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val symbol = parts[1].uppercase()
-                                val shares = parts[2].toDoubleOrNull() ?: 0.0
-                                val totalCost = parts[3].toDoubleOrNull() ?: 0.0
+                                if (symbol.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 股票代码为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val shares = parts[2].toDoubleOrNull()
+                                if (shares == null || shares <= 0) {
+                                    errors.add("行 ${index + 2}: 无效的股数 '${parts[2]}'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val totalCost = parts[3].toDoubleOrNull()
+                                if (totalCost == null || totalCost < 0) {
+                                    errors.add("行 ${index + 2}: 无效的总成本 '${parts[3]}'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val currency = parts[4].uppercase()
+                                if (currency.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 币种为空，跳过此行")
+                                    return@forEachIndexed
+                                }
 
                                 // 查找对应账户
                                 val accounts = database.accountDao().getAllAccounts().first()
@@ -303,13 +346,35 @@ class CsvImportRepository(private val database: AppDatabase) {
                             val parts = parseCsvLine(line)
                             if (parts.size >= 7) {
                                 val accountName = parts[0]
+                                if (accountName.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 账户名称为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val symbol = parts[1].ifEmpty { null }?.uppercase()
-                                val type = TransactionType.valueOf(parts[2].uppercase())
+
+                                val typeStr = parts[2].uppercase()
+                                val type = try { TransactionType.valueOf(typeStr) } catch (e: Exception) {
+                                    errors.add("行 ${index + 2}: 无效的交易类型 '$typeStr'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val shares = parts[3].toDoubleOrNull()
                                 val price = parts[4].toDoubleOrNull()
-                                val amount = parts[5].toDoubleOrNull() ?: 0.0
+
+                                val amount = parts[5].toDoubleOrNull()
+                                if (amount == null || amount < 0) {
+                                    errors.add("行 ${index + 2}: 无效的金额 '${parts[5]}'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
                                 val currency = parts[6].uppercase()
-                                val note = if (parts.size > 7) parts[7] else null
+                                if (currency.isEmpty()) {
+                                    errors.add("行 ${index + 2}: 币种为空，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val note = if (parts.size > 7 && parts[7].isNotEmpty()) parts[7] else null
 
                                 // 查找对应账户
                                 val accounts = database.accountDao().getAllAccounts().first()
