@@ -1,0 +1,32 @@
+# Build outputs
+/build/
+/app/build/
+
+# Gradle
+.gradle/
+gradle/wrapper/dists/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Local configuration
+local.properties
+
+# Generated files
+*.class
+*.jar
+*.apk
+*.aab
+*.dex
+
+# Log files
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+*.keystore
+*.jks
