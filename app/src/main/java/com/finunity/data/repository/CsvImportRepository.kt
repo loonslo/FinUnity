@@ -118,6 +118,15 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     currency = currency,
                                     balance = balance
                                 )
+
+                                // 检查是否已存在同名账户（防止重复导入）
+                                val existingAccounts = database.accountDao().getAllAccounts().first()
+                                val isDuplicate = existingAccounts.any { it.name == name }
+                                if (isDuplicate) {
+                                    errors.add("行 ${index + 2}: 账户 '$name' 已存在，跳过重复导入")
+                                    return@forEachIndexed
+                                }
+
                                 database.accountDao().insert(account)
                                 accountsImported++
                             }
@@ -190,6 +199,17 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accounts = database.accountDao().getAllAccounts().first()
                                 val accountId = accounts.firstOrNull { it.name == accountName }?.id
                                 if (accountId != null) {
+                                    // 检查是否已存在同名持仓（防止重复导入）
+                                    val existingPositions = database.positionDao().getAllPositions().first()
+                                    val isDuplicate = existingPositions.any {
+                                        it.accountId == accountId && it.symbol == symbol &&
+                                            kotlin.math.abs(it.shares - shares) < 0.0001
+                                    }
+                                    if (isDuplicate) {
+                                        errors.add("行 ${index + 2}: 持仓 '$symbol' 在账户 '$accountName' 中已存在，跳过重复导入")
+                                        return@forEachIndexed
+                                    }
+
                                     val position = Position(
                                         accountId = accountId,
                                         symbol = symbol,
@@ -380,6 +400,19 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accounts = database.accountDao().getAllAccounts().first()
                                 val accountId = accounts.firstOrNull { it.name == accountName }?.id
                                 if (accountId != null) {
+                                    // 检查是否已存在相同的交易流水（防止重复导入）
+                                    val existingTransactions = database.transactionDao().getTransactionsByAccount(accountId).first()
+                                    val isDuplicate = existingTransactions.any {
+                                        it.symbol == symbol && it.type == type &&
+                                            it.shares != null && shares != null && kotlin.math.abs(it.shares - shares) < 0.0001 &&
+                                            it.price != null && price != null && kotlin.math.abs(it.price - price) < 0.0001 &&
+                                            kotlin.math.abs(it.amount - amount) < 0.0001
+                                    }
+                                    if (isDuplicate) {
+                                        errors.add("行 ${index + 2}: 交易流水已存在，跳过重复导入")
+                                        return@forEachIndexed
+                                    }
+
                                     val transaction = Transaction(
                                         accountId = accountId,
                                         symbol = symbol,
