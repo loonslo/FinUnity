@@ -72,6 +72,13 @@ fun RiskBucketDetailScreen(
     val recordsInBucket = assetRecords.filter { it.record.riskBucket == riskBucketSummary.riskBucket }
     val accountsWithRecords = recordsInBucket.map { it.accountName }.distinct()
 
+    // CASH 维度需要额外显示账户现金余额（来自非负债账户的正余额）
+    val accountCashItems = if (riskBucketSummary.riskBucket == RiskBucket.CASH) {
+        accounts.filter { it.account.type != com.finunity.data.local.entity.AccountType.LIABILITY && it.account.balance > 0 }
+    } else {
+        emptyList()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -123,9 +130,14 @@ fun RiskBucketDetailScreen(
 
                 items(accountsInBucket) { accountSummary ->
                     // 计算该账户在该风险维度下的资产合计
-                    val bucketValueForAccount = recordsInBucket
-                        .filter { it.record.accountId == accountSummary.account.id }
-                        .sumOf { it.currentValue }
+                    val bucketValueForAccount = if (riskBucketSummary.riskBucket == RiskBucket.CASH) {
+                        // CASH维度：显示账户现金余额（已换算为基础货币）
+                        accountSummary.balanceInBaseCurrency
+                    } else {
+                        recordsInBucket
+                            .filter { it.record.accountId == accountSummary.account.id }
+                            .sumOf { it.currentValue }
+                    }
 
                     AccountInBucketItem(
                         account = accountSummary.account,

@@ -37,6 +37,7 @@ import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.PositionSummary
 import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.displayName
+import com.finunity.data.local.entity.RiskBucket
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -316,9 +317,17 @@ fun AssetOverviewCard(
     onRiskBucketClick: (Int) -> Unit = {}
 ) {
     val aggressiveRatio = if (totalAssets > 0) {
-        riskBuckets.firstOrNull { it.riskBucket.name == "AGGRESSIVE" }?.percentage ?: 0.0
+        riskBuckets.firstOrNull { it.riskBucket == RiskBucket.AGGRESSIVE }?.percentage ?: 0.0
     } else 0.0
-    val animatedRatio by animateFloatAsState(targetValue = aggressiveRatio.toFloat(), label = "ratio")
+    val conservativeRatio = if (totalAssets > 0) {
+        riskBuckets.firstOrNull { it.riskBucket == RiskBucket.CONSERVATIVE }?.percentage ?: 0.0
+    } else 0.0
+    val cashRatio = if (totalAssets > 0) {
+        riskBuckets.firstOrNull { it.riskBucket == RiskBucket.CASH }?.percentage ?: 0.0
+    } else 0.0
+    val animatedAggressiveRatio by animateFloatAsState(targetValue = aggressiveRatio.toFloat(), label = "aggressiveRatio")
+    val animatedConservativeRatio by animateFloatAsState(targetValue = conservativeRatio.toFloat(), label = "conservativeRatio")
+    val animatedCashRatio by animateFloatAsState(targetValue = cashRatio.toFloat(), label = "cashRatio")
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -352,7 +361,9 @@ fun AssetOverviewCard(
                 contentAlignment = Alignment.Center
             ) {
                 RatioRing(
-                    ratio = animatedRatio,
+                    aggressiveRatio = animatedAggressiveRatio,
+                    conservativeRatio = animatedConservativeRatio,
+                    cashRatio = animatedCashRatio,
                     modifier = Modifier.fillMaxSize()
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -486,8 +497,15 @@ fun AssetRecordItem(
 }
 
 @Composable
-fun RatioRing(ratio: Float, modifier: Modifier = Modifier) {
-    val stockColor = Color.White
+fun RatioRing(
+    aggressiveRatio: Float,
+    conservativeRatio: Float,
+    cashRatio: Float,
+    modifier: Modifier = Modifier
+) {
+    val aggressiveColor = Color(0xFFE53935)
+    val conservativeColor = Color(0xFF4CAF50)
+    val cashColor = Color(0xFF2196F3)
     val backgroundColor = Color.White.copy(alpha = 0.2f)
 
     Canvas(modifier = modifier) {
@@ -503,16 +521,55 @@ fun RatioRing(ratio: Float, modifier: Modifier = Modifier) {
             style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
         )
 
-        // 进度环
-        drawArc(
-            color = stockColor,
-            startAngle = -90f,
-            sweepAngle = ratio * 360f,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = Size(radius * 2, radius * 2),
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-        )
+        // 三段式进度环
+        val total = aggressiveRatio + conservativeRatio + cashRatio
+        if (total <= 0f) return@Canvas
+
+        var currentAngle = -90f
+
+        // 稳健段 (绿色)
+        val conservativeSweep = (conservativeRatio / total) * 360f
+        if (conservativeSweep > 0) {
+            drawArc(
+                color = conservativeColor,
+                startAngle = currentAngle,
+                sweepAngle = conservativeSweep,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+            )
+            currentAngle += conservativeSweep
+        }
+
+        // 进攻段 (红色)
+        val aggressiveSweep = (aggressiveRatio / total) * 360f
+        if (aggressiveSweep > 0) {
+            drawArc(
+                color = aggressiveColor,
+                startAngle = currentAngle,
+                sweepAngle = aggressiveSweep,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+            )
+            currentAngle += aggressiveSweep
+        }
+
+        // 现金段 (蓝色)
+        val cashSweep = (cashRatio / total) * 360f
+        if (cashSweep > 0) {
+            drawArc(
+                color = cashColor,
+                startAngle = currentAngle,
+                sweepAngle = cashSweep,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+            )
+        }
     }
 }
 
