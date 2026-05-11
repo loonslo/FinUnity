@@ -142,7 +142,7 @@ fun MainScreen(
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
-        } else if (portfolioSummary == null || portfolioSummary.totalAssets < 0.0) {
+        } else if (portfolioSummary == null || portfolioSummary.totalAssets == 0.0) {
             EmptyState(onAddAccount = onAddAccount, onAddPosition = onAddPosition)
         } else {
             LazyColumn(

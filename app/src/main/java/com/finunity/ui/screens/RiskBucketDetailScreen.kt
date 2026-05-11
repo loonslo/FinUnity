@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,14 +37,36 @@ fun RiskBucketDetailScreen(
     baseCurrency: String,
     onBack: () -> Unit,
     onViewAccountTransactions: (String) -> Unit = {},
-    onViewAssetHistory: (String) -> Unit = {},
+    onViewAssetHistory: (String) -> Unit = {},  // recordId -> PriceHistoryScreen
+    onViewAssetTransactions: (String) -> Unit = {},  // recordId -> AssetTransactionHistoryScreen
+    onEditAssetRecord: (String) -> Unit = {},  // recordId -> AssetRecordScreen
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     // 过滤出属于该风险维度的账户和记录
+    // 账户属于某个维度的情况：
+    // - CASH: 非负债账户有正现金余额
+    // - AGGRESSIVE: 账户下有持仓（Position）或股票/ETF/基金资产记录
+    // - CONSERVATIVE: 账户下有定期存款资产记录
     val accountsInBucket = accounts.filter { account ->
-        assetRecords.any { it.record.riskBucket == riskBucketSummary.riskBucket && it.record.accountId == account.account.id }
+        when (riskBucketSummary.riskBucket) {
+            RiskBucket.CASH -> account.account.type != com.finunity.data.local.entity.AccountType.LIABILITY && account.account.balance > 0
+            RiskBucket.AGGRESSIVE -> {
+                // 账户有持仓或股票/ETF/基金记录
+                assetRecords.any {
+                    it.record.accountId == account.account.id &&
+                    it.record.riskBucket == RiskBucket.AGGRESSIVE
+                }
+            }
+            RiskBucket.CONSERVATIVE -> {
+                // 账户有定期存款记录
+                assetRecords.any {
+                    it.record.accountId == account.account.id &&
+                    it.record.riskBucket == RiskBucket.CONSERVATIVE
+                }
+            }
+        }
     }
 
     val recordsInBucket = assetRecords.filter { it.record.riskBucket == riskBucketSummary.riskBucket }
@@ -127,7 +151,9 @@ fun RiskBucketDetailScreen(
                     AssetRecordInBucketItem(
                         summary = record,
                         baseCurrency = baseCurrency,
-                        onViewHistory = { onViewAssetHistory(record.record.id) }
+                        onViewHistory = { onViewAssetHistory(record.record.id) },
+                        onViewTransactions = { onViewAssetTransactions(record.record.id) },
+                        onEdit = { onEditAssetRecord(record.record.id) }
                     )
                 }
             }
@@ -268,7 +294,9 @@ fun AccountInBucketItem(
 fun AssetRecordInBucketItem(
     summary: AssetRecordSummary,
     baseCurrency: String,
-    onViewHistory: () -> Unit
+    onViewHistory: () -> Unit,
+    onViewTransactions: () -> Unit,
+    onEdit: () -> Unit
 ) {
     val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
 
@@ -330,12 +358,20 @@ fun AssetRecordInBucketItem(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-            IconButton(onClick = onViewHistory) {
+            IconButton(onClick = onViewTransactions) {
                 Icon(
-                    Icons.Default.DateRange,
-                    contentDescription = "查看历史",
+                    Icons.Default.List,
+                    contentDescription = "交易流水",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            IconButton(onClick = onEdit) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "编辑",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }

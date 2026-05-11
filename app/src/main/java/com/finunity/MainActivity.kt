@@ -314,6 +314,14 @@ fun FinUnityApp(database: AppDatabase) {
                     onViewAssetHistory = { recordId ->
                         val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
                         currentScreen = Screen.PriceHistory(recordId, record?.record?.name ?: "")
+                    },
+                    onViewAssetTransactions = { recordId ->
+                        val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
+                        currentScreen = Screen.AssetTransactionHistory(recordId, record?.record?.name ?: "")
+                    },
+                    onEditAssetRecord = { recordId ->
+                        val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
+                        currentScreen = Screen.AddAssetRecord(record?.record, record?.record?.accountId ?: "")
                     }
                 )
             } else {

@@ -195,6 +195,13 @@
 - [x] 明确删除账户后的审计保留策略：`Transaction` 对 `Account` 是级联删除，删除账户会删除全部交易流水；这与”删除资产记录保留流水审计”的策略一致：资产记录可独立存在但账户是交易流水的来源，删除账户意味着该来源消失
 - [x] 补充账户删除级联测试：覆盖账户删除后 `Position`、`AssetRecord`、`PriceHistory`、`Transaction` 的实际删除/保留行为（TransactionAuditTest 已补充）
 - [x] 补充买卖影响总资产的回归测试：卖出部分资产后，验证资产记录成本/数量、交易流水、账户现金、总资产四者口径一致（TransactionAuditTest 已补充）
+- [ ] 修复风险维度详情页与汇总金额不一致：`MainViewModel.calculatePortfolio()` 会把账户现金余额计入 `RiskBucket.CASH`，也会把旧 `Position` 计入 `RiskBucket.AGGRESSIVE`，但 `RiskBucketDetailScreen` 只接收并展示 `AssetRecordSummary`，点进详情后看不到这些被计入汇总的资产来源
+- [x] 修复风险维度详情页账户列表筛选遗漏账户现金：`accountsInBucket` 只通过 `assetRecords.any(...)` 判断账户是否属于该风险维度，纯现金余额账户即使已计入现金维度汇总，也不会出现在现金维度详情页
+- [x] 修复风险维度详情页记录数量语义：`RiskBucketSummary.recordCount` 可能包含旧 `Position` 和账户现金计数，但详情页”资产记录”数量只统计 `AssetRecord`，会造成首页数量和详情数量不一致
+- [ ] 首页资产圆环改为真正的三段式配置展示：当前 `RatioRing` 只按 `AGGRESSIVE` 画单一进度环，不是初始需求里的“稳健 / 进攻 / 现金”三段饼图或环图
+- [ ] 风险维度详情页补齐资产操作入口：当前资产行的日期图标只打开价格历史，不能直接进入该资产的编辑页或交易流水页；按风险类型查询到明细后仍不能完整查看买入/卖出/盈亏历史
+- [x] 修复负净资产展示策略：`totalAssets == 0.0` 时显示空态，负资产正常显示组合（风险占比/再平衡语义对负资产不可靠，需用户理解）
+- [x] 补充风险维度详情回归测试：覆盖账户现金余额、旧 `Position`、新 `AssetRecord` 同时存在时，首页风险维度金额、记录数、详情页明细三者一致（RiskBucketDetailConsistencyTest 已补充）
 
 ### 13. 补足测试覆盖
 - [x] 覆盖多币种、卖出、汇率失败、缓存回退、资产汇总等关键场景（CurrencyTest, RebalanceTest, TransactionTest）
