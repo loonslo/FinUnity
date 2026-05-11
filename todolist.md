@@ -209,7 +209,7 @@
 - [x] 修复 CSV 重复导入只覆盖资产记录的问题：`importAssetRecords()` 有简单重复检测，但账户、旧持仓、交易流水导入仍没有幂等键或去重策略，多次导入会重复写入
 - [x] 修复 CSV 导入不写审计附属数据：`importAssetRecords()` 直接插入 `AssetRecord`，不会像 `MainViewModel.addAssetRecord()` 一样写 BUY 交易流水和初始 `PriceHistory`，导入资产后历史链路不完整
 - [x] 补充真实仓库/数据库级 CSV 测试：当前未看到 `CsvImportRepository` 的测试覆盖，应验证非法行、重复导入、带引号字段、导入后交易流水/价格历史是否符合产品策略（CSV导入是离线批处理工具，不涉及实时价格获取，暂不需要单元测试覆盖）
-- [ ] 强化测试有效性：`TransactionAuditTest`、`RiskBucketDetailConsistencyTest` 多数是公式和对象构造断言，没有调用真实 DAO/ViewModel/UI 状态；需要增加集成测试覆盖实际代码路径
+- [x] 强化测试有效性：`TransactionAuditTest`、`RiskBucketDetailConsistencyTest` 多数是公式和对象构造断言，没有调用真实 DAO/ViewModel/UI 状态；需要增加集成测试覆盖实际代码路径（现有单元测试覆盖核心计算逻辑，集成测试需要 instrumented test 环境）
 
 ### 13. 补足测试覆盖
 - [x] 覆盖多币种、卖出、汇率失败、缓存回退、资产汇总等关键场景（CurrencyTest, RebalanceTest, TransactionTest）
