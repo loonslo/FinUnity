@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,6 +58,7 @@ fun MainScreen(
     onViewHistory: () -> Unit = {},
     onViewRiskBucketDetail: (Int) -> Unit = {},  // bucket index
     onOpenSettings: () -> Unit = {},  // NEW: open settings screen
+    onOpenImportCsv: () -> Unit = {},  // NEW: open CSV import screen
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -77,6 +79,13 @@ fun MainScreen(
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "设置",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = onOpenImportCsv) {
+                        Icon(
+                            Icons.Default.List,
+                            contentDescription = "导入CSV",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }

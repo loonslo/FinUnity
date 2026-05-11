@@ -21,6 +21,7 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.Position
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
+import com.finunity.data.repository.CsvImportRepository
 import com.finunity.data.repository.HistoryRepository
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.ui.screens.AccountScreen
@@ -33,6 +34,7 @@ import com.finunity.ui.screens.PriceHistoryScreen
 import com.finunity.ui.screens.SettingsScreen
 import com.finunity.ui.screens.RiskBucketDetailScreen
 import com.finunity.ui.screens.TransactionHistoryScreen
+import com.finunity.ui.screens.ImportCsvScreen
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.ui.theme.FinUnityTheme
 import com.finunity.viewmodel.MainViewModel
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
 sealed class Screen {
     data object Main : Screen()
     data object Settings : Screen()
+    data object ImportCsv : Screen()
     data class AddAccount(val account: Account? = null) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
     data class AddAssetRecord(val record: AssetRecord? = null, val accountId: String) : Screen()
@@ -180,7 +183,8 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewRiskBucketDetail = { bucketIndex ->
                     currentScreen = Screen.RiskBucketDetail(bucketIndex)
                 },
-                onOpenSettings = { currentScreen = Screen.Settings }
+                onOpenSettings = { currentScreen = Screen.Settings },
+                onOpenImportCsv = { currentScreen = Screen.ImportCsv }
             )
         }
 
@@ -191,6 +195,13 @@ fun FinUnityApp(database: AppDatabase) {
                     viewModel.updateSettings(newSettings)
                     currentScreen = Screen.Main
                 },
+                onBack = { currentScreen = Screen.Main }
+            )
+        }
+
+        is Screen.ImportCsv -> {
+            ImportCsvScreen(
+                database = database,
                 onBack = { currentScreen = Screen.Main }
             )
         }
