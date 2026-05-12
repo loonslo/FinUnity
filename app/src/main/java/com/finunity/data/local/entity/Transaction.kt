@@ -34,7 +34,8 @@ data class Transaction(
     val currency: String,            // 币种
     val timestamp: Long = System.currentTimeMillis(),
     val note: String? = null,        // 备注
-    val recordId: String? = null     // 关联的资产记录 ID（可选，用于精确追溯）
+    val recordId: String? = null,    // 关联的资产记录 ID（可选，用于精确追溯）
+    val balanceAfter: Double? = null // 交易后余额（用于审计追溯，可为空表示未记录）
 )
 
 enum class TransactionType {

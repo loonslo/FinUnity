@@ -16,6 +16,7 @@ import com.finunity.data.model.HoldingSummary
 import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.PositionSummary
 import com.finunity.data.model.AccountSummary
+import com.finunity.data.model.PortfolioCalculator
 import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
@@ -97,162 +98,32 @@ class MainViewModel(
 
         try {
             val baseCurrency = settings.baseCurrency
-            var totalCash = 0.0
-            var totalStockValue = 0.0
-            var totalRecordValue = 0.0
-            val accountSummaries = mutableListOf<AccountSummary>()
-            val assetRecordSummaries = mutableListOf<AssetRecordSummary>()
-            val holdingSummaries = mutableListOf<HoldingSummary>()
-            val positionSummaries = mutableListOf<PositionSummary>()
-            val riskBucketTotals = mutableMapOf<RiskBucket, Double>()
-            val riskBucketCounts = mutableMapOf<RiskBucket, Int>()
-            val accountNamesById = accounts.associate { it.id to it.name }
+            val calculator = PortfolioCalculator(accounts, positions, assetRecords, priceRepository, baseCurrency)
 
-            // 处理所有账户的现金余额（按货币换算）
-            // 负债账户的余额从总资产中扣除
-            for (account in accounts) {
-                val rate = priceRepository.getExchangeRate(account.currency, baseCurrency) ?: 1.0
-                val convertedBalance = account.balance * rate
-                if (account.type == AccountType.LIABILITY) {
-                    totalCash -= convertedBalance  // 负债减少总资产
-                } else {
-                    totalCash += convertedBalance
-                }
-                accountSummaries.add(
-                    AccountSummary(
-                        account = account,
-                        balanceInBaseCurrency = if (account.type == AccountType.LIABILITY) -convertedBalance else convertedBalance
-                    )
-                )
+            // 验证一致性（汇率失败会导致 NaN）
+            val consistency = calculator.verifyConsistency()
+            if (!consistency.isConsistent) {
+                _error.value = "部分数据汇率获取失败: ${consistency.issues.first()}"
             }
 
-            for (record in assetRecords) {
-                val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
-                val currentValue = record.currentValue * exchangeRate
-                val costInBase = record.cost * exchangeRate
-                val profitLoss = currentValue - costInBase
-                val profitLossRatio = if (costInBase > 0) profitLoss / costInBase else 0.0
-
-                totalRecordValue += currentValue
-                when (record.assetType) {
-                    AssetType.STOCK, AssetType.ETF, AssetType.FUND -> totalStockValue += currentValue
-                    AssetType.CASH, AssetType.TIME_DEPOSIT -> totalCash += currentValue
-                }
-
-                riskBucketTotals[record.riskBucket] = (riskBucketTotals[record.riskBucket] ?: 0.0) + currentValue
-                riskBucketCounts[record.riskBucket] = (riskBucketCounts[record.riskBucket] ?: 0) + 1
-
-                assetRecordSummaries.add(
-                    AssetRecordSummary(
-                        record = record,
-                        accountName = accountNamesById[record.accountId] ?: "未命名账户",
-                        currentValue = currentValue,
-                        costInBaseCurrency = costInBase,
-                        profitLoss = profitLoss,
-                        profitLossRatio = profitLossRatio
-                    )
-                )
-            }
-
-            for (position in positions) {
-                val currency = position.currency
-                val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-                val exchangeRate = priceRepository.getExchangeRate(currency, baseCurrency) ?: 1.0
-                val currentPriceInBase = currentPrice * exchangeRate
-                val currentValue = position.shares * currentPriceInBase
-                val costInBase = position.totalCost * exchangeRate
-                val profitLoss = currentValue - costInBase
-                val profitLossRatio = if (costInBase > 0) profitLoss / costInBase else 0.0
-
-                holdingSummaries.add(
-                    HoldingSummary(
-                        position = position,
-                        accountName = accountNamesById[position.accountId] ?: "未命名账户",
-                        currentPrice = currentPriceInBase,
-                        currentValue = currentValue,
-                        profitLoss = profitLoss,
-                        profitLossRatio = profitLossRatio
-                    )
-                )
-
-                riskBucketTotals[RiskBucket.AGGRESSIVE] = (riskBucketTotals[RiskBucket.AGGRESSIVE] ?: 0.0) + currentValue
-                riskBucketCounts[RiskBucket.AGGRESSIVE] = (riskBucketCounts[RiskBucket.AGGRESSIVE] ?: 0) + 1
-            }
-
-            // 按股票代码汇总持仓
-            val positionsBySymbol = positions.groupBy { it.symbol }
-
-            for ((symbol, symbolPositions) in positionsBySymbol) {
-                val totalShares = symbolPositions.sumOf { it.shares }
-                val totalCost = symbolPositions.sumOf { it.totalCost }
-
-                // 平均成本法
-                val averageCost = if (totalShares > 0) totalCost / totalShares else 0.0
-
-                // 使用持仓明确的币种，而非从 symbol 推断
-                val currency = symbolPositions.firstOrNull()?.currency ?: "USD"
-
-                // 获取当前价格
-                val price = priceRepository.getPrice(symbol)
-                val currentPrice = price?.price ?: averageCost
-
-                // 换算为基准货币
-                val exchangeRate = priceRepository.getExchangeRate(currency, baseCurrency) ?: 1.0
-                val currentPriceInBase = currentPrice * exchangeRate
-                val currentValue = totalShares * currentPriceInBase
-                val costInBase = totalCost * exchangeRate
-
-                val profitLoss = currentValue - costInBase
-                val profitLossRatio = if (costInBase > 0) profitLoss / costInBase else 0.0
-
-                // 注意：currentValue 已在上方逐条持仓循环中加入 totalStockValue，这里不再重复累加
-
-                positionSummaries.add(
-                    PositionSummary(
-                        symbol = symbol,
-                        totalShares = totalShares,
-                        averageCost = averageCost,
-                        totalCost = costInBase,
-                        currentPrice = currentPriceInBase,
-                        currentValue = currentValue,
-                        profitLoss = profitLoss,
-                        profitLossRatio = profitLossRatio,
-                        currency = currency
-                    )
-                )
-            }
-
-            val totalAssets = totalCash + totalStockValue
+            val totalAssets = calculator.computeTotalAssets()
+            val totalStockValue = calculator.computeStockValue()
+            val totalCash = totalAssets - totalStockValue
             val stockRatio = if (totalAssets > 0) totalStockValue / totalAssets else 0.0
-            if (totalCash > 0) {
-                val cashFromAccounts = totalCash - assetRecords
-                    .filter { it.assetType == AssetType.CASH || it.assetType == AssetType.TIME_DEPOSIT }
-                    .sumOf { record ->
-                        record.currentValue * (priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0)
-                    }
-                if (cashFromAccounts > 0) {
-                    riskBucketTotals[RiskBucket.CASH] = (riskBucketTotals[RiskBucket.CASH] ?: 0.0) + cashFromAccounts
-                    riskBucketCounts[RiskBucket.CASH] = (riskBucketCounts[RiskBucket.CASH] ?: 0) + accounts.count { it.type != AccountType.LIABILITY && it.balance > 0 }
-                }
-            }
-            val riskSummaries = RiskBucket.entries.map { bucket ->
-                val value = riskBucketTotals[bucket] ?: 0.0
-                RiskBucketSummary(
-                    riskBucket = bucket,
-                    totalValue = value,
-                    recordCount = riskBucketCounts[bucket] ?: 0,
-                    percentage = if (totalAssets > 0) value / totalAssets else 0.0
-                )
-            }
+
+            // 使用 PortfolioCalculator 统一计算
+            val accountSummaries = calculator.computeAccountSummaries()
+            val assetRecordSummaries = calculator.computeAssetRecordSummaries()
+            val holdingSummaries = calculator.computeHoldingSummaries()
+            val positionSummaries = calculator.computePositionSummaries()
+            val riskSummaries = calculator.computeRiskBucketSummaries(totalAssets)
 
             val targetAllocationMap = parseTargetAllocation(settings.targetAllocation)
-            // 转换为百分比（0-1）再传给再平衡计算
-            val totalRiskBucketValue = riskBucketTotals.values.sum()
+            val totalRiskBucketValue = riskSummaries.sumOf { it.totalValue }
             val currentAllocationMap = if (totalRiskBucketValue > 0) {
-                riskBucketTotals.mapValues { it.value / totalRiskBucketValue }
-                    .mapKeys { it.key.name }
+                riskSummaries.associate { it.riskBucket.name to it.percentage }
             } else {
-                riskBucketTotals.mapKeys { it.key.name }.mapValues { 0.0 }
+                RiskBucket.entries.associate { it.name to 0.0 }
             }
             val rebalanceRecommendations = calculateRebalanceRecommendations(
                 currentAllocationMap,
@@ -397,7 +268,14 @@ class MainViewModel(
     fun sellAssetRecord(recordId: String, sellQuantity: Double? = null) {
         viewModelScope.launch {
             val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
-            val quantityToSell = sellQuantity?.coerceIn(0.0, record.quantity) ?: record.quantity
+
+            // 超额卖出返回错误
+            if (sellQuantity != null && sellQuantity > record.quantity) {
+                _error.value = "卖出数量 ${sellQuantity} 超过可用数量 ${record.quantity}"
+                return@launch
+            }
+
+            val quantityToSell = sellQuantity ?: record.quantity
 
             // 校验卖出数量
             if (quantityToSell <= 0) return@launch
@@ -442,34 +320,45 @@ class MainViewModel(
      */
     fun sellPosition(positionId: String, sharesToSell: Double) {
         viewModelScope.launch {
+            if (sharesToSell <= 0) {
+                _error.value = "卖出数量必须大于 0"
+                return@launch
+            }
             val position = database.positionDao().getPositionById(positionId)
-            if (position != null && sharesToSell <= position.shares) {
-                val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-                val sellAmount = sharesToSell * currentPrice
+            if (position == null) {
+                _error.value = "持仓不存在"
+                return@launch
+            }
+            if (sharesToSell > position.shares) {
+                _error.value = "卖出数量 ${sharesToSell} 超过持仓数量 ${position.shares}"
+                return@launch
+            }
 
-                // 记录卖出交易流水
-                val transaction = Transaction(
-                    accountId = position.accountId,
-                    symbol = position.symbol,
-                    type = TransactionType.SELL,
-                    shares = sharesToSell,
-                    price = currentPrice,
-                    amount = sellAmount,
-                    currency = position.currency,
-                    note = "卖出持仓: ${position.symbol}"
-                )
-                database.transactionDao().insert(transaction)
+            val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
+            val sellAmount = sharesToSell * currentPrice
 
-                // 更新持仓数量和成本
-                val newShares = position.shares - sharesToSell
-                val costPerShare = position.totalCost / position.shares
-                val newTotalCost = newShares * costPerShare
-                if (newShares <= 0) {
-                    database.positionDao().deleteById(positionId)
-                } else {
-                    val updated = position.copy(shares = newShares, totalCost = newTotalCost)
-                    database.positionDao().update(updated)
-                }
+            // 记录卖出交易流水
+            val transaction = Transaction(
+                accountId = position.accountId,
+                symbol = position.symbol,
+                type = TransactionType.SELL,
+                shares = sharesToSell,
+                price = currentPrice,
+                amount = sellAmount,
+                currency = position.currency,
+                note = "卖出持仓: ${position.symbol}"
+            )
+            database.transactionDao().insert(transaction)
+
+            // 更新持仓数量和成本
+            val newShares = position.shares - sharesToSell
+            val costPerShare = position.totalCost / position.shares
+            val newTotalCost = newShares * costPerShare
+            if (newShares <= 0) {
+                database.positionDao().deleteById(positionId)
+            } else {
+                val updated = position.copy(shares = newShares, totalCost = newTotalCost)
+                database.positionDao().update(updated)
             }
         }
     }
@@ -544,8 +433,11 @@ class MainViewModel(
                 }
             }
 
-            // 重新计算（allPositions 和 allAssetRecords 已在前面获取）
-            calculatePortfolio(accounts, allPositions, allAssetRecords, settings)
+            // 重新读取更新后的 asset records（价格已回写，需重新获取以反映最新价格）
+            val updatedAssetRecords = database.assetRecordDao().getAllRecords().first()
+
+            // 重新计算（allPositions 和 updatedAssetRecords 已在前面获取）
+            calculatePortfolio(accounts, allPositions, updatedAssetRecords, settings)
 
             // 如果有部分失败但整体没抛异常，仍提示用户
             if (failureMessages.isNotEmpty()) {
@@ -556,6 +448,76 @@ class MainViewModel(
         } finally {
             _isLoading.value = false
         }
+    }
+
+    /**
+     * 对账户进行余额核对（账本模型核心）
+     * 根据交易流水重新计算余额，并与账户当前 balance 字段对比
+     * 若不一致，可选择自动修正或提示用户
+     */
+    suspend fun reconcileAccountBalance(accountId: String, autoFix: Boolean = false): ReconciliationResult {
+        val account = database.accountDao().getAccountById(accountId) ?: return ReconciliationResult(
+            isBalanced = false,
+            currentBalance = 0.0,
+            computedBalance = 0.0,
+            difference = 0.0,
+            issues = listOf("账户不存在")
+        )
+
+        val transactions = database.transactionDao().getTransactionsForReconciliation(accountId)
+
+        // 按时间顺序累加计算余额
+        var computedBalance = 0.0
+        val issues = mutableListOf<String>()
+
+        for (tx in transactions) {
+            val previousBalance = computedBalance
+            when (tx.type) {
+                TransactionType.DEPOSIT, TransactionType.TRANSFER_IN, TransactionType.DIVIDEND, TransactionType.SELL -> {
+                    computedBalance += tx.amount
+                }
+                TransactionType.WITHDRAW, TransactionType.TRANSFER_OUT, TransactionType.BUY, TransactionType.FEE -> {
+                    computedBalance -= tx.amount
+                }
+                else -> {
+                    // 其他类型暂不计入余额变化（如内部转账）
+                }
+            }
+
+            // 验证交易后的余额记录（如果有的话）
+            tx.balanceAfter?.let { recorded ->
+                if (kotlin.math.abs(recorded - computedBalance) > 0.01) {
+                    issues.add("交易 ${tx.id} 记录余额 $recorded 与推导余额 $computedBalance 不符")
+                    computedBalance = recorded // 以记录为准
+                }
+            }
+        }
+
+        val currentBalance = account.balance
+        val difference = computedBalance - currentBalance
+
+        val result = ReconciliationResult(
+            isBalanced = kotlin.math.abs(difference) < 0.01,
+            currentBalance = currentBalance,
+            computedBalance = computedBalance,
+            difference = difference,
+            issues = issues
+        )
+
+        // 如果开启自动修正且有差异，修正账户余额
+        if (autoFix && !result.isBalanced) {
+            val updated = account.copy(balance = computedBalance)
+            database.accountDao().update(updated)
+        }
+
+        return result
+    }
+
+    /**
+     * 获取账户的计算余额（从交易流水中推导）
+     */
+    suspend fun getComputedBalance(accountId: String): Double {
+        return database.transactionDao().getComputedBalance(accountId)
     }
 
     class Factory(
@@ -577,3 +539,14 @@ class MainViewModel(
         val settings: Settings
     )
 }
+
+/**
+ * 余额核对结果
+ */
+data class ReconciliationResult(
+    val isBalanced: Boolean,
+    val currentBalance: Double,
+    val computedBalance: Double,
+    val difference: Double,
+    val issues: List<String>
+)

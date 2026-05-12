@@ -23,6 +23,7 @@ import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
+import com.finunity.data.model.HoldingSummary
 import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.displayName
 import java.text.SimpleDateFormat
@@ -34,6 +35,7 @@ fun RiskBucketDetailScreen(
     riskBucketSummary: RiskBucketSummary,
     accounts: List<AccountSummary>,
     assetRecords: List<AssetRecordSummary>,
+    holdings: List<HoldingSummary>,
     baseCurrency: String,
     onBack: () -> Unit,
     onViewAccountTransactions: (String) -> Unit = {},
@@ -42,8 +44,6 @@ fun RiskBucketDetailScreen(
     onEditAssetRecord: (String) -> Unit = {},  // recordId -> AssetRecordScreen
     modifier: Modifier = Modifier
 ) {
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-
     // 过滤出属于该风险维度的账户和记录
     // 账户属于某个维度的情况：
     // - CASH: 非负债账户有正现金余额
@@ -51,9 +51,14 @@ fun RiskBucketDetailScreen(
     // - CONSERVATIVE: 账户下有定期存款资产记录
     val accountsInBucket = accounts.filter { account ->
         when (riskBucketSummary.riskBucket) {
-            RiskBucket.CASH -> account.account.type != com.finunity.data.local.entity.AccountType.LIABILITY && account.account.balance > 0
+            RiskBucket.CASH -> account.account.type != com.finunity.data.local.entity.AccountType.LIABILITY &&
+                (account.account.balance > 0 || assetRecords.any {
+                    it.record.accountId == account.account.id &&
+                    it.record.riskBucket == RiskBucket.CASH
+                })
             RiskBucket.AGGRESSIVE -> {
-                // 账户有持仓或股票/ETF/基金记录
+                // 账户有持仓（Position）或股票/ETF/基金资产记录
+                holdings.any { it.position.accountId == account.account.id } ||
                 assetRecords.any {
                     it.record.accountId == account.account.id &&
                     it.record.riskBucket == RiskBucket.AGGRESSIVE
@@ -70,11 +75,8 @@ fun RiskBucketDetailScreen(
     }
 
     val recordsInBucket = assetRecords.filter { it.record.riskBucket == riskBucketSummary.riskBucket }
-    val accountsWithRecords = recordsInBucket.map { it.accountName }.distinct()
-
-    // CASH 维度需要额外显示账户现金余额（来自非负债账户的正余额）
-    val accountCashItems = if (riskBucketSummary.riskBucket == RiskBucket.CASH) {
-        accounts.filter { it.account.type != com.finunity.data.local.entity.AccountType.LIABILITY && it.account.balance > 0 }
+    val holdingsInBucket = if (riskBucketSummary.riskBucket == RiskBucket.AGGRESSIVE) {
+        holdings
     } else {
         emptyList()
     }
@@ -130,13 +132,24 @@ fun RiskBucketDetailScreen(
 
                 items(accountsInBucket) { accountSummary ->
                     // 计算该账户在该风险维度下的资产合计
-                    val bucketValueForAccount = if (riskBucketSummary.riskBucket == RiskBucket.CASH) {
-                        // CASH维度：显示账户现金余额（已换算为基础货币）
-                        accountSummary.balanceInBaseCurrency
-                    } else {
-                        recordsInBucket
+                    val recordValueForAccount = recordsInBucket
                             .filter { it.record.accountId == accountSummary.account.id }
                             .sumOf { it.currentValue }
+                    val bucketValueForAccount = when (riskBucketSummary.riskBucket) {
+                        RiskBucket.CASH -> {
+                            val accountCash = if (accountSummary.account.balance > 0) {
+                                accountSummary.balanceInBaseCurrency
+                            } else {
+                                0.0
+                            }
+                            accountCash + recordValueForAccount
+                        }
+                        RiskBucket.AGGRESSIVE -> {
+                            recordValueForAccount + holdingsInBucket
+                                .filter { it.position.accountId == accountSummary.account.id }
+                                .sumOf { it.currentValue }
+                        }
+                        RiskBucket.CONSERVATIVE -> recordValueForAccount
                     }
 
                     AccountInBucketItem(
@@ -166,6 +179,24 @@ fun RiskBucketDetailScreen(
                         onViewHistory = { onViewAssetHistory(record.record.id) },
                         onViewTransactions = { onViewAssetTransactions(record.record.id) },
                         onEdit = { onEditAssetRecord(record.record.id) }
+                    )
+                }
+            }
+
+            if (holdingsInBucket.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "旧持仓 (${holdingsInBucket.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
+
+                items(holdingsInBucket) { holding ->
+                    HoldingInBucketItem(
+                        holding = holding,
+                        baseCurrency = baseCurrency
                     )
                 }
             }
@@ -297,6 +328,74 @@ fun AccountInBucketItem(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun HoldingInBucketItem(
+    holding: HoldingSummary,
+    baseCurrency: String
+) {
+    val profitColor = if (holding.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = holding.position.symbol.take(2),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = holding.position.symbol,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${holding.accountName} · 旧持仓",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = formatCurrency(holding.currentValue, baseCurrency),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${if (holding.profitLoss >= 0) "+" else ""}${String.format("%.1f", holding.profitLossRatio * 100)}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = profitColor
+                )
             }
         }
     }

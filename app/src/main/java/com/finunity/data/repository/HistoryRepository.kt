@@ -19,7 +19,7 @@ class HistoryRepository(private val database: AppDatabase) {
      * 保存当前资产状态为快照
      */
     suspend fun saveSnapshot(portfolio: PortfolioSummary): AssetSnapshot = withContext(Dispatchers.IO) {
-        val totalCost = calculateTotalCost()
+        val totalCost = calculateTotalCost(portfolio.baseCurrency)
         val snapshot = AssetSnapshot(
             totalAssets = portfolio.totalAssets,
             cashAssets = portfolio.cashAssets,
@@ -103,10 +103,19 @@ class HistoryRepository(private val database: AppDatabase) {
         database.assetSnapshotDao().deleteOlderThan(twoYearsAgo)
     }
 
-    private suspend fun calculateTotalCost(): Double {
+    private suspend fun calculateTotalCost(baseCurrency: String): Double {
+        val priceRepository = PriceRepository(database.priceDao())
         val positions = database.positionDao().getAllPositions().first()
         val assetRecords = database.assetRecordDao().getAllRecords().first()
-        return positions.sumOf { it.totalCost } + assetRecords.sumOf { it.cost }
+        val positionsCost = positions.sumOf { position ->
+            val exchangeRate = priceRepository.getExchangeRate(position.currency, baseCurrency) ?: 1.0
+            position.totalCost * exchangeRate
+        }
+        val assetRecordsCost = assetRecords.sumOf { record ->
+            val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
+            record.cost * exchangeRate
+        }
+        return positionsCost + assetRecordsCost
     }
 }
 

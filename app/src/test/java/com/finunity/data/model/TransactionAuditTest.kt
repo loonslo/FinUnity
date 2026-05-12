@@ -130,6 +130,46 @@ class TransactionAuditTest {
     }
 
     @Test
+    fun `CSV导入资产记录的审计流水和价格历史使用资产记录ID与单位成本`() {
+        val record = AssetRecord(
+            id = "rec_csv",
+            accountId = "acc1",
+            assetType = AssetType.ETF,
+            riskBucket = RiskBucket.AGGRESSIVE,
+            name = "QQQ",
+            quantity = 20.0,
+            cost = 8000.0,
+            currentPrice = 420.0,
+            currency = "USD"
+        )
+        val averageCost = record.cost / record.quantity
+
+        val buyTransaction = Transaction(
+            id = "tx_csv",
+            accountId = record.accountId,
+            symbol = record.name,
+            type = TransactionType.BUY,
+            shares = record.quantity,
+            price = averageCost,
+            amount = record.cost,
+            currency = record.currency,
+            note = "CSV 导入初始化",
+            recordId = record.id
+        )
+        val priceHistory = com.finunity.data.local.entity.PriceHistory(
+            id = "ph_csv",
+            recordId = record.id,
+            price = record.currentPrice,
+            cost = averageCost
+        )
+
+        assertEquals(record.id, buyTransaction.recordId)
+        assertEquals(400.0, buyTransaction.price!!, 0.001)
+        assertEquals(record.id, priceHistory.recordId)
+        assertEquals(400.0, priceHistory.cost, 0.001)
+    }
+
+    @Test
     fun `现金买入不产生交易流水`() {
         val record = AssetRecord(
             id = "1",

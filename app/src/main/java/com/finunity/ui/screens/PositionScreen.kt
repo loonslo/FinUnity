@@ -332,20 +332,29 @@ fun PositionScreen(
 
         // 卖出对话框
         if (showSellDialog && position != null) {
+            val parsedSellShares = sellShares.toDoubleOrNull()
+            val sellError = when {
+                sellShares.isNotBlank() && parsedSellShares == null -> "请输入有效股数"
+                parsedSellShares == null || parsedSellShares <= 0 -> "卖出股数必须大于 0"
+                parsedSellShares > position.shares -> "卖出股数不能超过当前持有"
+                else -> null
+            }
             AlertDialog(
                 onDismissRequest = { showSellDialog = false },
                 title = { Text("卖出持仓") },
                 text = {
                     Column {
-                        Text("当前持有: ${position.shares.toInt()} 股")
+                        Text("当前持有: ${String.format("%.4f", position.shares).trimEnd('0').trimEnd('.')} 股")
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
                             value = sellShares,
-                            onValueChange = { sellShares = it },
+                            onValueChange = { sellShares = it.filter { c -> c.isDigit() || c == '.' } },
                             label = { Text("卖出股数") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            isError = sellError != null,
+                            supportingText = sellError?.let { { Text(it) } }
                         )
                     }
                 },
@@ -353,12 +362,11 @@ fun PositionScreen(
                     TextButton(
                         onClick = {
                             val toSell = sellShares.toDoubleOrNull() ?: 0.0
-                            if (toSell > 0 && toSell <= position.shares) {
-                                onSell(position.id, toSell)
-                                showSellDialog = false
-                                onBack()
-                            }
-                        }
+                            onSell(position.id, toSell)
+                            showSellDialog = false
+                            onBack()
+                        },
+                        enabled = sellError == null
                     ) {
                         Text("确认卖出")
                     }

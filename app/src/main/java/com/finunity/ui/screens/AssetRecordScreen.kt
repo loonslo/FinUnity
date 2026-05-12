@@ -20,7 +20,7 @@ import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.model.displayName
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AssetRecordScreen(
     record: AssetRecord?,
@@ -78,8 +78,15 @@ fun AssetRecordScreen(
     // 卖出确认对话框
     if (showSellDialog) {
         val currentQty = record?.quantity ?: 0.0
-        val sellQty = sellQuantity.toDoubleOrNull() ?: currentQty
+        val parsedSellQty = sellQuantity.toDoubleOrNull()
+        val sellQty = parsedSellQty ?: currentQty
         val sellAmount = sellQty * (record?.currentPrice ?: 0.0)
+        val sellError = when {
+            sellQuantity.isNotBlank() && parsedSellQty == null -> "请输入有效数量"
+            sellQty <= 0 -> "卖出数量必须大于 0"
+            sellQty > currentQty -> "卖出数量不能超过当前持有"
+            else -> null
+        }
 
         AlertDialog(
             onDismissRequest = { showSellDialog = false },
@@ -94,7 +101,9 @@ fun AssetRecordScreen(
                         value = sellQuantity,
                         onValueChange = { sellQuantity = it.filter { c -> c.isDigit() || c == '.' } },
                         label = { Text("卖出数量（留空为全部）") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = sellError != null,
+                        supportingText = sellError?.let { { Text(it) } }
                     )
                 }
             },
@@ -106,7 +115,8 @@ fun AssetRecordScreen(
                             val qty = sellQuantity.toDoubleOrNull() ?: it.quantity
                             onSell(it.id, qty)
                         }
-                    }
+                    },
+                    enabled = sellError == null
                 ) {
                     Text("确认卖出", color = MaterialTheme.colorScheme.error)
                 }
@@ -146,7 +156,7 @@ fun AssetRecordScreen(
                         }
                         if (isTradable) {
                             TextButton(onClick = {
-                                sellQuantity = record?.quantity?.toInt()?.toString() ?: ""
+                                sellQuantity = record?.quantity?.let { String.format("%.4f", it).trimEnd('0').trimEnd('.') } ?: ""
                                 showSellDialog = true
                             }) {
                                 Text("卖出", color = MaterialTheme.colorScheme.error)
@@ -203,14 +213,20 @@ fun AssetRecordScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     assetTypes.forEach { type ->
                         FilterChip(
                             selected = selectedAssetType == type,
-                            onClick = { selectedAssetType = type },
+                            onClick = {
+                                selectedAssetType = type
+                                if (isNewRecord) {
+                                    selectedRiskBucket = defaultRiskBucketFor(type)
+                                }
+                            },
                             label = { Text(type.displayName()) },
                             shape = RoundedCornerShape(8.dp)
                         )
@@ -225,9 +241,10 @@ fun AssetRecordScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     riskBuckets.forEach { bucket ->
                         FilterChip(
@@ -366,8 +383,8 @@ fun AssetRecordScreen(
             val qty = quantity.toDoubleOrNull() ?: 0.0
             val c = cost.toDoubleOrNull() ?: 0.0
             val price = currentPrice.toDoubleOrNull() ?: 0.0
-            val isTradable = selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
-            val isValidForTradable = !isTradable || (c > 0 && price > 0)
+            val isTradableType = selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+            val isValidForTradable = !isTradableType || (c > 0 && price > 0)
             val isFormValid = name.isNotBlank() && qty > 0 && isValidForTradable
 
             Button(
@@ -499,12 +516,11 @@ private fun DynamicAssetFields(
             // 同步到表单字段：quantity=本金, cost=本金, currentPrice=1+利率(小数)
             // 这样 currentValue = quantity * currentPrice = 本金 * (1+利率) = 到期本息
             LaunchedEffect(principalInput, rateInput) {
-                val principal = principalInput.toDoubleOrNull() ?: 0.0
-                val rate = rateInput.toDoubleOrNull() ?: 0.0
+                val parsedRate = rateInput.toDoubleOrNull() ?: 0.0
                 onQuantityChange(principalInput)  // 本金
                 onCostChange(principalInput)  // 成本=本金
                 if (principalInput.isNotEmpty() && rateInput.isNotEmpty()) {
-                    onCurrentPriceChange((1 + rate / 100).toString())  // 利率系数
+                    onCurrentPriceChange((1 + parsedRate / 100).toString())  // 利率系数
                 }
             }
         }
@@ -557,4 +573,10 @@ private fun getNamePlaceholder(assetType: AssetType): String = when (assetType) 
     AssetType.FUND -> "如：余额宝、上证指数基金"
     AssetType.CASH -> "如：活期存款"
     AssetType.TIME_DEPOSIT -> "如：一年定期"
+}
+
+private fun defaultRiskBucketFor(assetType: AssetType): RiskBucket = when (assetType) {
+    AssetType.STOCK, AssetType.ETF, AssetType.FUND -> RiskBucket.AGGRESSIVE
+    AssetType.CASH -> RiskBucket.CASH
+    AssetType.TIME_DEPOSIT -> RiskBucket.CONSERVATIVE
 }

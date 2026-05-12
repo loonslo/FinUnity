@@ -138,8 +138,16 @@ class SnapshotWorker(
             val totalAssets = totalCash + totalStockValue
             val stockRatio = if (totalAssets > 0) totalStockValue / totalAssets else 0.0
 
-            // 总成本 = 旧持仓成本 + 资产记录成本
-            val totalCost = positions.sumOf { it.totalCost } + assetRecords.sumOf { it.cost }
+            // 总成本 = 旧持仓成本 + 资产记录成本（按基准货币汇率换算）
+            val positionsCost = positions.sumOf { position ->
+                val exchangeRate = priceRepository.getExchangeRate(position.currency, baseCurrency) ?: 1.0
+                position.totalCost * exchangeRate
+            }
+            val assetRecordsCost = assetRecords.sumOf { record ->
+                val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
+                record.cost * exchangeRate
+            }
+            val totalCost = positionsCost + assetRecordsCost
 
             val snapshot = com.finunity.data.local.entity.AssetSnapshot(
                 totalAssets = totalAssets,

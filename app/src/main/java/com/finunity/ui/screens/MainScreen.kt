@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,6 +60,7 @@ fun MainScreen(
     onViewRiskBucketDetail: (Int) -> Unit = {},  // bucket index
     onOpenSettings: () -> Unit = {},  // NEW: open settings screen
     onOpenImportCsv: () -> Unit = {},  // NEW: open CSV import screen
+    onOpenAccountHub: () -> Unit = {},  // NEW: open account hub screen
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -103,11 +105,24 @@ fun MainScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddPosition,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "添加", tint = Color.White)
+            Column {
+                SmallFloatingActionButton(
+                    onClick = onOpenAccountHub,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Person,
+                        contentDescription = "账户管理",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                FloatingActionButton(
+                    onClick = onAddPosition,
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "添加", tint = Color.White)
+                }
             }
         },
         modifier = modifier

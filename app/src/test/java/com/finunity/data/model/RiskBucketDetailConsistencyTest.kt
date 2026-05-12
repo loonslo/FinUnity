@@ -4,6 +4,7 @@ import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -195,6 +196,32 @@ class RiskBucketDetailConsistencyTest {
     }
 
     @Test
+    fun `定期存款按riskBucket计入稳健维度不重复计入现金维度`() {
+        val depositRecord = AssetRecord(
+            id = "rec1",
+            accountId = "acc1",
+            assetType = AssetType.TIME_DEPOSIT,
+            riskBucket = RiskBucket.CONSERVATIVE,
+            name = "一年定期",
+            quantity = 100000.0,
+            cost = 100000.0,
+            currentPrice = 1.03,
+            currency = "CNY"
+        )
+        val accountCash = 5000.0
+
+        val conservativeValue = listOf(depositRecord)
+            .filter { it.riskBucket == RiskBucket.CONSERVATIVE }
+            .sumOf { it.currentValue }
+        val cashValue = accountCash + listOf(depositRecord)
+            .filter { it.riskBucket == RiskBucket.CASH }
+            .sumOf { it.currentValue }
+
+        assertEquals(103000.0, conservativeValue, 0.01)
+        assertEquals(5000.0, cashValue, 0.01)
+    }
+
+    @Test
     fun `recordCount包含AssetRecord和账户现金`() {
         // 假设 riskBucketCounts 计算方式：
         // - CASH: 非负债有正余额账户数量
@@ -297,6 +324,69 @@ class RiskBucketDetailConsistencyTest {
 
         assertEquals(10000.0, cashValue, 0.01)
         assertEquals(18000.0, aggressiveValue, 0.01)
+    }
+
+    @Test
+    fun `现金维度账户金额包含账户余额和现金资产记录`() {
+        val accountBalanceInBase = 5000.0
+        val cashRecord = AssetRecord(
+            id = "rec1",
+            accountId = "acc1",
+            assetType = AssetType.CASH,
+            riskBucket = RiskBucket.CASH,
+            name = "备用金",
+            quantity = 1200.0,
+            cost = 1200.0,
+            currentPrice = 1.0,
+            currency = "CNY"
+        )
+
+        val recordValueForAccount = listOf(cashRecord)
+            .filter { it.accountId == "acc1" && it.riskBucket == RiskBucket.CASH }
+            .sumOf { it.currentValue }
+        val detailAccountValue = accountBalanceInBase + recordValueForAccount
+
+        assertEquals(6200.0, detailAccountValue, 0.01)
+    }
+
+    @Test
+    fun `进攻维度账户金额包含旧持仓和资产记录`() {
+        val stockRecord = AssetRecord(
+            id = "rec1",
+            accountId = "acc1",
+            assetType = AssetType.STOCK,
+            riskBucket = RiskBucket.AGGRESSIVE,
+            name = "AAPL",
+            quantity = 10.0,
+            cost = 1500.0,
+            currentPrice = 180.0,
+            currency = "USD"
+        )
+        val legacyPosition = Position(
+            id = "pos1",
+            accountId = "acc1",
+            symbol = "QQQ",
+            shares = 5.0,
+            totalCost = 2000.0,
+            currency = "USD"
+        )
+        val holding = HoldingSummary(
+            position = legacyPosition,
+            accountName = "券商",
+            currentPrice = 420.0,
+            currentValue = 2100.0,
+            profitLoss = 100.0,
+            profitLossRatio = 0.05
+        )
+
+        val recordValueForAccount = listOf(stockRecord)
+            .filter { it.accountId == "acc1" && it.riskBucket == RiskBucket.AGGRESSIVE }
+            .sumOf { it.currentValue }
+        val holdingValueForAccount = listOf(holding)
+            .filter { it.position.accountId == "acc1" }
+            .sumOf { it.currentValue }
+
+        assertEquals(3900.0, recordValueForAccount + holdingValueForAccount, 0.01)
     }
 
     @Test

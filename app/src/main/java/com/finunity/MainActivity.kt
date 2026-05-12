@@ -26,6 +26,7 @@ import com.finunity.data.repository.HistoryRepository
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.ui.screens.AccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
+import com.finunity.ui.screens.AccountHubScreen
 import com.finunity.ui.screens.AssetRecordScreen
 import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.MainScreen
@@ -76,6 +77,7 @@ sealed class Screen {
     data object Main : Screen()
     data object Settings : Screen()
     data object ImportCsv : Screen()
+    data object AccountHub : Screen()
     data class AddAccount(val account: Account? = null) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
     data class AddAssetRecord(val record: AssetRecord? = null, val accountId: String) : Screen()
@@ -184,7 +186,8 @@ fun FinUnityApp(database: AppDatabase) {
                     currentScreen = Screen.RiskBucketDetail(bucketIndex)
                 },
                 onOpenSettings = { currentScreen = Screen.Settings },
-                onOpenImportCsv = { currentScreen = Screen.ImportCsv }
+                onOpenImportCsv = { currentScreen = Screen.ImportCsv },
+                onOpenAccountHub = { currentScreen = Screen.AccountHub }
             )
         }
 
@@ -203,6 +206,19 @@ fun FinUnityApp(database: AppDatabase) {
             ImportCsvScreen(
                 database = database,
                 onBack = { currentScreen = Screen.Main }
+            )
+        }
+
+        is Screen.AccountHub -> {
+            AccountHubScreen(
+                database = database,
+                accounts = portfolioSummary?.accounts ?: emptyList(),
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                onBack = { currentScreen = Screen.Main },
+                onViewAccount = { currentScreen = Screen.AccountDetail(it) },
+                onEditAccount = { currentScreen = Screen.AddAccount(it) },
+                onAddAccount = { currentScreen = Screen.AddAccount(null) },
+                onViewTransactions = { currentScreen = Screen.TransactionHistory(it) }
             )
         }
 
@@ -319,6 +335,7 @@ fun FinUnityApp(database: AppDatabase) {
                     riskBucketSummary = bucket,
                     accounts = portfolioSummary?.accounts ?: emptyList(),
                     assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
+                    holdings = portfolioSummary?.holdings ?: emptyList(),
                     baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                     onBack = { currentScreen = Screen.Main },
                     onViewAccountTransactions = { accountId -> currentScreen = Screen.TransactionHistory(accountId) },

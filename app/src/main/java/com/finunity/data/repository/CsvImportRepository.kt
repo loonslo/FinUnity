@@ -6,6 +6,7 @@ import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Transaction
@@ -14,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 
 /**
@@ -82,7 +84,7 @@ class CsvImportRepository(private val database: AppDatabase) {
         var accountsImported = 0
 
         try {
-            context.assets.open(fileName).use { inputStream ->
+            File(context.cacheDir, fileName).inputStream().use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).useLines { lines ->
                     lines.drop(1).forEachIndexed { index, line ->
                         try {
@@ -159,7 +161,7 @@ class CsvImportRepository(private val database: AppDatabase) {
         var positionsImported = 0
 
         try {
-            context.assets.open(fileName).use { inputStream ->
+            File(context.cacheDir, fileName).inputStream().use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).useLines { lines ->
                     lines.drop(1).forEachIndexed { index, line ->
                         try {
@@ -218,6 +220,20 @@ class CsvImportRepository(private val database: AppDatabase) {
                                         currency = currency
                                     )
                                     database.positionDao().insert(position)
+
+                                    // 补录初始 BUY 流水
+                                    val averageCost = if (shares > 0) totalCost / shares else 0.0
+                                    val buyTransaction = Transaction(
+                                        accountId = accountId,
+                                        symbol = symbol,
+                                        type = TransactionType.BUY,
+                                        shares = shares,
+                                        price = averageCost,
+                                        amount = totalCost,
+                                        currency = currency,
+                                        note = "CSV 导入初始化"
+                                    )
+                                    database.transactionDao().insert(buyTransaction)
                                     positionsImported++
                                 } else {
                                     errors.add("行 ${index + 2}: 找不到账户 '$accountName'")
@@ -254,7 +270,7 @@ class CsvImportRepository(private val database: AppDatabase) {
         var recordsImported = 0
 
         try {
-            context.assets.open(fileName).use { inputStream ->
+            File(context.cacheDir, fileName).inputStream().use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).useLines { lines ->
                     lines.drop(1).forEachIndexed { index, line ->
                         try {
@@ -280,20 +296,26 @@ class CsvImportRepository(private val database: AppDatabase) {
 
                                 // 校验数值字段
                                 val quantity = parts[4].toDoubleOrNull()
-                                if (quantity == null) {
+                                if (quantity == null || quantity <= 0) {
                                     errors.add("行 ${index + 2}: 无效的数量 '${parts[4]}'，跳过此行")
                                     return@forEachIndexed
                                 }
 
                                 val cost = parts[5].toDoubleOrNull()
-                                if (cost == null) {
+                                if (cost == null || cost < 0) {
                                     errors.add("行 ${index + 2}: 无效的成本 '${parts[5]}'，跳过此行")
                                     return@forEachIndexed
                                 }
 
                                 val currentPrice = parts[6].toDoubleOrNull()
-                                if (currentPrice == null) {
+                                if (currentPrice == null || currentPrice <= 0) {
                                     errors.add("行 ${index + 2}: 无效的价格 '${parts[6]}'，跳过此行")
+                                    return@forEachIndexed
+                                }
+
+                                val isTradable = assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+                                if (isTradable && cost <= 0) {
+                                    errors.add("行 ${index + 2}: 股票/ETF/基金成本必须大于 0，跳过此行")
                                     return@forEachIndexed
                                 }
 
@@ -325,6 +347,32 @@ class CsvImportRepository(private val database: AppDatabase) {
                                         currency = currency
                                     )
                                     database.assetRecordDao().insert(record)
+
+                                    if (isTradable) {
+                                        val averageCost = cost / quantity
+
+                                        // 补录初始 BUY 流水，与 MainViewModel.addAssetRecord 保持一致
+                                        val buyTransaction = Transaction(
+                                            accountId = accountId,
+                                            symbol = name,
+                                            type = TransactionType.BUY,
+                                            shares = quantity,
+                                            price = averageCost,
+                                            amount = cost,
+                                            currency = currency,
+                                            note = "CSV 导入初始化",
+                                            recordId = record.id
+                                        )
+                                        database.transactionDao().insert(buyTransaction)
+
+                                        // 补录初始价格历史：price/cost 都是单位价格口径
+                                        val priceHistory = PriceHistory(
+                                            recordId = record.id,
+                                            price = currentPrice,
+                                            cost = averageCost
+                                        )
+                                        database.priceHistoryDao().insert(priceHistory)
+                                    }
                                     recordsImported++
                                 } else {
                                     errors.add("行 ${index + 2}: 找不到账户 '$accountName'")
@@ -359,7 +407,7 @@ class CsvImportRepository(private val database: AppDatabase) {
         var transactionsImported = 0
 
         try {
-            context.assets.open(fileName).use { inputStream ->
+            File(context.cacheDir, fileName).inputStream().use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).useLines { lines ->
                     lines.drop(1).forEachIndexed { index, line ->
                         try {

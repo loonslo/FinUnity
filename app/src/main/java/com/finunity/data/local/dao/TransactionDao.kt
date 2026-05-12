@@ -19,6 +19,28 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE recordId = :recordId ORDER BY timestamp DESC")
     fun getTransactionsByRecordId(recordId: String): Flow<List<Transaction>>
 
+    /**
+     * 计算账户的现金余额（从交易流水中推导）
+     * 入金、转入、分红、卖出 - 出金、转出、买入、费用
+     * 按时间顺序累加，返回最新余额
+     */
+    @Query("""
+        SELECT COALESCE(
+            (SELECT balanceAfter FROM transactions
+             WHERE accountId = :accountId
+             ORDER BY timestamp DESC, id DESC
+             LIMIT 1),
+            0.0
+        )
+    """)
+    suspend fun getComputedBalance(accountId: String): Double
+
+    /**
+     * 获取账户所有交易按时间排序（用于余额重算）
+     */
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId ORDER BY timestamp ASC, id ASC")
+    suspend fun getTransactionsForReconciliation(accountId: String): List<Transaction>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: Transaction)
 

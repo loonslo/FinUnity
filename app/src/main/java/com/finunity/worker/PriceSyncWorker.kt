@@ -63,9 +63,10 @@ class PriceSyncWorker(
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Price sync failed: ${e.message}")
-            if (runAttemptCount < 3) {
+            if (runAttemptCount < MAX_ATTEMPTS - 1) {
                 Result.retry()
             } else {
+                Log.e(TAG, "Price sync failed after $MAX_ATTEMPTS attempts, giving up")
                 Result.failure()
             }
         }
@@ -116,26 +117,23 @@ class PriceSyncWorker(
     companion object {
         private const val TAG = "PriceSyncWorker"
         private const val WORK_NAME = "price_sync_worker"
+        private const val MAX_ATTEMPTS = 3
+        // 指数退避：1min, 5min, 15min
+        private val BACKOFF_DELAYS = listOf(1L, 5L, 15L)
 
         /**
          * 安排定期价格同步
-         * 每5分钟执行一次
+         * 每15分钟执行一次，指数退避重试
          */
         fun schedule(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            // WorkManager 最低周期为 15 分钟，使用 15 分钟或更长
             val workRequest = PeriodicWorkRequestBuilder<PriceSyncWorker>(
                 15, TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
-                .setBackoffCriteria(
-                    BackoffPolicy.LINEAR,
-                    WorkRequest.MIN_BACKOFF_MILLIS,
-                    TimeUnit.MILLISECONDS
-                )
                 .build()
 
             WorkManager.getInstance(context)
@@ -147,10 +145,15 @@ class PriceSyncWorker(
         }
 
         /**
-         * 立即执行一次同步
+         * 立即执行一次同步（带指数退避）
          */
         fun syncNow(context: Context) {
             val workRequest = OneTimeWorkRequestBuilder<PriceSyncWorker>()
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    WorkRequest.MIN_BACKOFF_MILLIS,
+                    TimeUnit.MILLISECONDS
+                )
                 .build()
 
             WorkManager.getInstance(context)
