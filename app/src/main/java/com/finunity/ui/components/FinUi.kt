@@ -1,13 +1,8 @@
 package com.finunity.ui.components
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
@@ -23,26 +18,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.finunity.ui.theme.FinColors
 
-val FinGreen = Color(0xFF3D7A5C)
+// 兼容旧代码
+val FinGreen = FinColors.Primary
+val FinLine = Color(0xFFE5E7EB)
 val FinBlue = Color(0xFF8DA7C7)
 val FinGold = Color(0xFFD8B36A)
 val FinPage = Color(0xFFF7F8FA)
-val FinLine = Color(0xFFE7E9ED)
-val FinMuted = Color(0xFF7A828E)
+val FinMuted = FinColors.Muted
 
+// 间距系统（基于 8dp）
+val FinSpacing = object {
+    val xs = 4.dp
+    val sm = 8.dp
+    val md = 16.dp
+    val lg = 24.dp
+    val xl = 32.dp
+}
+
+// FinCard - 无边框，使用背景色区分
 @Composable
 fun FinCard(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     contentPadding: PaddingValues = PaddingValues(16.dp),
-    content: @Composable () -> Unit
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = BorderStroke(0.6.dp, FinLine.copy(alpha = 0.82f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(contentPadding)) {
             content()
@@ -50,6 +57,7 @@ fun FinCard(
     }
 }
 
+// FinSectionLabel - 简洁标签
 @Composable
 fun FinSectionLabel(
     text: String,
@@ -59,11 +67,11 @@ fun FinSectionLabel(
         text = text,
         modifier = modifier,
         style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
 
+// FinPill - 无边框，改用背景色
 @Composable
 fun FinPill(
     text: String,
@@ -73,20 +81,20 @@ fun FinPill(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
-        color = if (selected) FinGreen.copy(alpha = 0.12f) else Color.White,
-        border = BorderStroke(0.7.dp, if (selected) FinGreen.copy(alpha = 0.5f) else FinLine)
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) FinColors.Primary.copy(alpha = 0.1f) else Color.Transparent
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.bodySmall,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (selected) FinGreen else FinMuted
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) FinColors.Primary else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
+// FinTextField - 简洁输入框
 @Composable
 fun FinTextField(
     value: String,
@@ -103,45 +111,66 @@ fun FinTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         placeholder = placeholder?.let { { Text(it) } },
-        modifier = modifier
-            .fillMaxWidth()
-            .height(62.dp),
+        modifier = modifier.fillMaxWidth(),
         singleLine = true,
         isError = isError,
         supportingText = supportingText?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = FinGreen,
-            unfocusedBorderColor = FinLine,
-            focusedLabelColor = FinGreen,
-            unfocusedLabelColor = FinMuted,
-            cursorColor = FinGreen
+            focusedBorderColor = FinColors.Primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            focusedLabelColor = FinColors.Primary,
+            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     )
 }
 
+// FinSoftButton - 绿色按钮
 @Composable
 fun FinSoftButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit = { Text(text) }
+    enabled: Boolean = true
 ) {
     Surface(
         modifier = modifier
-            .height(50.dp)
+            .height(48.dp)
             .clickable(enabled = enabled, onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
-        color = if (enabled) FinGreen else FinLine,
+        shape = RoundedCornerShape(12.dp),
+        color = if (enabled) FinColors.Primary else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = Color.White
     ) {
-        androidx.compose.foundation.layout.Row(
-            modifier = Modifier.padding(horizontal = 18.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-            content = content
-        )
+        Box(
+            modifier = Modifier.fillMaxHeight(),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
+}
+
+// 盈亏颜色
+@Composable
+fun profitColor(value: Double): Color = when {
+    value > 0 -> FinColors.Profit
+    value < 0 -> FinColors.Loss
+    else -> MaterialTheme.colorScheme.onSurface
+}
+
+@Composable
+fun profitText(value: Double): String = when {
+    value > 0 -> "+${String.format("%.2f", value)}"
+    else -> String.format("%.2f", value)
+}
+
+@Composable
+fun profitPercent(value: Double): String = when {
+    value > 0 -> "+${String.format("%.2f", value * 100)}%"
+    else -> "${String.format("%.2f", value * 100)}%"
 }
