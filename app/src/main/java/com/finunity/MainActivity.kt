@@ -33,6 +33,7 @@ import com.finunity.data.local.entity.AssetRecord
 import com.finunity.ui.screens.AccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
 import com.finunity.ui.screens.AccountHubScreen
+import com.finunity.ui.screens.AccountListScreen
 import com.finunity.ui.screens.AssetRecordScreen
 import com.finunity.ui.screens.AssetDetailScreen
 import com.finunity.ui.screens.HistoryScreen
@@ -86,6 +87,7 @@ sealed class Screen {
     data object Settings : Screen()
     data object ImportCsv : Screen()
     data object AccountHub : Screen()
+    data object AccountList : Screen()
     data object PriceChanges : Screen()
     data class AddAccount(val account: Account? = null, val continueToAsset: Boolean = false) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
@@ -244,7 +246,18 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = true)) },
                 onOpenImportData = { navigateTo(Screen.ImportCsv) },
+                onViewAccountDetail = { navigateTo(Screen.AccountList) },
                 bottomBar = { bottomBar(TopLevelTab.Accounts) }
+            )
+        }
+
+        is Screen.AccountList -> {
+            AccountListScreen(
+                accounts = portfolioSummary?.accounts ?: emptyList(),
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                onBack = { navigateBack() },
+                onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
+                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = true)) }
             )
         }
 
