@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 // FinUnity Design Tokens - 简洁克制
-private val FinPrimary = Color(0xFF166534)  // 深绿
+private val FinPrimary = Color(0xFF4CAF50)  // 有知有行风格浅绿
 private val FinSecondary = Color(0xFF4B8C5E)  // 中绿
 private val FinProfit = Color(0xFF00A86B)  // 盈绿色
 private val FinLoss = Color(0xFFE53935)   // 亏红色
@@ -27,9 +27,9 @@ private val FinSurface = Color(0xFFFFFFFF) // 卡片背景
 private val LightColorScheme = lightColorScheme(
     primary = FinPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFF1F8F3),
+    primaryContainer = Color(0xFFE8F5E9),
     onPrimaryContainer = FinPrimary,
-    secondary = FinSecondary,
+    secondary = Color(0xFF81C784),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFE8F5E9),
     onSecondaryContainer = FinPrimary,
