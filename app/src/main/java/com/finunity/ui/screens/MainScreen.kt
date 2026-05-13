@@ -140,17 +140,6 @@ fun MainScreen(
                     }
                 }
 
-                // 账户总览
-                if (portfolioSummary.accounts.isNotEmpty()) {
-                    item {
-                        AccountListCard(
-                            accounts = portfolioSummary.accounts,
-                            baseCurrency = portfolioSummary.baseCurrency,
-                            onEdit = { onEditAccount(it) }
-                        )
-                    }
-                }
-
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
