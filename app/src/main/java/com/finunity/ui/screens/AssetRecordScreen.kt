@@ -465,29 +465,7 @@ fun AssetRecordScreen(
                             .fillMaxWidth()
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "危险操作",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Text(
-                            text = "删除后不可恢复，相关价格历史会一并删除。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        OutlinedButton(
-                            onClick = { showDeleteDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("删除该持仓")
-                        }
-                    }
+                    ){}
                 }
             }
 
