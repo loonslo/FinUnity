@@ -123,46 +123,17 @@ private fun AccountSummaryCard(
     onAddAccount: () -> Unit,
     onOpenImportData: () -> Unit
 ) {
-    val brokerCount = accounts.count { it.account.type == AccountType.BROKER }
-    val bankCount = accounts.count { it.account.type == AccountType.BANK }
-    val cashCount = accounts.count { it.account.type == AccountType.CASH_MANAGEMENT }
     val totalBalance = accounts.sumOf { it.balanceInBaseCurrency }
 
     FinCard(
         containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // 第一行：账户类型统计 + 更多按钮
+            // 第一行：更多按钮（右对齐）
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.End
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    if (brokerCount > 0) {
-                        Text(
-                            text = "证券 $brokerCount",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (bankCount > 0) {
-                        Text(
-                            text = "银行 $bankCount",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (cashCount > 0) {
-                        Text(
-                            text = "现金 $cashCount",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
                 IconButton(
                     onClick = onOpenImportData,
                     modifier = Modifier.size(32.dp)
@@ -176,7 +147,7 @@ private fun AccountSummaryCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // 第二行：总资产 + 添加按钮
             Row(
