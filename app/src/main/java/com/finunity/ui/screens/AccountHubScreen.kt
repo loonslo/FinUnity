@@ -1,19 +1,24 @@
 package com.finunity.ui.screens
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.AccountType
@@ -34,9 +39,28 @@ fun AccountHubScreen(
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var expanded by remember { mutableStateOf(true) }
+    val totalBalance = accounts.sumOf { it.balanceInBaseCurrency }
+
     Scaffold(
         bottomBar = bottomBar,
-        modifier = modifier
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { },
+                actions = {
+                    IconButton(onClick = { /* TODO: 通知 */ }) {
+                        Icon(Icons.Default.Notifications, contentDescription = "通知")
+                    }
+                    IconButton(onClick = onOpenImportData) {
+                        Icon(Icons.Default.Person, contentDescription = "更多")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -68,46 +92,107 @@ fun AccountHubScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FinSoftButton(
-                                    text = "添加账户",
-                                    onClick = onAddAccount,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FinSoftButton(
-                                    text = "导入数据",
-                                    onClick = onOpenImportData,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
+                            FinSoftButton(
+                                text = "添加账户",
+                                onClick = onAddAccount,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
             } else {
-                // 账户汇总卡
+                // 用户信息 + 总资产卡片（点击展开/收起）
                 item {
-                    AccountSummaryCard(
-                        accounts = accounts,
-                        baseCurrency = baseCurrency,
-                        onAddAccount = onAddAccount,
-                        onOpenImportData = onOpenImportData
-                    )
+                    Column {
+                        // 用户信息行
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "投资用户",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "${accounts.size} 个账户",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 总资产卡片（可点击展开/收起）
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { expanded = !expanded },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "总资产",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = formatCurrency(totalBalance, baseCurrency),
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Icon(
+                                        if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                        contentDescription = if (expanded) "收起" else "展开",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
-                // 账户列表标题
-                item {
-                    FinSectionLabel("账户 (${accounts.size})")
-                }
+                // 账户列表（展开时显示）
+                if (expanded) {
+                    item {
+                        FinSectionLabel("账户列表")
+                    }
 
-                // 账户列表
-                items(accounts, key = { it.account.id }) { summary ->
-                    HubAccountCard(
-                        summary = summary,
-                        baseCurrency = baseCurrency,
-                        onView = { onViewAccount(summary.account.id) }
-                    )
+                    items(accounts, key = { it.account.id }) { summary ->
+                        HubAccountCard(
+                            summary = summary,
+                            baseCurrency = baseCurrency,
+                            onView = { onViewAccount(summary.account.id) }
+                        )
+                    }
                 }
             }
 
@@ -115,67 +200,6 @@ fun AccountHubScreen(
         }
     }
 }
-
-@Composable
-private fun AccountSummaryCard(
-    accounts: List<AccountSummary>,
-    baseCurrency: String,
-    onAddAccount: () -> Unit,
-    onOpenImportData: () -> Unit
-) {
-    val totalBalance = accounts.sumOf { it.balanceInBaseCurrency }
-
-    FinCard(
-        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // 总资产 + 操作按钮（一行）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "总资产",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = formatCurrency(totalBalance, baseCurrency),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onOpenImportData,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "更多",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Button(
-                        onClick = onAddAccount,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("添加", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-    }
-}
-
 
 @Composable
 private fun HubAccountCard(
@@ -189,8 +213,9 @@ private fun HubAccountCard(
             .clickable(onClick = onView),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -200,8 +225,16 @@ private fun HubAccountCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(summary.account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("${summary.account.type.displayName()} · ${summary.account.currency}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                Text(
+                    text = summary.account.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${summary.account.type.displayName()} · ${summary.account.currency}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
