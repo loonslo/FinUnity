@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PriceHistoryDao {
 
+    @Query("SELECT * FROM price_history ORDER BY timestamp DESC")
+    fun getAllHistory(): Flow<List<PriceHistory>>
+
     @Query("SELECT * FROM price_history WHERE recordId = :recordId ORDER BY timestamp DESC")
     fun getHistoryByRecord(recordId: String): Flow<List<PriceHistory>>
 

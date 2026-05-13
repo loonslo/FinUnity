@@ -50,19 +50,18 @@ fun PriceHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "$assetName 历史价格",
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -123,15 +122,6 @@ fun PriceHistoryScreen(
                 }
 
                 // 历史记录列表
-                item {
-                    Text(
-                        text = "历史记录 (${priceHistory.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                    )
-                }
-
                 items(priceHistory) { history ->
                     PriceHistoryItem(
                         history = history,
@@ -208,7 +198,7 @@ fun PriceStatsCard(
             ) {
                 Column {
                     Text(
-                        text = "价格变化",
+                        text = "价格变动",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
@@ -226,7 +216,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "${if (priceChangeRatio >= 0) "+" else ""}${String.format("%.1f", priceChangeRatio * 100)}%",
+                        text = formatSignedPercent(priceChangeRatio),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = changeColor
@@ -255,7 +245,7 @@ fun PriceStatsCard(
                         text = String.format("%.2f", maxPrice),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFFE53935)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -329,12 +319,12 @@ fun PriceChartCard(
                 Text(
                     text = "低价 ${String.format("%.2f", minPrice)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF00A86B)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
                 Text(
                     text = "高价 ${String.format("%.2f", maxPrice)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFE53935)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
@@ -400,7 +390,7 @@ fun PriceHistoryItem(
                     color = profitColor
                 )
                 Text(
-                    text = "${if (profitLossRatio >= 0) "+" else ""}${String.format("%.1f", profitLossRatio * 100)}%",
+                    text = formatSignedPercent(profitLossRatio),
                     style = MaterialTheme.typography.bodySmall,
                     color = profitColor
                 )

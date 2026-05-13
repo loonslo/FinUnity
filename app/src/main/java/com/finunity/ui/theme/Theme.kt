@@ -10,31 +10,35 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// 简洁绿色系主题
+// FinUnity light design tokens
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF1B5E20),      // 深绿色
+    primary = Color(0xFF166534),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF4CAF50),  // 中绿色
-    onPrimaryContainer = Color.White,
-    secondary = Color(0xFF81C784),    // 浅绿色
+    primaryContainer = Color(0xFFF1F8F3),
+    onPrimaryContainer = Color(0xFF166534),
+    secondary = Color(0xFF0F9D58),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE8F5E9),  // 极浅绿
-    onSecondaryContainer = Color(0xFF1B5E20),
-    tertiary = Color(0xFF00897B),      // 青色
+    secondaryContainer = Color(0xFFE8F5E9),
+    onSecondaryContainer = Color(0xFF166534),
+    tertiary = Color(0xFF2563EB),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFB2DFDB),
-    onTertiaryContainer = Color(0xFF004D40),
-    error = Color(0xFFE53935),
+    tertiaryContainer = Color(0xFFEFF6FF),
+    onTertiaryContainer = Color(0xFF1D4ED8),
+    error = Color(0xFFD93025),
     onError = Color.White,
-    errorContainer = Color(0xFFFFEBEE),
-    onErrorContainer = Color(0xFFB71C1C),
-    background = Color(0xFFFAFAFA),
-    onBackground = Color(0xFF1C1C1C),
+    errorContainer = Color(0xFFFEECEA),
+    onErrorContainer = Color(0xFFB3261E),
+    background = Color(0xFFF7F8FA),
+    onBackground = Color(0xFF1F2933),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1C1C1C),
-    surfaceVariant = Color(0xFFF5F5F5),
-    onSurfaceVariant = Color(0xFF757575),
-    outline = Color(0xFFBDBDBD),
+    onSurface = Color(0xFF1F2933),
+    surfaceVariant = Color(0xFFF3F4F6),
+    onSurfaceVariant = Color(0xFF6B7280),
+    outline = Color(0xFFE5E7EB),
+    outlineVariant = Color(0xFFE5E7EB),
+    inverseSurface = Color(0xFF1F2933),
+    inverseOnSurface = Color(0xFFFFFFFF),
+    inversePrimary = Color(0xFF86EFAC),
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -74,7 +78,7 @@ fun FinUnityTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
+            window.statusBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }

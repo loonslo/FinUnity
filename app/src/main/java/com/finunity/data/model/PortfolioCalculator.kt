@@ -33,17 +33,14 @@ class PortfolioCalculator(
     }
 
     /**
-     * 计算所有账户的现金汇总（已按基准货币换算）
+     * 计算账户级现金。非负债账户只作为资产容器，现金应作为 AssetRecord 录入。
      */
     suspend fun computeAccountCash(): Double = withContext(Dispatchers.IO) {
         var total = 0.0
         for (account in accounts) {
-            val rate = getRate(account.currency, baseCurrency) ?: return@withContext Double.NaN
-            val converted = account.balance * rate
             if (account.type == AccountType.LIABILITY) {
-                total -= converted
-            } else {
-                total += converted
+                val rate = getRate(account.currency, baseCurrency) ?: 1.0
+                total -= account.balance * rate
             }
         }
         total
@@ -54,11 +51,27 @@ class PortfolioCalculator(
      */
     suspend fun computeAccountSummaries(): List<AccountSummary> = withContext(Dispatchers.IO) {
         accounts.map { account ->
-            val rate = getRate(account.currency, baseCurrency) ?: 1.0
-            val converted = account.balance * rate
+            var assetRecordsValue = 0.0
+            for (record in assetRecords) {
+                if (record.accountId == account.id) {
+                    assetRecordsValue += computeAssetRecordValue(record)
+                }
+            }
+            var positionsValue = 0.0
+            for (position in positions) {
+                if (position.accountId == account.id) {
+                    positionsValue += computeHoldingCurrentValue(position)
+                }
+            }
+            val liabilityValue = if (account.type == AccountType.LIABILITY) {
+                val rate = getRate(account.currency, baseCurrency) ?: 1.0
+                account.balance * rate
+            } else {
+                0.0
+            }
             AccountSummary(
                 account = account,
-                balanceInBaseCurrency = if (account.type == AccountType.LIABILITY) -converted else converted
+                balanceInBaseCurrency = assetRecordsValue + positionsValue - liabilityValue
             )
         }
     }
@@ -67,7 +80,7 @@ class PortfolioCalculator(
      * 计算资产记录市值（已按基准货币换算）
      */
     suspend fun computeAssetRecordValue(record: AssetRecord): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(record.currency, baseCurrency) ?: return@withContext Double.NaN
+        val rate = getRate(record.currency, baseCurrency) ?: 1.0
         record.currentValue * rate
     }
 
@@ -75,7 +88,7 @@ class PortfolioCalculator(
      * 计算资产记录成本（已按基准货币换算）
      */
     suspend fun computeAssetRecordCost(record: AssetRecord): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(record.currency, baseCurrency) ?: return@withContext Double.NaN
+        val rate = getRate(record.currency, baseCurrency) ?: 1.0
         record.cost * rate
     }
 
@@ -104,7 +117,7 @@ class PortfolioCalculator(
      */
     private suspend fun computeHoldingCurrentPrice(position: Position): Double = withContext(Dispatchers.IO) {
         val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-        val rate = getRate(position.currency, baseCurrency) ?: return@withContext Double.NaN
+        val rate = getRate(position.currency, baseCurrency) ?: 1.0
         currentPrice * rate
     }
 
@@ -113,7 +126,6 @@ class PortfolioCalculator(
      */
     private suspend fun computeHoldingCurrentValue(position: Position): Double = withContext(Dispatchers.IO) {
         val currentPrice = computeHoldingCurrentPrice(position)
-        if (currentPrice.isNaN()) return@withContext Double.NaN
         position.shares * currentPrice
     }
 
@@ -121,7 +133,7 @@ class PortfolioCalculator(
      * 计算单条持仓的成本（已按基准货币换算）
      */
     private suspend fun computeHoldingCost(position: Position): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(position.currency, baseCurrency) ?: return@withContext Double.NaN
+        val rate = getRate(position.currency, baseCurrency) ?: 1.0
         position.totalCost * rate
     }
 
@@ -198,17 +210,7 @@ class PortfolioCalculator(
             riskBucketCounts[RiskBucket.AGGRESSIVE] = (riskBucketCounts[RiskBucket.AGGRESSIVE] ?: 0) + 1
         }
 
-        // 账户现金余额作为 CASH 风险维度来源；AssetRecord 已按自身 riskBucket 计入，
-        // 这里不能再按 CASH/TIME_DEPOSIT 资产类型重复归入 CASH。
-        val cashFromAccounts = accounts
-            .filter { it.type != AccountType.LIABILITY && it.balance > 0 }
-            .sumOf { account ->
-                val rate = getRate(account.currency, baseCurrency) ?: return@sumOf 0.0
-                account.balance * rate
-            }
-        riskBucketTotals[RiskBucket.CASH] = (riskBucketTotals[RiskBucket.CASH] ?: 0.0) + cashFromAccounts
-        val cashAccountCount = accounts.count { it.type != AccountType.LIABILITY && it.balance > 0 }
-        riskBucketCounts[RiskBucket.CASH] = (riskBucketCounts[RiskBucket.CASH] ?: 0) + cashAccountCount
+        // 非负债账户只作为容器，现金必须通过 AssetRecord.CASH 进入风险维度，避免账户余额和现金持仓重复统计。
 
         RiskBucket.entries.map { bucket ->
             val value = riskBucketTotals[bucket] ?: 0.0
@@ -228,14 +230,11 @@ class PortfolioCalculator(
         var totalStockValue = 0.0
         var totalCash = 0.0
 
-        // 账户现金
+        // 账户级金额只统计负债；非负债账户只作为资产容器，现金由 AssetRecord.CASH 表达。
         for (account in accounts) {
-            val rate = getRate(account.currency, baseCurrency) ?: return@withContext Double.NaN
-            val converted = account.balance * rate
             if (account.type == AccountType.LIABILITY) {
-                totalCash -= converted
-            } else {
-                totalCash += converted
+                val rate = getRate(account.currency, baseCurrency) ?: 1.0
+                totalCash -= account.balance * rate
             }
         }
 
@@ -277,12 +276,6 @@ class PortfolioCalculator(
      */
     suspend fun computeCashValue(): Double = withContext(Dispatchers.IO) {
         var total = 0.0
-        for (account in accounts) {
-            if (account.type != AccountType.LIABILITY && account.balance > 0) {
-                val rate = getRate(account.currency, baseCurrency) ?: continue
-                total += account.balance * rate
-            }
-        }
         for (record in assetRecords) {
             if (record.assetType in listOf(AssetType.CASH, AssetType.TIME_DEPOSIT)) {
                 total += computeAssetRecordValue(record)

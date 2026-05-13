@@ -20,8 +20,8 @@ interface TransactionDao {
     fun getTransactionsByRecordId(recordId: String): Flow<List<Transaction>>
 
     /**
-     * 计算账户的现金余额（从交易流水中推导）
-     * 入金、转入、分红、卖出 - 出金、转出、买入、费用
+     * 计算交易流水推导余额。
+     * 当前只作为审计核对，不参与总资产统计。
      * 按时间顺序累加，返回最新余额
      */
     @Query("""

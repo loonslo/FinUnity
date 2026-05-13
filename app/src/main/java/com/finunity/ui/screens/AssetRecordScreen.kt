@@ -2,23 +2,30 @@ package com.finunity.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.model.displayName
+import com.finunity.ui.components.FinPill
+import com.finunity.ui.components.FinSoftButton
+import com.finunity.ui.components.FinTextField
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -28,12 +35,14 @@ fun AssetRecordScreen(
     onSave: (AssetRecord) -> Unit,
     onDelete: (String) -> Unit,
     onSell: (String, Double) -> Unit,  // recordId, quantity
-    onViewHistory: ((String) -> Unit)? = null,  // recordId - view transaction history
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val allowedAssetTypes = remember(account?.type, record?.assetType) {
+        allowedAssetTypesFor(account?.type, record?.assetType)
+    }
     var name by remember { mutableStateOf(record?.name ?: "") }
-    var selectedAssetType by remember { mutableStateOf(record?.assetType ?: AssetType.STOCK) }
+    var selectedAssetType by remember { mutableStateOf(record?.assetType ?: allowedAssetTypes.firstOrNull() ?: AssetType.CASH) }
     var selectedRiskBucket by remember { mutableStateOf(record?.riskBucket ?: RiskBucket.AGGRESSIVE) }
     var quantity by remember { mutableStateOf(record?.quantity?.toString() ?: "") }
     var cost by remember { mutableStateOf(record?.cost?.toString() ?: "") }
@@ -43,20 +52,27 @@ fun AssetRecordScreen(
     var showSellDialog by remember { mutableStateOf(false) }
     var sellQuantity by remember { mutableStateOf("") }
 
-    val assetTypes = AssetType.entries
     val riskBuckets = RiskBucket.entries
     val currencies = listOf("CNY", "USD", "HKD")
     val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
 
     val isNewRecord = record == null
     val isTradable = record != null && record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+    val hasRiskBucket = selectedAssetType != AssetType.CASH
+
+    LaunchedEffect(allowedAssetTypes) {
+        if (selectedAssetType !in allowedAssetTypes && allowedAssetTypes.isNotEmpty()) {
+            selectedAssetType = allowedAssetTypes.first()
+            selectedRiskBucket = defaultRiskBucketFor(allowedAssetTypes.first())
+        }
+    }
 
     // 删除确认对话框
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除记录") },
-            text = { Text("确定要删除这条资产记录吗？") },
+            title = { Text("删除持仓") },
+            text = { Text("确定要删除这项持仓吗？") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -132,39 +148,21 @@ fun AssetRecordScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        when {
-                            isNewRecord -> "新增资产记录"
-                            else -> "编辑资产记录"
-                        },
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 actions = {
                     if (!isNewRecord) {
-                        // 查看交易流水
-                        if (onViewHistory != null && !isNewRecord) {
-                            TextButton(onClick = { record?.let { onViewHistory(it.id) } }) {
-                                Text("流水")
-                            }
-                        }
-                        if (isTradable) {
-                            TextButton(onClick = {
-                                sellQuantity = record?.quantity?.let { String.format("%.4f", it).trimEnd('0').trimEnd('.') } ?: ""
-                                showSellDialog = true
-                            }) {
-                                Text("卖出", color = MaterialTheme.colorScheme.error)
-                            }
-                        }
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
-                                Icons.Default.Delete,
+                                Icons.Default.Warning,
                                 contentDescription = "删除",
                                 tint = MaterialTheme.colorScheme.error
                             )
@@ -172,7 +170,7 @@ fun AssetRecordScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -206,6 +204,21 @@ fun AssetRecordScreen(
                 }
             }
 
+            if (allowedAssetTypes.isEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "该账户类型不支持新增持仓",
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
             Column {
                 Text(
                     text = "资产类型",
@@ -218,54 +231,58 @@ fun AssetRecordScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    assetTypes.forEach { type ->
-                        FilterChip(
+                    allowedAssetTypes.forEach { type ->
+                        FinPill(
                             selected = selectedAssetType == type,
                             onClick = {
-                                selectedAssetType = type
-                                if (isNewRecord) {
+                                if (selectedAssetType != type) {
+                                    name = ""
+                                    quantity = ""
+                                    cost = ""
+                                    currentPrice = ""
+                                    sellQuantity = ""
                                     selectedRiskBucket = defaultRiskBucketFor(type)
                                 }
+                                selectedAssetType = type
                             },
-                            label = { Text(type.displayName()) },
-                            shape = RoundedCornerShape(8.dp)
+                            text = type.displayName()
                         )
                     }
                 }
             }
 
-            Column {
-                Text(
-                    text = "风险维度",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            if (hasRiskBucket) {
+                Column {
+                    Text(
+                        text = "风险维度",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        riskBuckets.forEach { bucket ->
+                            FinPill(
+                                selected = selectedRiskBucket == bucket,
+                                onClick = { selectedRiskBucket = bucket },
+                                text = bucket.displayName()
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (selectedAssetType != AssetType.CASH) {
+                FinTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = getNameLabel(selectedAssetType),
+                    placeholder = getNamePlaceholder(selectedAssetType)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    riskBuckets.forEach { bucket ->
-                        FilterChip(
-                            selected = selectedRiskBucket == bucket,
-                            onClick = { selectedRiskBucket = bucket },
-                            label = { Text(bucket.displayName()) },
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                    }
-                }
             }
-
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(getNameLabel(selectedAssetType)) },
-                placeholder = { Text(getNamePlaceholder(selectedAssetType)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
 
             DynamicAssetFields(
                 selectedAssetType = selectedAssetType,
@@ -280,7 +297,7 @@ fun AssetRecordScreen(
 
             Column {
                 Text(
-                    text = "币种",
+                    text = if (selectedAssetType == AssetType.CASH) "单位" else "币种",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
@@ -290,11 +307,10 @@ fun AssetRecordScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     currencies.forEach { currency ->
-                        FilterChip(
+                        FinPill(
                             selected = selectedCurrency == currency,
                             onClick = { selectedCurrency = currency },
-                            label = { Text("$currency (${currencyLabels[currency]})") },
-                            shape = RoundedCornerShape(8.dp)
+                            text = "$currency (${currencyLabels[currency]})"
                         )
                     }
                 }
@@ -334,7 +350,15 @@ fun AssetRecordScreen(
                     ) {
                         Text("预览", style = MaterialTheme.typography.labelLarge)
                         Spacer(modifier = Modifier.height(8.dp))
-                        if (selectedAssetType == AssetType.TIME_DEPOSIT) {
+                        if (selectedAssetType == AssetType.CASH) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("金额:")
+                                Text("${String.format("%.2f", currentValue)} $selectedCurrency")
+                            }
+                        } else if (selectedAssetType == AssetType.TIME_DEPOSIT) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -385,16 +409,35 @@ fun AssetRecordScreen(
             val price = currentPrice.toDoubleOrNull() ?: 0.0
             val isTradableType = selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
             val isValidForTradable = !isTradableType || (c > 0 && price > 0)
-            val isFormValid = name.isNotBlank() && qty > 0 && isValidForTradable
+            val isFormValid = (selectedAssetType == AssetType.CASH || name.isNotBlank()) &&
+                    qty > 0 &&
+                    isValidForTradable &&
+                    allowedAssetTypes.isNotEmpty()
+            val missingReasons = buildList {
+                if (allowedAssetTypes.isEmpty()) add("当前账户类型不支持新增持仓")
+                if (selectedAssetType != AssetType.CASH && name.isBlank()) add("${getNameLabel(selectedAssetType)}")
+                if (qty <= 0) add(if (selectedAssetType == AssetType.CASH) "金额" else "数量/份额")
+                if (isTradableType && c <= 0) add("买入总成本")
+                if (isTradableType && price <= 0) add("当前价格/净值")
+            }
 
-            Button(
+            if (!isFormValid && missingReasons.isNotEmpty()) {
+                Text(
+                    text = "请填写必填项：${missingReasons.joinToString("、")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            FinSoftButton(
+                text = "保存",
                 onClick = {
                     val newRecord = AssetRecord(
                         id = record?.id ?: java.util.UUID.randomUUID().toString(),
                         accountId = account?.id ?: record?.accountId ?: "",
                         assetType = selectedAssetType,
-                        riskBucket = selectedRiskBucket,
-                        name = name.trim(),
+                        riskBucket = if (selectedAssetType == AssetType.CASH) RiskBucket.CASH else selectedRiskBucket,
+                        name = if (selectedAssetType == AssetType.CASH) "现金" else name.trim(),
                         quantity = qty,
                         cost = c,
                         currentPrice = price,
@@ -405,12 +448,47 @@ fun AssetRecordScreen(
                     onSave(newRecord)
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                enabled = isFormValid,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("保存", style = MaterialTheme.typography.titleMedium)
+                    .fillMaxWidth(),
+                enabled = isFormValid
+            )
+
+            if (!isNewRecord) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "危险操作",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "删除后不可恢复，相关价格历史会一并删除。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        OutlinedButton(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("删除该持仓")
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -431,15 +509,12 @@ private fun DynamicAssetFields(
 ) {
     when (selectedAssetType) {
         AssetType.CASH -> {
-            OutlinedTextField(
+            FinTextField(
                 value = quantity,
                 onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = { Text("金额") },
-                placeholder = { Text("0.00") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "金额",
+                placeholder = "0.00",
+                keyboardType = KeyboardType.Decimal
             )
             LaunchedEffect(quantity) {
                 onCostChange(quantity)
@@ -450,30 +525,24 @@ private fun DynamicAssetFields(
             // 定期存款：quantity=本金, cost=本金, currentPrice=1+利率(小数)
             // 编辑时：从 currentPrice 反算年利率
             val currentPriceDouble = currentPrice.toDoubleOrNull() ?: 1.0
-            var principalInput by remember { mutableStateOf(quantity) }
-            var rateInput by remember { mutableStateOf(
+            var principalInput by remember(selectedAssetType) { mutableStateOf(quantity) }
+            var rateInput by remember(selectedAssetType) { mutableStateOf(
                 if (currentPriceDouble > 1.0) ((currentPriceDouble - 1) * 100).toString() else ""
             ) }
 
-            OutlinedTextField(
+            FinTextField(
                 value = principalInput,
                 onValueChange = { principalInput = it.filter { c -> c.isDigit() || c == '.' } },
-                label = { Text("本金") },
-                placeholder = { Text("0.00") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "本金",
+                placeholder = "0.00",
+                keyboardType = KeyboardType.Decimal
             )
-            OutlinedTextField(
+            FinTextField(
                 value = rateInput,
                 onValueChange = { rateInput = it.filter { c -> c.isDigit() || c == '.' } },
-                label = { Text("年利率 (%)") },
-                placeholder = { Text("如：3.5") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "年利率 (%)",
+                placeholder = "如：3.5",
+                keyboardType = KeyboardType.Decimal
             )
 
             val principal = principalInput.toDoubleOrNull() ?: 0.0
@@ -525,35 +594,26 @@ private fun DynamicAssetFields(
             }
         }
         else -> {
-            OutlinedTextField(
+            FinTextField(
                 value = quantity,
                 onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = { Text("数量/份额") },
-                placeholder = { Text("0") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "数量/份额",
+                placeholder = "0",
+                keyboardType = KeyboardType.Decimal
             )
-            OutlinedTextField(
+            FinTextField(
                 value = cost,
                 onValueChange = { onCostChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = { Text("买入总成本") },
-                placeholder = { Text("0.00") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "买入总成本",
+                placeholder = "0.00",
+                keyboardType = KeyboardType.Decimal
             )
-            OutlinedTextField(
+            FinTextField(
                 value = currentPrice,
                 onValueChange = { onCurrentPriceChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = { Text("当前价格/净值") },
-                placeholder = { Text("0.00") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(12.dp)
+                label = "当前价格/净值",
+                placeholder = "0.00",
+                keyboardType = KeyboardType.Decimal
             )
         }
     }
@@ -563,7 +623,7 @@ private fun getNameLabel(assetType: AssetType): String = when (assetType) {
     AssetType.STOCK -> "股票代码"
     AssetType.ETF -> "ETF代码"
     AssetType.FUND -> "基金名称/代码"
-    AssetType.CASH -> "现金名称"
+    AssetType.CASH -> "现金"
     AssetType.TIME_DEPOSIT -> "定期存款名称"
 }
 
@@ -571,7 +631,7 @@ private fun getNamePlaceholder(assetType: AssetType): String = when (assetType) 
     AssetType.STOCK -> "如：AAPL"
     AssetType.ETF -> "如：510300"
     AssetType.FUND -> "如：余额宝、上证指数基金"
-    AssetType.CASH -> "如：活期存款"
+    AssetType.CASH -> "现金"
     AssetType.TIME_DEPOSIT -> "如：一年定期"
 }
 
@@ -579,4 +639,22 @@ private fun defaultRiskBucketFor(assetType: AssetType): RiskBucket = when (asset
     AssetType.STOCK, AssetType.ETF, AssetType.FUND -> RiskBucket.AGGRESSIVE
     AssetType.CASH -> RiskBucket.CASH
     AssetType.TIME_DEPOSIT -> RiskBucket.CONSERVATIVE
+}
+
+private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetType?): List<AssetType> {
+    val allowed = when (accountType) {
+        AccountType.BROKER -> listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND, AssetType.CASH)
+        AccountType.BANK -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
+        AccountType.FUND -> listOf(AssetType.FUND, AssetType.CASH)
+        AccountType.CASH_MANAGEMENT -> listOf(AssetType.FUND, AssetType.CASH)
+        AccountType.BOND -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
+        AccountType.INSURANCE -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT)
+        AccountType.LIABILITY -> emptyList()
+        AccountType.OTHER, null -> AssetType.entries.toList()
+    }
+    return if (currentType != null && currentType !in allowed) {
+        listOf(currentType) + allowed
+    } else {
+        allowed
+    }
 }

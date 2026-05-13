@@ -72,12 +72,47 @@ private fun parseCsvLine(line: String): List<String> {
     return result
 }
 
+private fun parseAccountType(value: String): AccountType? = when (value.trim().uppercase()) {
+    "券商", "券商账户", "BROKER" -> AccountType.BROKER
+    "银行", "银行账户", "BANK" -> AccountType.BANK
+    "基金", "基金账户", "FUND" -> AccountType.FUND
+    "现金管理", "CASH_MANAGEMENT" -> AccountType.CASH_MANAGEMENT
+    "债券", "BOND" -> AccountType.BOND
+    "保险", "INSURANCE" -> AccountType.INSURANCE
+    "负债", "LIABILITY" -> AccountType.LIABILITY
+    "其他", "OTHER" -> AccountType.OTHER
+    else -> null
+}
+
+private fun parseCurrency(value: String): String = when (value.trim().uppercase()) {
+    "人民币", "元", "CNY" -> "CNY"
+    "美元", "USD" -> "USD"
+    "港币", "HKD" -> "HKD"
+    else -> value.trim().uppercase()
+}
+
+private fun parseAssetType(value: String): AssetType? = when (value.trim().uppercase()) {
+    "股票", "STOCK" -> AssetType.STOCK
+    "ETF" -> AssetType.ETF
+    "基金", "FUND" -> AssetType.FUND
+    "现金", "CASH" -> AssetType.CASH
+    "定期", "定期存款", "TIME_DEPOSIT" -> AssetType.TIME_DEPOSIT
+    else -> null
+}
+
+private fun parseRiskBucket(value: String, assetType: AssetType): RiskBucket? = when (value.trim().uppercase()) {
+    "稳健", "CONSERVATIVE" -> RiskBucket.CONSERVATIVE
+    "进取", "AGGRESSIVE" -> RiskBucket.AGGRESSIVE
+    "防守", "CASH", "" -> if (assetType == AssetType.CASH) RiskBucket.CASH else null
+    else -> null
+}
+
 class CsvImportRepository(private val database: AppDatabase) {
 
     /**
      * 从 CSV 导入账户
-     * 格式：name,type,currency,balance
-     * 例如：我的券商,BROKER,USD,10000
+     * 格式：name,type,currency[,liabilityAmount]
+     * 非负债账户只作为容器，金额应导入为账户下的资产记录。
      */
     suspend fun importAccounts(context: Context, fileName: String): CsvImportResult = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
@@ -89,29 +124,36 @@ class CsvImportRepository(private val database: AppDatabase) {
                     lines.drop(1).forEachIndexed { index, line ->
                         try {
                             val parts = parseCsvLine(line)
-                            if (parts.size >= 4) {
+                            if (parts.size >= 3) {
                                 val name = parts[0]
                                 if (name.isEmpty()) {
                                     errors.add("行 ${index + 2}: 账户名称为空，跳过此行")
                                     return@forEachIndexed
                                 }
 
-                                val typeStr = parts[1].uppercase()
-                                val type = try { AccountType.valueOf(typeStr) } catch (e: Exception) {
+                                val typeStr = parts[1]
+                                val type = parseAccountType(typeStr)
+                                if (type == null) {
                                     errors.add("行 ${index + 2}: 无效的账户类型 '$typeStr'，跳过此行")
                                     return@forEachIndexed
                                 }
 
-                                val currency = parts[2]
+                                val currency = parseCurrency(parts[2])
                                 if (currency.isEmpty()) {
                                     errors.add("行 ${index + 2}: 币种为空，跳过此行")
                                     return@forEachIndexed
                                 }
 
-                                val balance = parts[3].toDoubleOrNull()
-                                if (balance == null) {
-                                    errors.add("行 ${index + 2}: 无效的余额 '${parts[3]}'，跳过此行")
-                                    return@forEachIndexed
+                                val balance = if (type == AccountType.LIABILITY) {
+                                    val amountText = parts.getOrNull(3).orEmpty()
+                                    val amount = amountText.toDoubleOrNull()
+                                    if (amount == null) {
+                                        errors.add("行 ${index + 2}: 负债账户需要有效金额，跳过此行")
+                                        return@forEachIndexed
+                                    }
+                                    amount
+                                } else {
+                                    0.0
                                 }
 
                                 val account = Account(
@@ -191,7 +233,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     return@forEachIndexed
                                 }
 
-                                val currency = parts[4].uppercase()
+                                val currency = parseCurrency(parts[4])
                                 if (currency.isEmpty()) {
                                     errors.add("行 ${index + 2}: 币种为空，跳过此行")
                                     return@forEachIndexed
@@ -279,20 +321,22 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accountName = parts[0]
 
                                 // 校验 assetType
-                                val assetTypeStr = parts[1].uppercase()
-                                val assetType = try { AssetType.valueOf(assetTypeStr) } catch (e: Exception) {
+                                val assetTypeStr = parts[1]
+                                val assetType = parseAssetType(assetTypeStr)
+                                if (assetType == null) {
                                     errors.add("行 ${index + 2}: 无效的资产类型 '$assetTypeStr'，跳过此行")
                                     return@forEachIndexed
                                 }
 
                                 // 校验 riskBucket
-                                val riskBucketStr = parts[2].uppercase()
-                                val riskBucket = try { RiskBucket.valueOf(riskBucketStr) } catch (e: Exception) {
+                                val riskBucketStr = parts[2]
+                                val riskBucket = parseRiskBucket(riskBucketStr, assetType)
+                                if (riskBucket == null) {
                                     errors.add("行 ${index + 2}: 无效的风险维度 '$riskBucketStr'，跳过此行")
                                     return@forEachIndexed
                                 }
 
-                                val name = parts[3]
+                                val name = if (assetType == AssetType.CASH) "现金" else parts[3]
 
                                 // 校验数值字段
                                 val quantity = parts[4].toDoubleOrNull()
@@ -319,7 +363,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     return@forEachIndexed
                                 }
 
-                                val currency = parts[7].uppercase()
+                                val currency = parseCurrency(parts[7])
 
                                 // 查找对应账户
                                 val accounts = database.accountDao().getAllAccounts().first()
@@ -436,7 +480,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     return@forEachIndexed
                                 }
 
-                                val currency = parts[6].uppercase()
+                                val currency = parseCurrency(parts[6])
                                 if (currency.isEmpty()) {
                                     errors.add("行 ${index + 2}: 币种为空，跳过此行")
                                     return@forEachIndexed

@@ -1,66 +1,40 @@
 package com.finunity.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.finunity.data.local.AppDatabase
-import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
-import kotlinx.coroutines.launch
+import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinSectionLabel
+import com.finunity.ui.components.FinSoftButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountHubScreen(
-    database: AppDatabase,
     accounts: List<AccountSummary>,
     baseCurrency: String,
-    onBack: () -> Unit,
     onViewAccount: (String) -> Unit,
-    onEditAccount: (Account) -> Unit,
     onAddAccount: () -> Unit,
-    onViewTransactions: (String) -> Unit,
+    onOpenImportData: () -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
-    var showDeleteConfirm by remember { mutableStateOf<Account?>(null) }
-
-    val accountBalanceTotal = accounts.sumOf { it.balanceInBaseCurrency }
-    val brokerCount = accounts.count { it.account.type.name == "BROKER" }
-    val bankCount = accounts.count { it.account.type.name == "BANK" }
-
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("账户管理", fontWeight = FontWeight.Medium) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddAccount,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "新增账户", tint = Color.White)
-            }
-        },
+        bottomBar = bottomBar,
         modifier = modifier
     ) { padding ->
         LazyColumn(
@@ -72,179 +46,202 @@ fun AccountHubScreen(
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
 
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text(
-                            text = "账户余额合计",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Text(
-                            text = formatCurrency(accountBalanceTotal, baseCurrency),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            HubChip(label = "券商:$brokerCount", icon = Icons.Default.DateRange)
-                            HubChip(label = "银行:$bankCount", icon = Icons.Default.List)
-                            HubChip(label = "合计:${accounts.size}", icon = Icons.Default.Settings)
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    text = "所有账户 (${accounts.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
-            }
-
             if (accounts.isEmpty()) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                    FinCard {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(32.dp),
+                                .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.Info,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            Text(
+                                text = "暂无账户",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "添加银行卡、券商账户或现金账户",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text("暂无账户", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("点击 + 按钮添加第一个账户", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FinSoftButton(
+                                    text = "添加账户",
+                                    onClick = onAddAccount,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FinSoftButton(
+                                    text = "导入数据",
+                                    onClick = onOpenImportData,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
-            }
+            } else {
+                // 账户汇总卡
+                item {
+                    AccountSummaryCard(
+                        accounts = accounts,
+                        baseCurrency = baseCurrency,
+                        onAddAccount = onAddAccount,
+                        onOpenImportData = onOpenImportData
+                    )
+                }
 
-            items(accounts, key = { it.account.id }) { summary ->
-                HubAccountCard(
-                    summary = summary,
-                    baseCurrency = baseCurrency,
-                    onView = { onViewAccount(summary.account.id) },
-                    onEdit = { onEditAccount(summary.account) },
-                    onViewTransactions = { onViewTransactions(summary.account.id) },
-                    onDelete = { showDeleteConfirm = summary.account }
-                )
+                // 账户列表标题
+                item {
+                    FinSectionLabel("账户 (${accounts.size})")
+                }
+
+                // 账户列表
+                items(accounts, key = { it.account.id }) { summary ->
+                    HubAccountCard(
+                        summary = summary,
+                        baseCurrency = baseCurrency,
+                        onView = { onViewAccount(summary.account.id) }
+                    )
+                }
             }
 
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
-
-    showDeleteConfirm?.let { account ->
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = null },
-            title = { Text("确认删除账户") },
-            text = {
-                Text("确定要删除账户 \"${account.name}\" 吗？\n\n此操作会同时删除：\n- 该账户下的所有持仓和资产记录\n- 该账户的所有交易流水\n\n此操作不可撤销。")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch { database.accountDao().deleteById(account.id) }
-                        showDeleteConfirm = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("删除") }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = null }) { Text("取消") } }
-        )
-    }
 }
 
 @Composable
-private fun HubAccountCard(
-    summary: AccountSummary,
+private fun AccountSummaryCard(
+    accounts: List<AccountSummary>,
     baseCurrency: String,
-    onView: () -> Unit,
-    onEdit: () -> Unit,
-    onViewTransactions: () -> Unit,
-    onDelete: () -> Unit
+    onAddAccount: () -> Unit,
+    onOpenImportData: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+    val brokerCount = accounts.count { it.account.type == AccountType.BROKER }
+    val bankCount = accounts.count { it.account.type == AccountType.BANK }
+    val cashCount = accounts.count { it.account.type == AccountType.CASH_MANAGEMENT }
+    val totalBalance = accounts.sumOf { it.balanceInBaseCurrency }
+
+    FinCard(
+        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // 账户类型统计 - 无边框纯文字行
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (brokerCount > 0) {
+                    Text(
+                        text = "证券 $brokerCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (bankCount > 0) {
+                    Text(
+                        text = "银行 $bankCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (cashCount > 0) {
+                    Text(
+                        text = "现金 $cashCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 总资产 + 操作按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(summary.account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("${summary.account.type.name} · ${summary.account.currency}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                }
-                Column(horizontalAlignment = Alignment.End) {
+                Column {
                     Text(
-                        text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        text = "总资产",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
-                    Text(summary.account.type.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = formatCurrency(totalBalance, baseCurrency),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Divider()
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                HubActionButton(icon = Icons.Default.Info, label = "查看", onClick = onView)
-                HubActionButton(icon = Icons.Default.Edit, label = "编辑", onClick = onEdit)
-                HubActionButton(icon = Icons.Default.List, label = "流水", onClick = onViewTransactions)
-                HubActionButton(icon = Icons.Default.Delete, label = "删除", onClick = onDelete, tint = MaterialTheme.colorScheme.error)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onOpenImportData) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "导入数据",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Button(
+                        onClick = onAddAccount,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("添加", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun HubActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    tint: Color = MaterialTheme.colorScheme.primary
-) {
-    TextButton(onClick = onClick, modifier = Modifier.padding(4.dp)) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = tint)
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall, color = tint)
-    }
-}
 
 @Composable
-private fun HubChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(
+private fun HubAccountCard(
+    summary: AccountSummary,
+    baseCurrency: String,
+    onView: () -> Unit
+) {
+    Card(
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .fillMaxWidth()
+            .clickable(onClick = onView),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(summary.account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("${summary.account.type.displayName()} · ${summary.account.currency}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    Icons.Default.KeyboardArrowRight,
+                    contentDescription = "查看账户",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#006D3B</color>
-    <color name="primary_dark">#005228</color>
-    <color name="accent">#00A86B</color>
+    <color name="primary">#166534</color>
+    <color name="primary_dark">#14532D</color>
+    <color name="accent">#0F9D58</color>
+    <color name="brand_green">#167A4A</color>
+    <color name="brand_green_dark">#0E4F32</color>
+    <color name="brand_mint">#EAF7EF</color>
+    <color name="brand_mint_soft">#F6FBF8</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
 </resources>

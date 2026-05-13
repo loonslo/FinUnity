@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Position
+import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.ui.screens.formatCurrency
 
@@ -44,19 +45,14 @@ fun PositionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        when {
-                            position == null -> "添加持仓"
-                            isEditing -> "编辑持仓"
-                            else -> "持仓详情"
-                        },
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 actions = {
@@ -106,7 +102,7 @@ fun PositionScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -146,7 +142,7 @@ fun PositionScreen(
                     label = { Text("所属账户") },
                     placeholder = { Text("选择持仓所在账户") },
                     supportingText = {
-                        Text(selectedAccount?.let { "${it.account.type.name} · ${it.account.currency}" } ?: "先创建账户，再录入股票/ETF")
+                        Text(selectedAccount?.let { "${it.account.type.displayName()} · ${it.account.currency}" } ?: "先创建账户，再录入股票/ETF")
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -166,7 +162,7 @@ fun PositionScreen(
                                 Column {
                                     Text(summary.account.name)
                                     Text(
-                                        text = "${summary.account.type.name} · ${summary.account.currency}",
+                                        text = "${summary.account.type.displayName()} · ${summary.account.currency}",
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }

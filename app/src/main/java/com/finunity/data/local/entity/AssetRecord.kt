@@ -27,7 +27,7 @@ data class AssetRecord(
     val id: String = UUID.randomUUID().toString(),
     val accountId: String,                    // 关联账户ID
     val assetType: AssetType,                 // 资产类型：股票、ETF、基金、现金、定期存款
-    val riskBucket: RiskBucket,               // 风险维度：稳健、进攻、现金
+    val riskBucket: RiskBucket,               // 风险维度：稳健、进取、防守
     val name: String,                          // 名称/代码，如"AAPL"或"余额宝"
     val quantity: Double,                      // 数量/份额
     val cost: Double,                         // 买入成本
@@ -77,6 +77,6 @@ enum class AssetType {
  */
 enum class RiskBucket {
     CONSERVATIVE,  // 稳健型：现金、定期存款、货币基金等低风险资产
-    AGGRESSIVE,    // 进攻型：股票、ETF、股票型基金等高风险资产
-    CASH          // 现金类：活期存款、余额宝等随时可用的资金
+    AGGRESSIVE,    // 进取型：股票、ETF、股票型基金等高风险资产
+    CASH          // 防守型：活期存款、余额宝等随时可用的资金
 }

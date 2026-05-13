@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.displayName
 import com.finunity.data.local.entity.Position
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
@@ -28,9 +34,11 @@ import com.finunity.ui.screens.AccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
 import com.finunity.ui.screens.AccountHubScreen
 import com.finunity.ui.screens.AssetRecordScreen
+import com.finunity.ui.screens.AssetDetailScreen
 import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.MainScreen
 import com.finunity.ui.screens.PositionScreen
+import com.finunity.ui.screens.PriceChangeScreen
 import com.finunity.ui.screens.PriceHistoryScreen
 import com.finunity.ui.screens.SettingsScreen
 import com.finunity.ui.screens.RiskBucketDetailScreen
@@ -78,7 +86,8 @@ sealed class Screen {
     data object Settings : Screen()
     data object ImportCsv : Screen()
     data object AccountHub : Screen()
-    data class AddAccount(val account: Account? = null) : Screen()
+    data object PriceChanges : Screen()
+    data class AddAccount(val account: Account? = null, val continueToAsset: Boolean = false) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
     data class AddAssetRecord(val record: AssetRecord? = null, val accountId: String) : Screen()
     data object History : Screen()
@@ -87,6 +96,13 @@ sealed class Screen {
     data class TransactionHistory(val accountId: String) : Screen()
     data class AssetTransactionHistory(val recordId: String, val assetName: String) : Screen()
     data class PriceHistory(val recordId: String, val assetName: String) : Screen()
+    data class AssetDetail(val recordId: String) : Screen()
+}
+
+private enum class TopLevelTab {
+    Main,
+    History,
+    Accounts
 }
 
 @Composable
@@ -101,16 +117,35 @@ fun FinUnityApp(database: AppDatabase) {
     val error by viewModel.error.collectAsState()
 
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
+    var navStack by remember { mutableStateOf(listOf<Screen>()) }
     var showAccountPicker by remember { mutableStateOf(false) }
-    var showQuickAddAccount by remember { mutableStateOf(false) }
+    var pendingNewAccount by remember { mutableStateOf<Account?>(null) }
 
     // 历史数据
     val snapshots by historyRepository.getRecentSnapshots(30).collectAsState(initial = emptyList())
+    val allPriceHistory by database.priceHistoryDao().getAllHistory().collectAsState(initial = emptyList())
     var monthlyChange by remember { mutableStateOf<MonthlyChange?>(null) }
 
     // 加载月度变化
     LaunchedEffect(snapshots) {
         monthlyChange = historyRepository.getMonthlyChange()
+    }
+
+    // 导航到新页面时保存当前页面到栈
+    fun navigateTo(screen: Screen) {
+        navStack = navStack + currentScreen
+        currentScreen = screen
+    }
+
+    // 返回上一页
+    fun navigateBack() {
+        if (navStack.isNotEmpty()) {
+            currentScreen = navStack.last()
+            navStack = navStack.dropLast(1)
+        } else {
+            // 如果没有历史记录，返回到主页
+            currentScreen = Screen.Main
+        }
     }
 
     // 账户选择对话框
@@ -122,19 +157,33 @@ fun FinUnityApp(database: AppDatabase) {
                 showAccountPicker = false
                 currentScreen = Screen.AddAssetRecord(record = null, accountId = accountId)
             },
+            onCreateAccount = {
+                showAccountPicker = false
+                currentScreen = Screen.AddAccount(continueToAsset = true)
+            },
             onDismiss = { showAccountPicker = false }
         )
     }
 
-    // 快速添加账户对话框（添加持仓前）
-    if (showQuickAddAccount) {
-        QuickAddAccountDialog(
-            onConfirm = { account ->
-                viewModel.addAccount(account)
-                showQuickAddAccount = false
-                currentScreen = Screen.AddAssetRecord(record = null, accountId = account.id)
-            },
-            onDismiss = { showQuickAddAccount = false }
+    fun startAddFlow() {
+        val accounts = portfolioSummary?.accounts.orEmpty()
+        if (accounts.isEmpty()) {
+            navigateTo(Screen.AccountHub)
+        } else {
+            showAccountPicker = true
+        }
+    }
+
+    val bottomBar: @Composable (TopLevelTab) -> Unit = { selected ->
+        FinUnityBottomBar(
+            selected = selected,
+            onSelect = { tab ->
+                navigateTo(when (tab) {
+                    TopLevelTab.Main -> Screen.Main
+                    TopLevelTab.History -> Screen.PriceChanges
+                    TopLevelTab.Accounts -> Screen.AccountHub
+                })
+            }
         )
     }
 
@@ -144,50 +193,29 @@ fun FinUnityApp(database: AppDatabase) {
                 portfolioSummary = portfolioSummary,
                 isLoading = isLoading,
                 error = error,
-                onRefresh = {
-                    viewModel.viewModelScope.launch {
-                        viewModel.refreshPrices()
-                    }
-                },
-                onAddAccount = { currentScreen = Screen.AddAccount() },
-                onAddPosition = {
-                    val accounts = portfolioSummary?.accounts
-                    if (accounts.isNullOrEmpty()) {
-                        // 没有账户，先快速添加账户
-                        showQuickAddAccount = true
-                    } else if (accounts.size == 1) {
-                        // 只有一个账户，直接使用
-                        currentScreen = Screen.AddAssetRecord(record = null, accountId = accounts.first().account.id)
-                    } else {
-                        // 多个账户，显示选择对话框
-                        showAccountPicker = true
-                    }
-                },
-                onEditPosition = { holding ->
-                    currentScreen = Screen.AddPosition(
-                        position = holding.position,
-                        accountId = holding.position.accountId
-                    )
-                },
+                onStartAddFlow = { startAddFlow() },
                 onEditAccount = { account ->
-                    currentScreen = Screen.AccountDetail(account.id)
+                    navigateTo(Screen.AccountDetail(account.id))
                 },
-                onAddAssetRecord = { accountId ->
-                    currentScreen = Screen.AddAssetRecord(record = null, accountId = accountId)
-                },
-                onEditAssetRecord = { recordSummary ->
-                    currentScreen = Screen.AddAssetRecord(
-                        record = recordSummary.record,
-                        accountId = recordSummary.record.accountId
-                    )
-                },
-                onViewHistory = { currentScreen = Screen.History },
+                onViewHistory = { navigateTo(Screen.PriceChanges) },
                 onViewRiskBucketDetail = { bucketIndex ->
-                    currentScreen = Screen.RiskBucketDetail(bucketIndex)
+                    navigateTo(Screen.RiskBucketDetail(bucketIndex))
                 },
-                onOpenSettings = { currentScreen = Screen.Settings },
-                onOpenImportCsv = { currentScreen = Screen.ImportCsv },
-                onOpenAccountHub = { currentScreen = Screen.AccountHub }
+                onOpenSettings = { navigateTo(Screen.Settings) },
+                onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
+                bottomBar = { bottomBar(TopLevelTab.Main) }
+            )
+        }
+
+        is Screen.PriceChanges -> {
+            PriceChangeScreen(
+                records = portfolioSummary?.assetRecords ?: emptyList(),
+                priceHistory = allPriceHistory,
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                onViewAssetHistory = { recordId ->
+                    navigateTo(Screen.AssetDetail(recordId))
+                },
+                bottomBar = { bottomBar(TopLevelTab.History) }
             )
         }
 
@@ -196,29 +224,27 @@ fun FinUnityApp(database: AppDatabase) {
                 settings = viewModel.settings.value,
                 onSave = { newSettings ->
                     viewModel.updateSettings(newSettings)
-                    currentScreen = Screen.Main
+                    navigateBack()
                 },
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
         is Screen.ImportCsv -> {
             ImportCsvScreen(
                 database = database,
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
         is Screen.AccountHub -> {
             AccountHubScreen(
-                database = database,
                 accounts = portfolioSummary?.accounts ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { currentScreen = Screen.Main },
-                onViewAccount = { currentScreen = Screen.AccountDetail(it) },
-                onEditAccount = { currentScreen = Screen.AddAccount(it) },
-                onAddAccount = { currentScreen = Screen.AddAccount(null) },
-                onViewTransactions = { currentScreen = Screen.TransactionHistory(it) }
+                onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
+                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = true)) },
+                onOpenImportData = { navigateTo(Screen.ImportCsv) },
+                bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
 
@@ -228,16 +254,22 @@ fun FinUnityApp(database: AppDatabase) {
                 onSave = { account ->
                     if (screen.account == null) {
                         viewModel.addAccount(account)
+                        if (screen.continueToAsset) {
+                            pendingNewAccount = account
+                            navigateTo(Screen.AddAssetRecord(record = null, accountId = account.id))
+                        } else {
+                            navigateTo(Screen.AccountHub)
+                        }
                     } else {
                         viewModel.updateAccount(account)
+                        navigateTo(Screen.AccountHub)
                     }
-                    currentScreen = Screen.Main
                 },
                 onDelete = { id ->
                     viewModel.deleteAccount(id)
-                    currentScreen = Screen.Main
+                    navigateTo(Screen.AccountHub)
                 },
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
@@ -252,22 +284,23 @@ fun FinUnityApp(database: AppDatabase) {
                     } else {
                         viewModel.updatePosition(position)
                     }
-                    currentScreen = Screen.Main
+                    navigateBack()
                 },
                 onDelete = { id ->
                     viewModel.deletePosition(id)
-                    currentScreen = Screen.Main
+                    navigateBack()
                 },
                 onSell = { id, shares ->
                     viewModel.sellPosition(id, shares)
-                    currentScreen = Screen.Main
+                    navigateBack()
                 },
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
         is Screen.AddAssetRecord -> {
             val account = portfolioSummary?.accounts?.find { it.account.id == screen.accountId }?.account
+                ?: pendingNewAccount?.takeIf { it.id == screen.accountId }
             AssetRecordScreen(
                 record = screen.record,
                 account = account,
@@ -277,6 +310,7 @@ fun FinUnityApp(database: AppDatabase) {
                     } else {
                         viewModel.updateAssetRecord(record)
                     }
+                    pendingNewAccount = null
                     currentScreen = Screen.Main
                 },
                 onDelete = { id ->
@@ -287,11 +321,7 @@ fun FinUnityApp(database: AppDatabase) {
                     viewModel.sellAssetRecord(id, quantity)
                     currentScreen = Screen.Main
                 },
-                onViewHistory = { recordId ->
-                    val recordName = screen.record?.name ?: "资产记录"
-                    currentScreen = Screen.AssetTransactionHistory(recordId, recordName)
-                },
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
@@ -300,16 +330,8 @@ fun FinUnityApp(database: AppDatabase) {
                 snapshots = snapshots,
                 monthlyChange = monthlyChange,
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { currentScreen = Screen.Main },
-                onRefresh = {
-                    // 先刷新价格/资产数据，然后保存快照
-                    viewModel.viewModelScope.launch {
-                        viewModel.refreshPrices()
-                        // refreshPrices 内部已等待加载完成，直接重新获取最新汇总
-                        val latestSummary = viewModel.portfolioSummary.value
-                        latestSummary?.let { historyRepository.saveSnapshot(it) }
-                    }
-                }
+                onBack = { navigateBack() },
+                bottomBar = {}
             )
         }
 
@@ -320,11 +342,11 @@ fun FinUnityApp(database: AppDatabase) {
                 accountSummary = accountSummary,
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { currentScreen = Screen.Main },
-                onEditAccount = { currentScreen = Screen.AddAccount(accountSummary?.account) },
-                onAddRecord = { currentScreen = Screen.AddAssetRecord(record = null, accountId = screen.accountId) },
-                onEditRecord = { record -> currentScreen = Screen.AddAssetRecord(record = record, accountId = screen.accountId) },
-                onViewTransactions = { currentScreen = Screen.TransactionHistory(screen.accountId) }
+                onBack = { navigateBack() },
+                onEditAccount = { navigateTo(Screen.AddAccount(accountSummary?.account)) },
+                onAddRecord = { navigateTo(Screen.AddAssetRecord(record = null, accountId = screen.accountId)) },
+                onEditRecord = { record -> navigateTo(Screen.AddAssetRecord(record = record, accountId = screen.accountId)) },
+                onViewTransactions = { navigateTo(Screen.TransactionHistory(screen.accountId)) }
             )
         }
 
@@ -337,23 +359,15 @@ fun FinUnityApp(database: AppDatabase) {
                     assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                     holdings = portfolioSummary?.holdings ?: emptyList(),
                     baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                    onBack = { currentScreen = Screen.Main },
-                    onViewAccountTransactions = { accountId -> currentScreen = Screen.TransactionHistory(accountId) },
-                    onViewAssetHistory = { recordId ->
-                        val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
-                        currentScreen = Screen.PriceHistory(recordId, record?.record?.name ?: "")
-                    },
-                    onViewAssetTransactions = { recordId ->
-                        val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
-                        currentScreen = Screen.AssetTransactionHistory(recordId, record?.record?.name ?: "")
-                    },
+                    onBack = { navigateBack() },
+                    onViewAccountTransactions = { accountId -> navigateTo(Screen.TransactionHistory(accountId)) },
                     onEditAssetRecord = { recordId ->
                         val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
-                        currentScreen = Screen.AddAssetRecord(record?.record, record?.record?.accountId ?: "")
+                        navigateTo(Screen.AddAssetRecord(record?.record, record?.record?.accountId ?: ""))
                     }
                 )
             } else {
-                currentScreen = Screen.Main
+                navigateBack()
             }
         }
 
@@ -364,7 +378,7 @@ fun FinUnityApp(database: AppDatabase) {
                 transactions = transactions,
                 accountName = accountSummary?.account?.name,
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
 
@@ -375,8 +389,37 @@ fun FinUnityApp(database: AppDatabase) {
                 priceHistory = priceHistory,
                 assetName = screen.assetName,
                 assetCurrency = assetCurrency,
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
+        }
+
+        is Screen.AssetDetail -> {
+            val summary = portfolioSummary?.assetRecords?.find { it.record.id == screen.recordId }
+            val priceHistory by database.priceHistoryDao().getHistoryByRecord(screen.recordId).collectAsState(initial = emptyList())
+            val transactions by database.transactionDao().getTransactionsByRecordId(screen.recordId).collectAsState(initial = emptyList())
+            if (summary != null) {
+                AssetDetailScreen(
+                    summary = summary,
+                    priceHistory = priceHistory,
+                    transactions = transactions,
+                    baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                    onBack = { navigateBack() },
+                    onEdit = {
+                        navigateTo(Screen.AddAssetRecord(
+                            record = summary.record,
+                            accountId = summary.record.accountId
+                        ))
+                    },
+                    onSell = {
+                        navigateTo(Screen.AddAssetRecord(
+                            record = summary.record,
+                            accountId = summary.record.accountId
+                        ))
+                    }
+                )
+            } else {
+                navigateBack()
+            }
         }
 
         is Screen.AssetTransactionHistory -> {
@@ -385,9 +428,36 @@ fun FinUnityApp(database: AppDatabase) {
                 transactions = transactions,
                 accountName = screen.assetName,
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { currentScreen = Screen.Main }
+                onBack = { navigateBack() }
             )
         }
+    }
+}
+
+@Composable
+private fun FinUnityBottomBar(
+    selected: TopLevelTab,
+    onSelect: (TopLevelTab) -> Unit
+) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = selected == TopLevelTab.Main,
+            onClick = { onSelect(TopLevelTab.Main) },
+            icon = { Icon(Icons.Default.Home, contentDescription = "总览") },
+            label = { Text("总览") }
+        )
+        NavigationBarItem(
+            selected = selected == TopLevelTab.History,
+            onClick = { onSelect(TopLevelTab.History) },
+            icon = { Icon(Icons.Default.DateRange, contentDescription = "持仓") },
+            label = { Text("持仓") }
+        )
+        NavigationBarItem(
+            selected = selected == TopLevelTab.Accounts,
+            onClick = { onSelect(TopLevelTab.Accounts) },
+            icon = { Icon(Icons.Default.Person, contentDescription = "账户") },
+            label = { Text("账户") }
+        )
     }
 }
 
@@ -396,6 +466,7 @@ fun AccountPickerDialog(
     accounts: List<AccountSummary>,
     baseCurrency: String,
     onSelect: (String) -> Unit,
+    onCreateAccount: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -424,7 +495,7 @@ fun AccountPickerDialog(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "${summary.account.type.name} · ${summary.account.currency}",
+                                    text = "${summary.account.type.displayName()} · ${summary.account.currency}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
@@ -438,133 +509,11 @@ fun AccountPickerDialog(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-        shape = RoundedCornerShape(16.dp)
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun QuickAddAccountDialog(
-    onConfirm: (Account) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var selectedType by remember { mutableStateOf(AccountType.BROKER) }
-    var selectedCurrency by remember { mutableStateOf("CNY") }
-    var balance by remember { mutableStateOf("") }
-    var expandedType by remember { mutableStateOf(false) }
-    var expandedCurrency by remember { mutableStateOf(false) }
-
-    val currencies = listOf("CNY", "USD", "HKD")
-    val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加账户") },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("账户名称") },
-                    placeholder = { Text("如：富途-港股") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // 账户类型下拉
-                ExposedDropdownMenuBox(
-                    expanded = expandedType,
-                    onExpandedChange = { expandedType = it }
-                ) {
-                    OutlinedTextField(
-                        value = selectedType.name,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("账户类型") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedType) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expandedType,
-                        onDismissRequest = { expandedType = false }
-                    ) {
-                        AccountType.values().forEach { type ->
-                            DropdownMenuItem(
-                                text = { Text(type.name) },
-                                onClick = {
-                                    selectedType = type
-                                    expandedType = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // 币种下拉
-                ExposedDropdownMenuBox(
-                    expanded = expandedCurrency,
-                    onExpandedChange = { expandedCurrency = it }
-                ) {
-                    OutlinedTextField(
-                        value = "${selectedCurrency} (${currencyLabels[selectedCurrency]})",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("币种") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCurrency) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expandedCurrency,
-                        onDismissRequest = { expandedCurrency = false }
-                    ) {
-                        currencies.forEach { currency ->
-                            DropdownMenuItem(
-                                text = { Text("$currency (${currencyLabels[currency]})") },
-                                onClick = {
-                                    selectedCurrency = currency
-                                    expandedCurrency = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = balance,
-                    onValueChange = { balance = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("初始余额") },
-                    placeholder = { Text("0.00") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        val account = Account(
-                            name = name.trim(),
-                            type = selectedType,
-                            currency = selectedCurrency,
-                            balance = balance.toDoubleOrNull() ?: 0.0
-                        )
-                        onConfirm(account)
-                    }
-                },
-                enabled = name.isNotBlank()
-            ) {
-                Text("继续添加资产")
+            TextButton(onClick = onCreateAccount) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("新增账户")
             }
         },
         dismissButton = {
@@ -577,10 +526,12 @@ fun QuickAddAccountDialog(
 }
 
 fun formatCurrency(amount: Double, currency: String): String {
+    if (amount.isNaN() || amount.isInfinite()) return "--"
+    val safeAmount = amount
     return when (currency) {
-        "CNY" -> "¥${String.format("%.2f", amount)}"
-        "USD" -> "$${String.format("%.2f", amount)}"
-        "HKD" -> "HK$${String.format("%.2f", amount)}"
-        else -> "${currency}${String.format("%.2f", amount)}"
+        "CNY" -> "¥${String.format("%.2f", safeAmount)}"
+        "USD" -> "$${String.format("%.2f", safeAmount)}"
+        "HKD" -> "HK$${String.format("%.2f", safeAmount)}"
+        else -> "${currency}${String.format("%.2f", safeAmount)}"
     }
 }

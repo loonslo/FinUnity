@@ -33,19 +33,18 @@ fun TransactionHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "${accountName ?: "账户"} 交易流水",
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -98,15 +97,15 @@ fun TransactionItem(
     baseCurrency: String,
     dateFormat: SimpleDateFormat
 ) {
-    val (typeColor, typeLabel) = when (transaction.type) {
-        TransactionType.BUY -> Color(0xFF4CAF50) to "买入"
-        TransactionType.SELL -> Color(0xFFE53935) to "卖出"
-        TransactionType.DIVIDEND -> Color(0xFF2196F3) to "分红"
-        TransactionType.FEE -> Color(0xFF9E9E9E) to "手续费"
-        TransactionType.TRANSFER_IN -> Color(0xFF4CAF50) to "转入"
-        TransactionType.TRANSFER_OUT -> Color(0xFFE53935) to "转出"
-        TransactionType.DEPOSIT -> Color(0xFF4CAF50) to "入金"
-        TransactionType.WITHDRAW -> Color(0xFFE53935) to "出金"
+    val typeLabel = when (transaction.type) {
+        TransactionType.BUY -> "买入"
+        TransactionType.SELL -> "卖出"
+        TransactionType.DIVIDEND -> "分红"
+        TransactionType.FEE -> "手续费"
+        TransactionType.TRANSFER_IN -> "转入"
+        TransactionType.TRANSFER_OUT -> "转出"
+        TransactionType.DEPOSIT -> "入金"
+        TransactionType.WITHDRAW -> "出金"
     }
 
     Card(
@@ -130,8 +129,7 @@ fun TransactionItem(
                     Text(
                         text = typeLabel,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = typeColor
+                        fontWeight = FontWeight.SemiBold
                     )
                     if (transaction.symbol != null) {
                         Spacer(modifier = Modifier.width(8.dp))

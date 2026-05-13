@@ -179,7 +179,7 @@ class RebalanceTest {
         )
 
         // AGGRESSIVE 缺失时视为 0，超出部分应建议减配
-        assertTrue(recommendations.any { it.contains("AGGRESSIVE") || it.contains("CONSERVATIVE") })
+        assertTrue(recommendations.any { it.contains("进取") || it.contains("稳健") })
     }
 
     @Test
@@ -230,7 +230,7 @@ class RebalanceTest {
             threshold
         )
 
-        assertTrue(recommendations.any { it.contains("AGGRESSIVE") && it.contains("减配") })
-        assertTrue(recommendations.any { it.contains("CONSERVATIVE") && it.contains("增配") })
+        assertTrue(recommendations.any { it.contains("进取") && it.contains("减配") })
+        assertTrue(recommendations.any { it.contains("稳健") && it.contains("增配") })
     }
 }

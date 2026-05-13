@@ -4,17 +4,14 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,8 +40,29 @@ fun ImportCsvScreen(
     val scope = rememberCoroutineScope()
 
     var selectedImportType by remember { mutableStateOf<ImportType?>(null) }
+    var pendingTemplate by remember { mutableStateOf<ImportType?>(null) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf<String?>(null) }
+
+    val templateLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri: Uri? ->
+        val importType = pendingTemplate
+        if (uri != null && importType != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(templateCsv(importType).toByteArray(Charsets.UTF_8))
+                }
+                importResult = "模板已保存"
+            } catch (e: Exception) {
+                importResult = "模板保存失败: ${e.message}"
+            } finally {
+                pendingTemplate = null
+            }
+        } else {
+            pendingTemplate = null
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -68,41 +86,41 @@ fun ImportCsvScreen(
                             inputStream.close()
 
                             val csvRepo = CsvImportRepository(database)
-                            val importResult = when (selectedImportType) {
+                            val csvImportResult = when (selectedImportType) {
                                 ImportType.ACCOUNTS -> csvRepo.importAccounts(context, fileName)
                                 ImportType.POSITIONS -> csvRepo.importPositions(context, fileName)
                                 ImportType.ASSET_RECORDS -> csvRepo.importAssetRecords(context, fileName)
                                 ImportType.TRANSACTIONS -> csvRepo.importTransactions(context, fileName)
                                 null -> return@withContext "未选择导入类型"
                             }
-                            val errors = importResult.errors
+                            val errors = csvImportResult.errors
                             when (selectedImportType) {
                                 ImportType.ACCOUNTS -> {
                                     if (errors.isEmpty()) {
-                                        "导入成功：${importResult.accountsImported} 个账户"
+                                        "导入成功：${csvImportResult.accountsImported} 个账户"
                                     } else {
-                                        "导入完成：${importResult.accountsImported} 个账户，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
+                                        "导入完成：${csvImportResult.accountsImported} 个账户，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
                                     }
                                 }
                                 ImportType.POSITIONS -> {
                                     if (errors.isEmpty()) {
-                                        "导入成功：${importResult.positionsImported} 条持仓"
+                                        "导入成功：${csvImportResult.positionsImported} 条持仓"
                                     } else {
-                                        "导入完成：${importResult.positionsImported} 条持仓，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
+                                        "导入完成：${csvImportResult.positionsImported} 条持仓，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
                                     }
                                 }
                                 ImportType.ASSET_RECORDS -> {
                                     if (errors.isEmpty()) {
-                                        "导入成功：${importResult.assetRecordsImported} 条资产记录"
+                                        "导入成功：${csvImportResult.assetRecordsImported} 条持仓"
                                     } else {
-                                        "导入完成：${importResult.assetRecordsImported} 条资产记录，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
+                                        "导入完成：${csvImportResult.assetRecordsImported} 条持仓，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
                                     }
                                 }
                                 ImportType.TRANSACTIONS -> {
                                     if (errors.isEmpty()) {
-                                        "导入成功：${importResult.transactionsImported} 条交易流水"
+                                        "导入成功：${csvImportResult.transactionsImported} 条交易流水"
                                     } else {
-                                        "导入完成：${importResult.transactionsImported} 条交易流水，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
+                                        "导入完成：${csvImportResult.transactionsImported} 条交易流水，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
                                     }
                                 }
                                 null -> "未选择导入类型"
@@ -124,19 +142,33 @@ fun ImportCsvScreen(
         filePickerLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "*/*"))
     }
 
+    fun downloadTemplate(importType: ImportType) {
+        pendingTemplate = importType
+        templateLauncher.launch(templateFileName(importType))
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text("导入 CSV", fontWeight = FontWeight.Medium)
-                },
+                title = {},
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    IconButton(onClick = {
+                        if (selectedImportType != null) {
+                            selectedImportType = null
+                            importResult = null
+                        } else {
+                            onBack()
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -148,43 +180,34 @@ fun ImportCsvScreen(
                 .padding(padding)
                 .padding(20.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 账户导入
-            ImportCard(
-                title = "导入账户",
-                description = "格式：name,type,currency,balance\n例如：我的券商,BROKER,USD,10000",
-                icon = Icons.Default.List,
-                isLoading = isImporting && selectedImportType == ImportType.ACCOUNTS,
-                onClick = { launchPicker(ImportType.ACCOUNTS) }
-            )
-
-            // 持仓导入
-            ImportCard(
-                title = "导入持仓",
-                description = "格式：accountName,symbol,shares,totalCost,currency\n例如：我的券商,AAPL,100,15000,USD",
-                icon = Icons.Default.DateRange,
-                isLoading = isImporting && selectedImportType == ImportType.POSITIONS,
-                onClick = { launchPicker(ImportType.POSITIONS) }
-            )
-
-            // 资产记录导入
-            ImportCard(
-                title = "导入资产记录",
-                description = "格式：accountName,assetType,riskBucket,name,quantity,cost,currentPrice,currency",
-                icon = Icons.Default.Edit,
-                isLoading = isImporting && selectedImportType == ImportType.ASSET_RECORDS,
-                onClick = { launchPicker(ImportType.ASSET_RECORDS) }
-            )
-
-            // 交易流水导入
-            ImportCard(
-                title = "导入交易流水",
-                description = "格式：accountName,symbol,type,shares,price,amount,currency,note",
-                icon = Icons.Default.Add,
-                isLoading = isImporting && selectedImportType == ImportType.TRANSACTIONS,
-                onClick = { launchPicker(ImportType.TRANSACTIONS) }
-            )
+            if (selectedImportType == null) {
+                // 首页：展示导入类型列表
+                ImportTypeItem(
+                    title = "导入账户",
+                    description = "支持 CSV / Excel",
+                    onClick = { selectedImportType = ImportType.ACCOUNTS }
+                )
+                ImportTypeItem(
+                    title = "导入持仓",
+                    description = "支持 CSV / Excel",
+                    onClick = { selectedImportType = ImportType.ASSET_RECORDS }
+                )
+                ImportTypeItem(
+                    title = "导入交易流水",
+                    description = "支持 CSV / Excel",
+                    onClick = { selectedImportType = ImportType.TRANSACTIONS }
+                )
+            } else {
+                // 二级页：下载模板和选择文件
+                ImportDetailCard(
+                    importType = selectedImportType!!,
+                    isLoading = isImporting,
+                    onDownloadTemplate = { downloadTemplate(selectedImportType!!) },
+                    onSelectFile = { launchPicker(selectedImportType!!) }
+                )
+            }
 
             // 显示导入结果
             importResult?.let { result ->
@@ -213,30 +236,24 @@ fun ImportCsvScreen(
 }
 
 @Composable
-private fun ImportCard(
+private fun ImportTypeItem(
     title: String,
     description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isLoading: Boolean,
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
@@ -249,20 +266,108 @@ private fun ImportCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = onClick,
-                enabled = !isLoading,
-                shape = RoundedCornerShape(8.dp)
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportDetailCard(
+    importType: ImportType,
+    isLoading: Boolean,
+    onDownloadTemplate: () -> Unit,
+    onSelectFile: () -> Unit
+) {
+    val fieldDescription = when (importType) {
+        ImportType.ACCOUNTS -> "字段顺序：账户名、账户类型、币种"
+        ImportType.POSITIONS -> "字段顺序：账户名、代码、数量、总成本、币种"
+        ImportType.ASSET_RECORDS -> "字段顺序：账户名、资产类型、风险维度、名称、数量、成本、当前价、币种"
+        ImportType.TRANSACTIONS -> "字段顺序：账户名、代码、交易类型、数量、价格、金额、币种、备注"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = fieldDescription,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    Icons.Default.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("选择文件")
+                OutlinedButton(
+                    onClick = onDownloadTemplate,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("下载模板")
+                }
+                Button(
+                    onClick = onSelectFile,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("选择文件")
+                    }
+                }
             }
         }
     }
+}
+
+private fun importTypeTitle(importType: ImportType): String = when (importType) {
+    ImportType.ACCOUNTS -> "导入账户"
+    ImportType.POSITIONS -> "导入持仓"
+    ImportType.ASSET_RECORDS -> "导入持仓"
+    ImportType.TRANSACTIONS -> "导入交易流水"
+}
+
+private fun templateFileName(importType: ImportType): String = when (importType) {
+    ImportType.ACCOUNTS -> "finunity_accounts_template.csv"
+    ImportType.POSITIONS -> "finunity_positions_template.csv"
+    ImportType.ASSET_RECORDS -> "finunity_holdings_template.csv"
+    ImportType.TRANSACTIONS -> "finunity_transactions_template.csv"
+}
+
+private fun templateCsv(importType: ImportType): String = when (importType) {
+    ImportType.ACCOUNTS -> """
+        账户名,账户类型,币种
+        我的券商,券商,美元
+        招商银行,银行,人民币
+    """.trimIndent()
+    ImportType.POSITIONS -> """
+        账户名,代码,数量,总成本,币种
+        我的券商,AAPL,100,15000,美元
+    """.trimIndent()
+    ImportType.ASSET_RECORDS -> """
+        账户名,资产类型,风险维度,名称,数量,成本,当前价,币种
+        我的券商,股票,进取,AAPL,100,15000,180,美元
+        招商银行,定期存款,稳健,一年定期,10000,10000,1.03,人民币
+    """.trimIndent()
+    ImportType.TRANSACTIONS -> """
+        账户名,代码,交易类型,数量,价格,金额,币种,备注
+        我的券商,AAPL,BUY,100,150,15000,美元,首次买入
+    """.trimIndent()
 }

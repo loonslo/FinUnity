@@ -107,13 +107,11 @@ class SnapshotWorker(
             var totalCash = 0.0
             var totalStockValue = 0.0
 
-            // 计算现金（账户余额），负债账户扣减
+            // 账户只作为资产容器；非负债账户现金由 AssetRecord.CASH 表达，避免重复统计。
             for (account in accounts) {
-                val rate = priceRepository.getExchangeRate(account.currency, baseCurrency) ?: 1.0
                 if (account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
+                    val rate = priceRepository.getExchangeRate(account.currency, baseCurrency) ?: 1.0
                     totalCash -= account.balance * rate  // 负债减少总资产
-                } else {
-                    totalCash += account.balance * rate
                 }
             }
 

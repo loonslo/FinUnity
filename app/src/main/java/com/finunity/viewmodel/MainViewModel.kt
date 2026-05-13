@@ -451,9 +451,8 @@ class MainViewModel(
     }
 
     /**
-     * 对账户进行余额核对（账本模型核心）
-     * 根据交易流水重新计算余额，并与账户当前 balance 字段对比
-     * 若不一致，可选择自动修正或提示用户
+     * 对交易流水进行余额核对。
+     * 当前只用于审计，不参与普通账户资产统计；普通账户金额由 AssetRecord 表达。
      */
     suspend fun reconcileAccountBalance(accountId: String, autoFix: Boolean = false): ReconciliationResult {
         val account = database.accountDao().getAccountById(accountId) ?: return ReconciliationResult(
@@ -471,16 +470,12 @@ class MainViewModel(
         val issues = mutableListOf<String>()
 
         for (tx in transactions) {
-            val previousBalance = computedBalance
             when (tx.type) {
                 TransactionType.DEPOSIT, TransactionType.TRANSFER_IN, TransactionType.DIVIDEND, TransactionType.SELL -> {
                     computedBalance += tx.amount
                 }
                 TransactionType.WITHDRAW, TransactionType.TRANSFER_OUT, TransactionType.BUY, TransactionType.FEE -> {
                     computedBalance -= tx.amount
-                }
-                else -> {
-                    // 其他类型暂不计入余额变化（如内部转账）
                 }
             }
 
@@ -504,7 +499,7 @@ class MainViewModel(
             issues = issues
         )
 
-        // 如果开启自动修正且有差异，修正账户余额
+        // 仅保留给审计场景使用，普通账户金额不通过 balance 参与资产统计。
         if (autoFix && !result.isBalanced) {
             val updated = account.copy(balance = computedBalance)
             database.accountDao().update(updated)

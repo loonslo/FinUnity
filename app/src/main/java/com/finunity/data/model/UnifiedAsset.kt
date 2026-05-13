@@ -112,9 +112,9 @@ fun calculateRiskBucketSummaries(
  * 风险维度名称映射
  */
 fun RiskBucket.displayName(): String = when (this) {
-    RiskBucket.CONSERVATIVE -> "稳健型"
-    RiskBucket.AGGRESSIVE -> "进攻型"
-    RiskBucket.CASH -> "现金类"
+    RiskBucket.CONSERVATIVE -> "稳健"
+    RiskBucket.AGGRESSIVE -> "进取"
+    RiskBucket.CASH -> "防守"
 }
 
 /**
@@ -125,5 +125,5 @@ fun AssetType.displayName(): String = when (this) {
     AssetType.ETF -> "ETF"
     AssetType.FUND -> "基金"
     AssetType.CASH -> "现金"
-    AssetType.TIME_DEPOSIT -> "定期存款"
+    AssetType.TIME_DEPOSIT -> "定期"
 }

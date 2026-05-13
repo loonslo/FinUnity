@@ -9,9 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,7 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.HoldingSummary
@@ -39,23 +38,20 @@ fun RiskBucketDetailScreen(
     baseCurrency: String,
     onBack: () -> Unit,
     onViewAccountTransactions: (String) -> Unit = {},
-    onViewAssetHistory: (String) -> Unit = {},  // recordId -> PriceHistoryScreen
-    onViewAssetTransactions: (String) -> Unit = {},  // recordId -> AssetTransactionHistoryScreen
     onEditAssetRecord: (String) -> Unit = {},  // recordId -> AssetRecordScreen
     modifier: Modifier = Modifier
 ) {
     // 过滤出属于该风险维度的账户和记录
     // 账户属于某个维度的情况：
-    // - CASH: 非负债账户有正现金余额
+    // - CASH: 账户下有现金类持仓
     // - AGGRESSIVE: 账户下有持仓（Position）或股票/ETF/基金资产记录
     // - CONSERVATIVE: 账户下有定期存款资产记录
     val accountsInBucket = accounts.filter { account ->
         when (riskBucketSummary.riskBucket) {
-            RiskBucket.CASH -> account.account.type != com.finunity.data.local.entity.AccountType.LIABILITY &&
-                (account.account.balance > 0 || assetRecords.any {
+            RiskBucket.CASH -> assetRecords.any {
                     it.record.accountId == account.account.id &&
                     it.record.riskBucket == RiskBucket.CASH
-                })
+                }
             RiskBucket.AGGRESSIVE -> {
                 // 账户有持仓（Position）或股票/ETF/基金资产记录
                 holdings.any { it.position.accountId == account.account.id } ||
@@ -84,19 +80,18 @@ fun RiskBucketDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "${riskBucketSummary.riskBucket.displayName()} 详情",
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -136,14 +131,7 @@ fun RiskBucketDetailScreen(
                             .filter { it.record.accountId == accountSummary.account.id }
                             .sumOf { it.currentValue }
                     val bucketValueForAccount = when (riskBucketSummary.riskBucket) {
-                        RiskBucket.CASH -> {
-                            val accountCash = if (accountSummary.account.balance > 0) {
-                                accountSummary.balanceInBaseCurrency
-                            } else {
-                                0.0
-                            }
-                            accountCash + recordValueForAccount
-                        }
+                        RiskBucket.CASH -> recordValueForAccount
                         RiskBucket.AGGRESSIVE -> {
                             recordValueForAccount + holdingsInBucket
                                 .filter { it.position.accountId == accountSummary.account.id }
@@ -165,7 +153,7 @@ fun RiskBucketDetailScreen(
             if (recordsInBucket.isNotEmpty()) {
                 item {
                     Text(
-                        text = "资产记录 (${recordsInBucket.size})",
+                        text = "持仓 (${recordsInBucket.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -176,9 +164,7 @@ fun RiskBucketDetailScreen(
                     AssetRecordInBucketItem(
                         summary = record,
                         baseCurrency = baseCurrency,
-                        onViewHistory = { onViewAssetHistory(record.record.id) },
-                        onViewTransactions = { onViewAssetTransactions(record.record.id) },
-                        onEdit = { onEditAssetRecord(record.record.id) }
+                        onClick = { onEditAssetRecord(record.record.id) }
                     )
                 }
             }
@@ -213,7 +199,7 @@ fun RiskBucketSummaryCard(
 ) {
     val bucketColor = when (summary.riskBucket) {
         RiskBucket.CONSERVATIVE -> Color(0xFF4CAF50)
-        RiskBucket.AGGRESSIVE -> Color(0xFFE53935)
+        RiskBucket.AGGRESSIVE -> MaterialTheme.colorScheme.primary
         RiskBucket.CASH -> Color(0xFF2196F3)
     }
 
@@ -221,7 +207,7 @@ fun RiskBucketSummaryCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = bucketColor.copy(alpha = 0.1f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         )
     ) {
         Column(
@@ -289,7 +275,9 @@ fun AccountInBucketItem(
     onViewTransactions: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onViewTransactions),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -309,26 +297,16 @@ fun AccountInBucketItem(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${account.type.name} · ${account.currency}",
+                    text = "${account.type.displayName()} · ${account.currency}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = formatCurrency(valueInBucket, baseCurrency),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = onViewTransactions) {
-                    Icon(
-                        Icons.Default.DateRange,
-                        contentDescription = "查看流水",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            Text(
+                text = formatCurrency(valueInBucket, baseCurrency),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -392,7 +370,7 @@ fun HoldingInBucketItem(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${if (holding.profitLoss >= 0) "+" else ""}${String.format("%.1f", holding.profitLossRatio * 100)}%",
+                    text = formatSignedPercent(holding.profitLossRatio),
                     style = MaterialTheme.typography.bodySmall,
                     color = profitColor
                 )
@@ -405,14 +383,15 @@ fun HoldingInBucketItem(
 fun AssetRecordInBucketItem(
     summary: AssetRecordSummary,
     baseCurrency: String,
-    onViewHistory: () -> Unit,
-    onViewTransactions: () -> Unit,
-    onEdit: () -> Unit
+    onClick: () -> Unit
 ) {
     val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val isCash = summary.record.assetType == AssetType.CASH
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -462,29 +441,13 @@ fun AssetRecordInBucketItem(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    text = "${if (summary.profitLoss >= 0) "+" else ""}${String.format("%.1f", summary.profitLossRatio * 100)}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = profitColor
-                )
-            }
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            IconButton(onClick = onViewTransactions) {
-                Icon(
-                    Icons.Default.List,
-                    contentDescription = "交易流水",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            IconButton(onClick = onEdit) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = "编辑",
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                if (!isCash) {
+                    Text(
+                        text = formatSignedPercent(summary.profitLossRatio),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = profitColor
+                    )
+                }
             }
         }
     }

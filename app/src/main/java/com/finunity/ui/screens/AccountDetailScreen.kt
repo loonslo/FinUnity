@@ -10,8 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,7 +19,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.AssetRecord
+import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
@@ -44,45 +45,20 @@ fun AccountDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        account.name,
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onViewTransactions) {
                         Icon(
-                            Icons.Default.DateRange,
-                            contentDescription = "交易流水",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = onEditAccount) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "编辑账户",
-                            tint = MaterialTheme.colorScheme.primary
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddRecord,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "添加记录", tint = Color.White)
-            }
         },
         modifier = modifier
     ) { padding ->
@@ -114,7 +90,7 @@ fun AccountDetailScreen(
                 }
             }
 
-            // 资产记录列表
+            // 持仓列表
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -122,11 +98,19 @@ fun AccountDetailScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "资产记录 (${recordsForAccount.size})",
+                        text = "持仓 (${recordsForAccount.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                     )
+                    TextButton(onClick = onAddRecord) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text("添加")
+                    }
                 }
             }
 
@@ -147,7 +131,7 @@ fun AccountDetailScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "暂无资产记录",
+                                    text = "暂无持仓",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )
@@ -155,7 +139,7 @@ fun AccountDetailScreen(
                                 TextButton(onClick = onAddRecord) {
                                     Icon(Icons.Default.Add, contentDescription = null)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("添加第一条记录")
+                                    Text("添加持仓")
                                 }
                             }
                         }
@@ -197,42 +181,25 @@ fun AccountInfoCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
+            // 账户名称和类型
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Text(
+                    text = account.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
                     Text(
-                        text = "账户类型",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = when (account.type.name) {
-                            "BROKER" -> "券商账户"
-                            "BANK" -> "银行账户"
-                            "FUND" -> "基金账户"
-                            "CASH_MANAGEMENT" -> "现金管理"
-                            "BOND" -> "债券"
-                            "INSURANCE" -> "保险"
-                            "LIABILITY" -> "负债"
-                            else -> "其他"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "币种",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = account.currency,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium
+                        text = "${account.type.displayName()} · ${account.currency}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -245,7 +212,7 @@ fun AccountInfoCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isLiability) "负债余额" else "现金余额",
+                    text = if (isLiability) "负债金额" else "账户资产",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -265,8 +232,9 @@ fun AccountStatsRow(
     baseCurrency: String
 ) {
     val totalValue = records.sumOf { it.currentValue }
-    val totalCost = records.sumOf { it.costInBaseCurrency }
-    val totalProfitLoss = totalValue - totalCost
+    val incomeRecords = records.filter { it.record.assetType != AssetType.CASH }
+    val totalCost = incomeRecords.sumOf { it.costInBaseCurrency }
+    val totalProfitLoss = incomeRecords.sumOf { it.profitLoss }
     val profitLossRatio = if (totalCost > 0) totalProfitLoss / totalCost else 0.0
 
     Row(
@@ -279,18 +247,20 @@ fun AccountStatsRow(
             value = formatCurrency(totalValue, baseCurrency),
             color = MaterialTheme.colorScheme.primary
         )
-        StatCard(
-            modifier = Modifier.weight(1f),
-            label = "盈亏",
-            value = "${if (totalProfitLoss >= 0) "+" else ""}${formatCurrency(totalProfitLoss, baseCurrency)}",
-            color = if (totalProfitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
-        )
-        StatCard(
-            modifier = Modifier.weight(1f),
-            label = "收益率",
-            value = "${if (profitLossRatio >= 0) "+" else ""}${String.format("%.1f", profitLossRatio * 100)}%",
-            color = if (profitLossRatio >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
-        )
+        if (incomeRecords.isNotEmpty()) {
+            StatCard(
+                modifier = Modifier.weight(1f),
+                label = "盈亏",
+                value = "${if (totalProfitLoss >= 0) "+" else ""}${formatCurrency(totalProfitLoss, baseCurrency)}",
+                color = if (totalProfitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+            )
+            StatCard(
+                modifier = Modifier.weight(1f),
+                label = "收益率",
+                value = formatSignedPercent(profitLossRatio),
+                color = if (profitLossRatio >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+            )
+        }
     }
 }
 
@@ -335,6 +305,7 @@ fun AccountRecordItem(
     onClick: () -> Unit
 ) {
     val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val isCash = summary.record.assetType == AssetType.CASH
 
     Card(
         modifier = Modifier
@@ -377,7 +348,10 @@ fun AccountRecordItem(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${summary.record.assetType.displayName()} · ${summary.record.riskBucket.displayName()}",
+                    text = listOfNotNull(
+                        summary.record.assetType.displayName(),
+                        summary.record.riskBucket.displayName().takeIf { summary.record.assetType != AssetType.CASH }
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -389,11 +363,13 @@ fun AccountRecordItem(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    text = "${if (summary.profitLoss >= 0) "+" else ""}${String.format("%.1f", summary.profitLossRatio * 100)}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = profitColor
-                )
+                if (!isCash) {
+                    Text(
+                        text = formatSignedPercent(summary.profitLossRatio),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = profitColor
+                    )
+                }
             }
         }
     }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -26,6 +25,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.displayName
+import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinPill
+import com.finunity.ui.components.FinSoftButton
+import com.finunity.ui.components.FinTextField
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -43,6 +47,8 @@ fun AccountScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val currencies = listOf("CNY", "USD", "HKD")
+    val commonAccountTypes = listOf(AccountType.BANK, AccountType.BROKER, AccountType.CASH_MANAGEMENT)
+    val otherAccountTypes = listOf(AccountType.INSURANCE, AccountType.LIABILITY, AccountType.OTHER)
 
     // 删除确认对话框
     if (showDeleteConfirmDialog) {
@@ -54,7 +60,7 @@ fun AccountScreen(
                     Text("确定要删除账户 \"${account?.name}\" 吗？")
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "注意：删除账户将同时删除该账户下的所有持仓记录、资产记录、价格历史和交易流水",
+                        text = "注意：删除账户将同时删除该账户下的所有持仓、价格历史和交易流水",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -82,30 +88,18 @@ fun AccountScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        if (account == null) "添加账户" else "编辑账户",
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (account != null) {
-                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "删除",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
@@ -120,15 +114,11 @@ fun AccountScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // 账户名称
-            OutlinedTextField(
+            FinTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("账户名称") },
-                placeholder = { Text("如：招商银行、富途证券") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                label = "账户名称",
+                placeholder = "如：招商银行、富途证券"
             )
 
             // 账户类型
@@ -139,31 +129,42 @@ fun AccountScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "常用",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AccountType.values().forEach { type ->
-                        FilterChip(
+                    commonAccountTypes.forEach { type ->
+                        FinPill(
                             selected = selectedType == type,
                             onClick = { selectedType = type },
-                            label = {
-                                Text(
-                                    when (type) {
-                                        AccountType.BROKER -> "券商"
-                                        AccountType.BANK -> "银行"
-                                        AccountType.FUND -> "基金"
-                                        AccountType.CASH_MANAGEMENT -> "现金管理"
-                                        AccountType.BOND -> "债券"
-                                        AccountType.INSURANCE -> "保险"
-                                        AccountType.LIABILITY -> "负债"
-                                        AccountType.OTHER -> "其他"
-                                    },
-                                    maxLines = 1
-                                )
-                            },
-                            shape = RoundedCornerShape(8.dp)
+                            text = type.displayName()
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "其他",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    otherAccountTypes.forEach { type ->
+                        FinPill(
+                            selected = selectedType == type,
+                            onClick = { selectedType = type },
+                            text = type.displayName()
                         )
                     }
                 }
@@ -182,48 +183,79 @@ fun AccountScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     currencies.forEach { currency ->
-                        FilterChip(
+                        FinPill(
                             selected = selectedCurrency == currency,
                             onClick = { selectedCurrency = currency },
-                            label = { Text(currency) },
-                            shape = RoundedCornerShape(8.dp)
+                            text = currency
                         )
                     }
                 }
             }
 
-            // 现金余额
-            OutlinedTextField(
-                value = balance,
-                onValueChange = { balance = it.filter { c -> c.isDigit() || c == '.' } },
-                label = { Text(if (selectedType == AccountType.LIABILITY) "负债金额" else "现金余额") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-            )
+            if (selectedType == AccountType.LIABILITY) {
+                FinTextField(
+                    value = balance,
+                    onValueChange = { balance = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = "负债金额",
+                    keyboardType = KeyboardType.Decimal
+                )
+            } else {
+                FinCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)) {
+                    Text(
+                        text = "账户只用于归类。现金、基金、定期等金额请在账户下添加持仓，避免重复统计。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
-            Button(
+            FinSoftButton(
+                text = "保存",
                 onClick = {
                     val newAccount = Account(
                         id = account?.id ?: java.util.UUID.randomUUID().toString(),
                         name = name,
                         type = selectedType,
                         currency = selectedCurrency,
-                        balance = balance.toDoubleOrNull() ?: 0.0,
+                        balance = if (selectedType == AccountType.LIABILITY) balance.toDoubleOrNull() ?: 0.0 else 0.0,
                         createdAt = account?.createdAt ?: System.currentTimeMillis()
                     )
                     onSave(newAccount)
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                enabled = name.isNotBlank(),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("保存", style = MaterialTheme.typography.titleMedium)
+                    .fillMaxWidth(),
+                enabled = name.isNotBlank()
+            )
+
+            // 删除按钮（仅编辑时显示）
+            if (account != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showDeleteConfirmDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("删除账户")
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
