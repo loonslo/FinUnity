@@ -14,13 +14,13 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 // FinUnity Design Tokens - 简洁克制
-private val FinPrimary = Color(0xFF4CAF50)  // 有知有行风格浅绿
-private val FinSecondary = Color(0xFF4B8C5E)  // 中绿
-private val FinProfit = Color(0xFF00A86B)  // 盈绿色
+private val FinPrimary = Color(0xFF166B45)  // 按钮/主操作绿，保证白字可读
+private val FinSecondary = Color(0xFF1E8E5A)  // 点缀绿
+private val FinProfit = Color(0xFF1E8E5A)  // 盈绿色
 private val FinLoss = Color(0xFFE53935)   // 亏红色
 private val FinGray1 = Color(0xFF1F2933)   // 深灰（主文字）
 private val FinGray2 = Color(0xFF6B7280)   // 中灰（次文字）
-private val FinGray3 = Color(0xFF9CA3AF)   // 浅灰（辅助）
+private val FinGray3 = Color(0xFF8A9099)   // 浅灰（辅助）
 private val FinBg = Color(0xFFF7F8FA)       // 页面背景
 private val FinSurface = Color(0xFFFFFFFF) // 卡片背景
 
@@ -29,7 +29,7 @@ private val LightColorScheme = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE8F5E9),
     onPrimaryContainer = FinPrimary,
-    secondary = Color(0xFF81C784),
+    secondary = FinSecondary,
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFE8F5E9),
     onSecondaryContainer = FinPrimary,

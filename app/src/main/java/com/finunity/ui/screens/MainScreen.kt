@@ -11,7 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -55,15 +53,14 @@ fun MainScreen(
     error: String? = null,
     onStartAddFlow: () -> Unit,
     onEditAccount: (Account) -> Unit = {},
-    onViewHistory: () -> Unit = {},
     onViewRiskBucketDetail: (Int) -> Unit = {},  // bucket index
-    onOpenSettings: () -> Unit = {},  // NEW: open settings screen
-    onOpenImportCsv: () -> Unit = {},  // NEW: open CSV import screen
+    onViewAccounts: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         bottomBar = bottomBar,
+        containerColor = Color(0xFFF7F8FA),
         modifier = modifier
     ) { padding ->
         // 错误提示
@@ -112,11 +109,12 @@ fun MainScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(Color(0xFFF7F8FA))
                     .padding(padding)
                     .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item { Spacer(modifier = Modifier.height(8.dp)) }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
                 item {
                     AssetOverviewCard(
                         totalAssets = portfolioSummary.totalAssets,
@@ -124,10 +122,7 @@ fun MainScreen(
                         baseCurrency = portfolioSummary.baseCurrency,
                         totalCost = portfolioSummary.assetRecords.sumOf { it.costInBaseCurrency } +
                             portfolioSummary.positions.sumOf { it.totalCost },
-                        onRiskBucketClick = onViewRiskBucketDetail,
-                        onOpenImportCsv = onOpenImportCsv,
-                        onOpenSettings = onOpenSettings,
-                        onViewHistory = onViewHistory
+                        onRiskBucketClick = onViewRiskBucketDetail
                     )
                 }
 
@@ -138,6 +133,15 @@ fun MainScreen(
                             portfolioSummary = portfolioSummary
                         )
                     }
+                }
+
+                item {
+                    HomeAccountSummaryCard(
+                        accounts = portfolioSummary.accounts,
+                        baseCurrency = portfolioSummary.baseCurrency,
+                        onViewAll = onViewAccounts,
+                        onViewAccount = onEditAccount
+                    )
                 }
 
                 item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -152,7 +156,9 @@ fun EmptyState(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFFF7F8FA)),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -188,7 +194,8 @@ fun EmptyState(
             Button(
                 onClick = onStartAddFlow,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
                 )
             ) {
                 Text("添加账户")
@@ -203,71 +210,44 @@ fun AssetOverviewCard(
     baseCurrency: String,
     totalCost: Double,
     riskBuckets: List<RiskBucketSummary>,
-    onRiskBucketClick: (Int) -> Unit = {},
-    onOpenImportCsv: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
-    onViewHistory: () -> Unit = {}
+    onRiskBucketClick: (Int) -> Unit = {}
 ) {
     val cumulativeProfit = totalAssets - totalCost
     val cumulativeRatio = if (totalCost > 0) cumulativeProfit / totalCost else 0.0
     val profitColor = if (cumulativeProfit >= 0) Color(0xFF0F9D58) else Color(0xFFD93025)
-    var showMoreMenu by remember { mutableStateOf(false) }
+    val cumulativeText = "累计变化 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(0.6.dp, FinLine.copy(alpha = 0.72f)),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color.Transparent
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White,
-                            Color(0xFFF7FBF8),
-                            Color(0xFFEEF7F2)
-                        )
-                    )
-                )
+                .background(Color.White)
         ) {
-            Canvas(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(120.dp)
-            ) {
-                drawCircle(
-                    color = Color(0xFF166534).copy(alpha = 0.07f),
-                    radius = size.minDimension * 0.45f,
-                    center = Offset(size.width * 0.72f, size.height * 0.70f)
-                )
-                drawCircle(
-                    color = Color(0xFF166534).copy(alpha = 0.05f),
-                    radius = size.minDimension * 0.25f,
-                    center = Offset(size.width * 0.42f, size.height * 0.45f)
-                )
-            }
             Column(
                 modifier = Modifier.padding(20.dp)
             ) {
-            Text(
-                text = "资产结构",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AllocationDonutSummary(
-                riskBuckets = riskBuckets,
-                totalAssets = totalAssets,
-                baseCurrency = baseCurrency,
-                onRiskBucketClick = onRiskBucketClick,
-                cumulativeProfitText = "累计 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}",
-                profitColor = profitColor
-            )
-
+                Text(
+                    text = "资产结构",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1F2933)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                AllocationDonutSummary(
+                    riskBuckets = riskBuckets,
+                    totalAssets = totalAssets,
+                    baseCurrency = baseCurrency,
+                    onRiskBucketClick = onRiskBucketClick,
+                    cumulativeProfitText = cumulativeText,
+                    profitColor = profitColor
+                )
             }
         }
     }
@@ -321,7 +301,7 @@ private fun AllocationDonutSummary(
                 modifier = Modifier.width(112.dp)
             ) {
                 Text(
-                    text = "总资产",
+                    text = "结构",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -448,6 +428,110 @@ private fun AllocationLegendRow(
     }
 }
 
+@Composable
+private fun HomeAccountSummaryCard(
+    accounts: List<AccountSummary>,
+    baseCurrency: String,
+    onViewAll: () -> Unit,
+    onViewAccount: (Account) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "账户",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1F2933)
+                )
+                TextButton(onClick = onViewAll) {
+                    Text("查看全部")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            if (accounts.isEmpty()) {
+                Text(
+                    text = "暂时还没有账户",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF6B7280)
+                )
+            } else {
+                accounts.take(3).forEachIndexed { index, summary ->
+                    HomeAccountRow(
+                        summary = summary,
+                        baseCurrency = baseCurrency,
+                        onClick = { onViewAccount(summary.account) }
+                    )
+                    if (index != accounts.take(3).lastIndex) {
+                        Divider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = Color(0xFFE5E7EB).copy(alpha = 0.65f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeAccountRow(
+    summary: AccountSummary,
+    baseCurrency: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = summary.account.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2933),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = "${summary.account.type.displayName()} · ${summary.account.currency}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF6B7280),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (summary.balanceInBaseCurrency < 0) Color(0xFFC2413A) else Color(0xFF111827)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Icon(
+            Icons.Default.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color(0xFF6B7280)
+        )
+    }
+}
+
 private fun allocationColor(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> Color(0xFF3D7A5C)
     RiskBucket.CONSERVATIVE -> Color(0xFF8DA7C7)
@@ -483,11 +567,11 @@ fun RebalanceAlertCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier

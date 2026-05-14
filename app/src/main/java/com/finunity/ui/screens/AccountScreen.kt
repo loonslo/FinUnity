@@ -119,8 +119,6 @@ fun AccountScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            AccountFormHeader(accountName = name, isEditing = account != null)
-
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
@@ -216,22 +214,6 @@ fun AccountScreen(
                             label = "负债金额",
                             keyboardType = KeyboardType.Decimal
                         )
-                    } else {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = AccountFormAccent.copy(alpha = 0.07f)
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                        ) {
-                            Text(
-                                text = "账户用于归类资产。工资、转账和现金变化请在账户详情里用「记一笔」记录。",
-                                modifier = Modifier.padding(16.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = AccountFormText.copy(alpha = 0.72f)
-                            )
-                        }
                     }
                 }
             }
@@ -254,7 +236,10 @@ fun AccountScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccountFormAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccountFormAccent,
+                    contentColor = Color.White
+                ),
                 enabled = name.isNotBlank()
             ) {
                 Text(
@@ -298,56 +283,7 @@ fun AccountScreen(
     }
 }
 
-@Composable
-private fun AccountFormHeader(
-    accountName: String,
-    isEditing: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(22.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .background(AccountFormAccent.copy(alpha = 0.09f), RoundedCornerShape(22.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = accountName.trim().take(1).ifBlank { "+" },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = AccountFormAccent
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(
-                    text = if (isEditing) "编辑账户" else "添加账户",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = AccountFormText
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "设置账户资料，资金变化用记一笔记录",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = AccountFormMuted
-                )
-            }
-        }
-    }
-}
-
 private val AccountFormPage = Color(0xFFF7F8FA)
 private val AccountFormText = Color(0xFF1F2933)
-private val AccountFormMuted = Color(0xFFA0A4AA)
-private val AccountFormAccent = Color(0xFF1E8E5A)
+private val AccountFormMuted = Color(0xFF6B7280)
+private val AccountFormAccent = Color(0xFF166B45)

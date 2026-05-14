@@ -207,12 +207,10 @@ fun FinUnityApp(database: AppDatabase) {
                 onEditAccount = { account ->
                     navigateTo(Screen.AccountDetail(account.id))
                 },
-                onViewHistory = { navigateTo(Screen.PriceChanges) },
                 onViewRiskBucketDetail = { bucketIndex ->
                     navigateTo(Screen.RiskBucketDetail(bucketIndex))
                 },
-                onOpenSettings = { navigateTo(Screen.Settings) },
-                onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
+                onViewAccounts = { switchTopLevel(Screen.AccountHub) },
                 bottomBar = { bottomBar(TopLevelTab.Main) }
             )
         }
@@ -253,7 +251,6 @@ fun FinUnityApp(database: AppDatabase) {
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                 holdings = portfolioSummary?.holdings ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onBack = { navigateBack() },
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
                 onOpenTransactions = { navigateTo(Screen.AllTransactions) },
@@ -264,9 +261,9 @@ fun FinUnityApp(database: AppDatabase) {
         is Screen.AccountAssetsByAccount -> {
             AccountAssetsByAccountScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
-                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
+                onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
+                onOpenSettings = { navigateTo(Screen.Settings) },
                 bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
@@ -369,7 +366,7 @@ fun FinUnityApp(database: AppDatabase) {
                 onEditAccount = { navigateTo(Screen.AddAccount(accountSummary?.account)) },
                 onRecordCashFlow = { navigateTo(Screen.CashFlow(screen.accountId)) },
                 onAddRecord = { navigateTo(Screen.AddAssetRecord(record = null, accountId = screen.accountId)) },
-                onEditRecord = { record -> navigateTo(Screen.AddAssetRecord(record = record, accountId = screen.accountId)) },
+                onEditRecord = { record -> navigateTo(Screen.AssetDetail(record.id)) },
                 onViewTransactions = { navigateTo(Screen.TransactionHistory(screen.accountId)) }
             )
         }

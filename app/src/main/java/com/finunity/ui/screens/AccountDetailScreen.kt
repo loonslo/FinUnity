@@ -63,11 +63,13 @@ fun AccountDetailScreen(
                 )
             )
         },
+        containerColor = Color(0xFFF7F8FA),
         modifier = modifier
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFF7F8FA))
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -106,7 +108,6 @@ fun AccountDetailScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -115,14 +116,6 @@ fun AccountDetailScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                     )
-                    TextButton(onClick = onAddRecord) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text("添加")
-                    }
                 }
             }
 
@@ -179,43 +172,76 @@ private fun AccountActionRow(
     onViewTransactions: () -> Unit,
     onEditAccount: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = onRecordCashFlow,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("记一笔")
-            }
-            OutlinedButton(
-                onClick = onAddRecord,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("添加资产")
-            }
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(
+            onClick = onRecordCashFlow,
+            modifier = Modifier
+                .weight(1f)
+                .height(54.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFEAF7EF),
+                contentColor = Color(0xFF111827)
+            )
+        ) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = Color(0xFF111827)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("记一笔", color = Color(0xFF111827))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TextButton(
-                onClick = onViewTransactions,
-                modifier = Modifier.weight(1f)
+        Box {
+            Surface(
+                onClick = { expanded = true },
+                modifier = Modifier.size(54.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color.White
             ) {
-                Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("流水")
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "更多",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                    )
+                }
             }
-            TextButton(
-                onClick = onEditAccount,
-                modifier = Modifier.weight(1f)
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
             ) {
-                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("编辑账户")
+                DropdownMenuItem(
+                    text = { Text("添加资产") },
+                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onAddRecord()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("交易流水") },
+                    leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onViewTransactions()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("编辑账户") },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onEditAccount()
+                    }
+                )
             }
         }
     }
@@ -231,13 +257,11 @@ fun AccountInfoCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isLiability)
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-            else
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(20.dp)
@@ -280,7 +304,8 @@ fun AccountInfoCard(
                 Text(
                     text = formatCurrency(balanceInBaseCurrency, baseCurrency),
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = if (isLiability) MaterialTheme.colorScheme.error else Color(0xFF111827)
                 )
             }
         }
@@ -334,10 +359,11 @@ fun StatCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = color.copy(alpha = 0.1f)
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -372,10 +398,11 @@ fun AccountRecordItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier

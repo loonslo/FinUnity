@@ -1,6 +1,7 @@
 package com.finunity.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -105,11 +106,13 @@ fun CashFlowScreen(
                 )
             )
         },
+        containerColor = Color(0xFFF7F8FA),
         modifier = modifier
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFF7F8FA))
                 .padding(padding)
                 .padding(horizontal = 20.dp, vertical = 16.dp)
                 .verticalScroll(rememberScrollState()),
@@ -123,7 +126,7 @@ fun CashFlowScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 RecordEntryCard(
-                    title = "收支",
+                    title = "日常收支",
                     subtitle = "工资、消费、现金增减",
                     icon = Icons.Default.Add,
                     selected = selectedEntry == RecordEntry.CASH,
@@ -133,7 +136,7 @@ fun CashFlowScreen(
                     }
                 )
                 RecordEntryCard(
-                    title = "投资",
+                    title = "投资买卖",
                     subtitle = "买入、卖出资产",
                     icon = Icons.Default.DateRange,
                     selected = selectedEntry == RecordEntry.INVEST,
@@ -142,8 +145,8 @@ fun CashFlowScreen(
                     }
                 )
                 RecordEntryCard(
-                    title = "调整",
-                    subtitle = "账户转账、调仓、修正",
+                    title = "资产调整",
+                    subtitle = "账户转账、分类调整、数据修正",
                     icon = Icons.Default.Person,
                     selected = selectedEntry == RecordEntry.ADJUST,
                     onClick = {
@@ -158,7 +161,7 @@ fun CashFlowScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                        containerColor = Color.White
                     )
                 ) {
                     Text(
@@ -260,7 +263,10 @@ fun CashFlowScreen(
                         .height(52.dp),
                     enabled = canSave,
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White
+                    )
                 ) {
                     Text("保存")
                 }
@@ -283,9 +289,9 @@ private fun RecordEntryCard(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f) else Color.White
+            containerColor = if (selected) Color(0xFFEAF7EF) else Color.White
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 2.dp else 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
