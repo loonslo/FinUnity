@@ -37,8 +37,8 @@ fun RiskBucketDetailScreen(
     holdings: List<HoldingSummary>,
     baseCurrency: String,
     onBack: () -> Unit,
-    onViewAccountTransactions: (String) -> Unit = {},
-    onEditAssetRecord: (String) -> Unit = {},  // recordId -> AssetRecordScreen
+    onViewAccount: (String) -> Unit = {},
+    onViewAssetRecord: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // 过滤出属于该风险维度的账户和记录
@@ -78,6 +78,7 @@ fun RiskBucketDetailScreen(
     }
 
     Scaffold(
+        containerColor = RiskPage,
         topBar = {
             TopAppBar(
                 title = {},
@@ -91,7 +92,7 @@ fun RiskBucketDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = RiskPage
                 )
             )
         },
@@ -100,6 +101,7 @@ fun RiskBucketDetailScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(RiskPage)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -144,7 +146,7 @@ fun RiskBucketDetailScreen(
                         account = accountSummary.account,
                         valueInBucket = bucketValueForAccount,
                         baseCurrency = baseCurrency,
-                        onViewTransactions = { onViewAccountTransactions(accountSummary.account.id) }
+                        onClick = { onViewAccount(accountSummary.account.id) }
                     )
                 }
             }
@@ -164,7 +166,7 @@ fun RiskBucketDetailScreen(
                     AssetRecordInBucketItem(
                         summary = record,
                         baseCurrency = baseCurrency,
-                        onClick = { onEditAssetRecord(record.record.id) }
+                        onClick = { onViewAssetRecord(record.record.id) }
                     )
                 }
             }
@@ -205,10 +207,11 @@ fun RiskBucketSummaryCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(
             modifier = Modifier.padding(20.dp)
@@ -272,16 +275,17 @@ fun AccountInBucketItem(
     account: Account,
     valueInBucket: Double,
     baseCurrency: String,
-    onViewTransactions: () -> Unit
+    onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onViewTransactions),
-        shape = RoundedCornerShape(12.dp),
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -320,10 +324,11 @@ fun HoldingInBucketItem(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -392,10 +397,11 @@ fun AssetRecordInBucketItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -452,3 +458,5 @@ fun AssetRecordInBucketItem(
         }
     }
 }
+
+private val RiskPage = Color(0xFFF7F8FA)

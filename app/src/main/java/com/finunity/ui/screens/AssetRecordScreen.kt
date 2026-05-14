@@ -57,7 +57,6 @@ fun AssetRecordScreen(
     val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
 
     val isNewRecord = record == null
-    val isTradable = record != null && record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
     val hasRiskBucket = selectedAssetType != AssetType.CASH
 
     LaunchedEffect(allowedAssetTypes) {
@@ -620,7 +619,7 @@ private fun defaultRiskBucketFor(assetType: AssetType): RiskBucket = when (asset
 }
 
 private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetType?): List<AssetType> {
-    val allowed = when (accountType) {
+    val baseAllowed = when (accountType) {
         AccountType.BROKER -> listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND, AssetType.CASH)
         AccountType.BANK -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
         AccountType.FUND -> listOf(AssetType.FUND, AssetType.CASH)
@@ -629,6 +628,11 @@ private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetTy
         AccountType.INSURANCE -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT)
         AccountType.LIABILITY -> emptyList()
         AccountType.OTHER, null -> AssetType.entries.toList()
+    }
+    val allowed = if (currentType == null) {
+        baseAllowed.filterNot { it == AssetType.CASH }
+    } else {
+        baseAllowed
     }
     return if (currentType != null && currentType !in allowed) {
         listOf(currentType) + allowed

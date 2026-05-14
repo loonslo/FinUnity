@@ -31,11 +31,12 @@ import com.finunity.data.repository.CsvImportRepository
 import com.finunity.data.repository.HistoryRepository
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.ui.screens.AccountScreen
+import com.finunity.ui.screens.AccountAssetsByAccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
 import com.finunity.ui.screens.AccountHubScreen
-import com.finunity.ui.screens.AccountListScreen
 import com.finunity.ui.screens.AssetRecordScreen
 import com.finunity.ui.screens.AssetDetailScreen
+import com.finunity.ui.screens.CashFlowScreen
 import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.MainScreen
 import com.finunity.ui.screens.PositionScreen
@@ -87,9 +88,11 @@ sealed class Screen {
     data object Settings : Screen()
     data object ImportCsv : Screen()
     data object AccountHub : Screen()
-    data object AccountList : Screen()
+    data object AccountAssetsByAccount : Screen()
     data object PriceChanges : Screen()
+    data object AllTransactions : Screen()
     data class AddAccount(val account: Account? = null, val continueToAsset: Boolean = false) : Screen()
+    data class CashFlow(val accountId: String) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
     data class AddAssetRecord(val record: AssetRecord? = null, val accountId: String) : Screen()
     data object History : Screen()
@@ -103,7 +106,7 @@ sealed class Screen {
 
 private enum class TopLevelTab {
     Main,
-    History,
+    Assets,
     Accounts
 }
 
@@ -139,6 +142,11 @@ fun FinUnityApp(database: AppDatabase) {
         currentScreen = screen
     }
 
+    fun switchTopLevel(screen: Screen) {
+        navStack = emptyList()
+        currentScreen = screen
+    }
+
     // 返回上一页
     fun navigateBack() {
         if (navStack.isNotEmpty()) {
@@ -170,7 +178,7 @@ fun FinUnityApp(database: AppDatabase) {
     fun startAddFlow() {
         val accounts = portfolioSummary?.accounts.orEmpty()
         if (accounts.isEmpty()) {
-            navigateTo(Screen.AccountHub)
+            navigateTo(Screen.AccountAssetsByAccount)
         } else {
             showAccountPicker = true
         }
@@ -180,10 +188,10 @@ fun FinUnityApp(database: AppDatabase) {
         FinUnityBottomBar(
             selected = selected,
             onSelect = { tab ->
-                navigateTo(when (tab) {
+                switchTopLevel(when (tab) {
                     TopLevelTab.Main -> Screen.Main
-                    TopLevelTab.History -> Screen.PriceChanges
-                    TopLevelTab.Accounts -> Screen.AccountHub
+                    TopLevelTab.Assets -> Screen.AccountHub
+                    TopLevelTab.Accounts -> Screen.AccountAssetsByAccount
                 })
             }
         )
@@ -217,7 +225,7 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewAssetHistory = { recordId ->
                     navigateTo(Screen.AssetDetail(recordId))
                 },
-                bottomBar = { bottomBar(TopLevelTab.History) }
+                bottomBar = { bottomBar(TopLevelTab.Assets) }
             )
         }
 
@@ -242,22 +250,24 @@ fun FinUnityApp(database: AppDatabase) {
         is Screen.AccountHub -> {
             AccountHubScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
-                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
-                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = true)) },
-                onOpenImportData = { navigateTo(Screen.ImportCsv) },
-                onViewAccountDetail = { navigateTo(Screen.AccountList) },
-                bottomBar = { bottomBar(TopLevelTab.Accounts) }
-            )
-        }
-
-        is Screen.AccountList -> {
-            AccountListScreen(
-                accounts = portfolioSummary?.accounts ?: emptyList(),
+                assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
+                holdings = portfolioSummary?.holdings ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
-                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = true)) }
+                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
+                onOpenTransactions = { navigateTo(Screen.AllTransactions) },
+                bottomBar = { bottomBar(TopLevelTab.Assets) }
+            )
+        }
+
+        is Screen.AccountAssetsByAccount -> {
+            AccountAssetsByAccountScreen(
+                accounts = portfolioSummary?.accounts ?: emptyList(),
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
+                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
+                bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
 
@@ -271,16 +281,16 @@ fun FinUnityApp(database: AppDatabase) {
                             pendingNewAccount = account
                             navigateTo(Screen.AddAssetRecord(record = null, accountId = account.id))
                         } else {
-                            navigateTo(Screen.AccountHub)
+                            navigateTo(Screen.AccountAssetsByAccount)
                         }
                     } else {
                         viewModel.updateAccount(account)
-                        navigateTo(Screen.AccountHub)
+                        navigateTo(Screen.AccountAssetsByAccount)
                     }
                 },
                 onDelete = { id ->
                     viewModel.deleteAccount(id)
-                    navigateTo(Screen.AccountHub)
+                    navigateTo(Screen.AccountAssetsByAccount)
                 },
                 onBack = { navigateBack() }
             )
@@ -324,15 +334,15 @@ fun FinUnityApp(database: AppDatabase) {
                         viewModel.updateAssetRecord(record)
                     }
                     pendingNewAccount = null
-                    currentScreen = Screen.Main
+                    currentScreen = Screen.AccountDetail(record.accountId)
                 },
                 onDelete = { id ->
                     viewModel.deleteAssetRecord(id)
-                    currentScreen = Screen.Main
+                    currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onSell = { id, quantity ->
                     viewModel.sellAssetRecord(id, quantity)
-                    currentScreen = Screen.Main
+                    currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onBack = { navigateBack() }
             )
@@ -357,9 +367,30 @@ fun FinUnityApp(database: AppDatabase) {
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },
                 onEditAccount = { navigateTo(Screen.AddAccount(accountSummary?.account)) },
+                onRecordCashFlow = { navigateTo(Screen.CashFlow(screen.accountId)) },
                 onAddRecord = { navigateTo(Screen.AddAssetRecord(record = null, accountId = screen.accountId)) },
                 onEditRecord = { record -> navigateTo(Screen.AddAssetRecord(record = record, accountId = screen.accountId)) },
                 onViewTransactions = { navigateTo(Screen.TransactionHistory(screen.accountId)) }
+            )
+        }
+
+        is Screen.CashFlow -> {
+            CashFlowScreen(
+                accountId = screen.accountId,
+                accounts = portfolioSummary?.accounts ?: emptyList(),
+                onBack = { navigateBack() },
+                onSaveCashIn = { amount, note ->
+                    viewModel.recordCashIn(screen.accountId, amount, note)
+                    currentScreen = Screen.AccountDetail(screen.accountId)
+                },
+                onSaveCashOut = { amount, note ->
+                    viewModel.recordCashOut(screen.accountId, amount, note)
+                    currentScreen = Screen.AccountDetail(screen.accountId)
+                },
+                onSaveTransfer = { targetAccountId, amount, note ->
+                    viewModel.transferCash(screen.accountId, targetAccountId, amount, note)
+                    currentScreen = Screen.AccountDetail(screen.accountId)
+                }
             )
         }
 
@@ -373,11 +404,8 @@ fun FinUnityApp(database: AppDatabase) {
                     holdings = portfolioSummary?.holdings ?: emptyList(),
                     baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                     onBack = { navigateBack() },
-                    onViewAccountTransactions = { accountId -> navigateTo(Screen.TransactionHistory(accountId)) },
-                    onEditAssetRecord = { recordId ->
-                        val record = portfolioSummary?.assetRecords?.find { it.record.id == recordId }
-                        navigateTo(Screen.AddAssetRecord(record?.record, record?.record?.accountId ?: ""))
-                    }
+                    onViewAccount = { accountId -> navigateTo(Screen.AccountDetail(accountId)) },
+                    onViewAssetRecord = { recordId -> navigateTo(Screen.AssetDetail(recordId)) }
                 )
             } else {
                 navigateBack()
@@ -390,6 +418,16 @@ fun FinUnityApp(database: AppDatabase) {
             TransactionHistoryScreen(
                 transactions = transactions,
                 accountName = accountSummary?.account?.name,
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                onBack = { navigateBack() }
+            )
+        }
+
+        is Screen.AllTransactions -> {
+            val transactions by database.transactionDao().getAllTransactions().collectAsState(initial = emptyList())
+            TransactionHistoryScreen(
+                transactions = transactions,
+                accountName = "交易流水",
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() }
             )
@@ -460,10 +498,10 @@ private fun FinUnityBottomBar(
             label = { Text("总览") }
         )
         NavigationBarItem(
-            selected = selected == TopLevelTab.History,
-            onClick = { onSelect(TopLevelTab.History) },
-            icon = { Icon(Icons.Default.DateRange, contentDescription = "持仓") },
-            label = { Text("持仓") }
+            selected = selected == TopLevelTab.Assets,
+            onClick = { onSelect(TopLevelTab.Assets) },
+            icon = { Icon(Icons.Default.DateRange, contentDescription = "资产") },
+            label = { Text("资产") }
         )
         NavigationBarItem(
             selected = selected == TopLevelTab.Accounts,

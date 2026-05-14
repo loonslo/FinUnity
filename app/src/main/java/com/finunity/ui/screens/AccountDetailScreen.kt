@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,6 +37,7 @@ fun AccountDetailScreen(
     baseCurrency: String,
     onBack: () -> Unit,
     onEditAccount: () -> Unit,
+    onRecordCashFlow: () -> Unit,
     onAddRecord: () -> Unit,
     onEditRecord: (AssetRecord) -> Unit,
     onViewTransactions: () -> Unit,
@@ -77,6 +80,15 @@ fun AccountDetailScreen(
                     account = account,
                     balanceInBaseCurrency = accountSummary?.balanceInBaseCurrency ?: account.balance,
                     baseCurrency = baseCurrency
+                )
+            }
+
+            item {
+                AccountActionRow(
+                    onRecordCashFlow = onRecordCashFlow,
+                    onAddRecord = onAddRecord,
+                    onViewTransactions = onViewTransactions,
+                    onEditAccount = onEditAccount
                 )
             }
 
@@ -156,6 +168,55 @@ fun AccountDetailScreen(
             }
 
             item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun AccountActionRow(
+    onRecordCashFlow: () -> Unit,
+    onAddRecord: () -> Unit,
+    onViewTransactions: () -> Unit,
+    onEditAccount: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onRecordCashFlow,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("记一笔")
+            }
+            OutlinedButton(
+                onClick = onAddRecord,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("添加资产")
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(
+                onClick = onViewTransactions,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("流水")
+            }
+            TextButton(
+                onClick = onEditAccount,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("编辑账户")
+            }
         }
     }
 }

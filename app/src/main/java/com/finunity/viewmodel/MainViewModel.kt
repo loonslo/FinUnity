@@ -206,10 +206,16 @@ class MainViewModel(
 
     fun addAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
+            val isCash = record.assetType == AssetType.CASH
+            if (!isCash) {
+                val success = adjustCashAsset(record.accountId, -record.cost, record.currency)
+                if (!success) return@launch
+            }
+
             database.assetRecordDao().insert(record)
 
-            // 为股票/ETF/基金记录买入流水和初始价格历史
-            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
+            // 为非现金资产记录买入流水和初始价格历史
+            if (!isCash) {
                 val transaction = Transaction(
                     accountId = record.accountId,
                     symbol = record.name,  // 使用名称作为代码
@@ -222,7 +228,9 @@ class MainViewModel(
                     recordId = record.id  // 精确追溯
                 )
                 database.transactionDao().insert(transaction)
+            }
 
+            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
                 // 写入初始价格历史，记录买入成本作为基准点
                 val priceHistory = PriceHistory(
                     recordId = record.id,
@@ -236,9 +244,42 @@ class MainViewModel(
 
     fun updateAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
+            val existing = database.assetRecordDao().getRecordById(record.id)
+            if (existing != null) {
+                val existingIsCash = existing.assetType == AssetType.CASH
+                val nextIsCash = record.assetType == AssetType.CASH
+                if (!nextIsCash) {
+                    val cashDelta = when {
+                        existingIsCash -> -record.cost
+                        existing.currency != record.currency -> {
+                            _error.value = "暂不支持修改持仓币种后自动调整现金"
+                            return@launch
+                        }
+                        else -> existing.cost - record.cost
+                    }
+                    if (kotlin.math.abs(cashDelta) >= 0.01) {
+                        val success = adjustCashAsset(record.accountId, cashDelta, record.currency)
+                        if (!success) return@launch
+                        val transactionType = if (cashDelta < 0) TransactionType.BUY else TransactionType.SELL
+                        database.transactionDao().insert(
+                            Transaction(
+                                accountId = record.accountId,
+                                symbol = record.name,
+                                type = transactionType,
+                                shares = null,
+                                price = null,
+                                amount = kotlin.math.abs(cashDelta),
+                                currency = record.currency,
+                                note = if (cashDelta < 0) "追加买入: ${record.name}" else "调减成本: ${record.name}",
+                                recordId = record.id
+                            )
+                        )
+                    }
+                }
+            }
+
             // 如果是股票/ETF/基金且价格有变化，保存价格历史
             if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                val existing = database.assetRecordDao().getRecordById(record.id)
                 if (existing != null && existing.currentPrice != record.currentPrice) {
                     val priceHistory = PriceHistory(
                         recordId = record.id,
@@ -261,6 +302,129 @@ class MainViewModel(
         }
     }
 
+    fun recordCashIn(accountId: String, amount: Double, note: String? = null) {
+        viewModelScope.launch {
+            adjustCashAsset(accountId, amount)
+            val account = database.accountDao().getAccountById(accountId) ?: return@launch
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = accountId,
+                    symbol = null,
+                    type = TransactionType.DEPOSIT,
+                    shares = null,
+                    price = null,
+                    amount = amount,
+                    currency = account.currency,
+                    note = note?.ifBlank { null } ?: "入金"
+                )
+            )
+        }
+    }
+
+    fun recordCashOut(accountId: String, amount: Double, note: String? = null) {
+        viewModelScope.launch {
+            val account = database.accountDao().getAccountById(accountId) ?: return@launch
+            val success = adjustCashAsset(accountId, -amount)
+            if (!success) return@launch
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = accountId,
+                    symbol = null,
+                    type = TransactionType.WITHDRAW,
+                    shares = null,
+                    price = null,
+                    amount = amount,
+                    currency = account.currency,
+                    note = note?.ifBlank { null } ?: "出金"
+                )
+            )
+        }
+    }
+
+    fun transferCash(fromAccountId: String, toAccountId: String, amount: Double, note: String? = null) {
+        viewModelScope.launch {
+            val fromAccount = database.accountDao().getAccountById(fromAccountId) ?: return@launch
+            val toAccount = database.accountDao().getAccountById(toAccountId) ?: return@launch
+            if (fromAccount.currency != toAccount.currency) {
+                _error.value = "暂不支持不同币种账户转账"
+                return@launch
+            }
+            val success = adjustCashAsset(fromAccountId, -amount)
+            if (!success) return@launch
+            adjustCashAsset(toAccountId, amount)
+            val transferNote = note?.ifBlank { null } ?: "账户转账"
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = fromAccountId,
+                    symbol = null,
+                    type = TransactionType.TRANSFER_OUT,
+                    shares = null,
+                    price = null,
+                    amount = amount,
+                    currency = fromAccount.currency,
+                    note = "$transferNote：转出到 ${toAccount.name}"
+                )
+            )
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = toAccountId,
+                    symbol = null,
+                    type = TransactionType.TRANSFER_IN,
+                    shares = null,
+                    price = null,
+                    amount = amount,
+                    currency = toAccount.currency,
+                    note = "$transferNote：来自 ${fromAccount.name}"
+                )
+            )
+        }
+    }
+
+    private suspend fun adjustCashAsset(accountId: String, delta: Double, currency: String? = null): Boolean {
+        val account = database.accountDao().getAccountById(accountId) ?: return false
+        val cashCurrency = currency ?: account.currency
+        val records = database.assetRecordDao().getAllRecords().first()
+        val existing = records.firstOrNull {
+            it.accountId == accountId &&
+                it.assetType == AssetType.CASH &&
+                it.currency == cashCurrency &&
+                it.name == "现金"
+        }
+        val currentAmount = existing?.currentValue ?: 0.0
+        val nextAmount = currentAmount + delta
+        if (nextAmount < -0.01) {
+            _error.value = "${account.name} ${cashCurrency} 现金余额不足"
+            return false
+        }
+        if (existing == null) {
+            if (nextAmount <= 0.0) return true
+            database.assetRecordDao().insert(
+                AssetRecord(
+                    accountId = accountId,
+                    assetType = AssetType.CASH,
+                    riskBucket = RiskBucket.CASH,
+                    name = "现金",
+                    quantity = nextAmount,
+                    cost = nextAmount,
+                    currentPrice = 1.0,
+                    currency = cashCurrency
+                )
+            )
+        } else if (nextAmount <= 0.01) {
+            database.assetRecordDao().deleteById(existing.id)
+        } else {
+            database.assetRecordDao().update(
+                existing.copy(
+                    quantity = nextAmount,
+                    cost = nextAmount,
+                    currentPrice = 1.0,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+        return true
+    }
+
     /**
      * 卖出资产记录（产生真实的卖出流水）
      * 平均成本法：按比例减少股数和成本
@@ -281,6 +445,7 @@ class MainViewModel(
             if (quantityToSell <= 0) return@launch
 
             if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
+                val sellAmount = quantityToSell * record.currentPrice
                 // 记录卖出流水
                 val transaction = Transaction(
                     accountId = record.accountId,
@@ -288,12 +453,13 @@ class MainViewModel(
                     type = TransactionType.SELL,
                     shares = quantityToSell,
                     price = record.currentPrice,
-                    amount = quantityToSell * record.currentPrice,
+                    amount = sellAmount,
                     currency = record.currency,
                     note = "卖出资产: ${record.name}",
                     recordId = record.id  // 精确追溯
                 )
                 database.transactionDao().insert(transaction)
+                adjustCashAsset(record.accountId, sellAmount, record.currency)
             }
 
             // 删除或部分删除记录
