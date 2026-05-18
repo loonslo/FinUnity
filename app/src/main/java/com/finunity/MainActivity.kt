@@ -91,7 +91,11 @@ sealed class Screen {
     data object AccountAssetsByAccount : Screen()
     data object PriceChanges : Screen()
     data object AllTransactions : Screen()
-    data class AddAccount(val account: Account? = null, val continueToAsset: Boolean = false) : Screen()
+    data class AddAccount(
+        val account: Account? = null,
+        val continueToAsset: Boolean = false,
+        val allowDelete: Boolean = false
+    ) : Screen()
     data class CashFlow(val accountId: String) : Screen()
     data class AddPosition(val position: Position? = null, val accountId: String) : Screen()
     data class AddAssetRecord(val record: AssetRecord? = null, val accountId: String) : Screen()
@@ -106,8 +110,8 @@ sealed class Screen {
 
 private enum class TopLevelTab {
     Main,
-    Assets,
-    Accounts
+    Ledger,
+    Mine
 }
 
 @Composable
@@ -125,11 +129,22 @@ fun FinUnityApp(database: AppDatabase) {
     var navStack by remember { mutableStateOf(listOf<Screen>()) }
     var showAccountPicker by remember { mutableStateOf(false) }
     var pendingNewAccount by remember { mutableStateOf<Account?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // 历史数据
     val snapshots by historyRepository.getRecentSnapshots(30).collectAsState(initial = emptyList())
     val allPriceHistory by database.priceHistoryDao().getAllHistory().collectAsState(initial = emptyList())
     var monthlyChange by remember { mutableStateOf<MonthlyChange?>(null) }
+    val lastPriceUpdated = remember(allPriceHistory) {
+        allPriceHistory.maxOfOrNull { it.timestamp }
+    }
+
+    fun showMessage(message: String) {
+        scope.launch {
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     // 加载月度变化
     LaunchedEffect(snapshots) {
@@ -190,30 +205,32 @@ fun FinUnityApp(database: AppDatabase) {
             onSelect = { tab ->
                 switchTopLevel(when (tab) {
                     TopLevelTab.Main -> Screen.Main
-                    TopLevelTab.Assets -> Screen.AccountHub
-                    TopLevelTab.Accounts -> Screen.AccountAssetsByAccount
+                    TopLevelTab.Ledger -> Screen.AccountHub
+                    TopLevelTab.Mine -> Screen.AccountAssetsByAccount
                 })
             }
         )
     }
 
-    when (val screen = currentScreen) {
-        is Screen.Main -> {
-            MainScreen(
-                portfolioSummary = portfolioSummary,
-                isLoading = isLoading,
-                error = error,
-                onStartAddFlow = { startAddFlow() },
-                onEditAccount = { account ->
-                    navigateTo(Screen.AccountDetail(account.id))
-                },
-                onViewRiskBucketDetail = { bucketIndex ->
-                    navigateTo(Screen.RiskBucketDetail(bucketIndex))
-                },
-                onViewAccounts = { switchTopLevel(Screen.AccountHub) },
-                bottomBar = { bottomBar(TopLevelTab.Main) }
-            )
-        }
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (val screen = currentScreen) {
+            is Screen.Main -> {
+                MainScreen(
+                    portfolioSummary = portfolioSummary,
+                    isLoading = isLoading,
+                    error = error,
+                    lastPriceUpdated = lastPriceUpdated,
+                    onStartAddFlow = { startAddFlow() },
+                    onEditAccount = { account ->
+                        navigateTo(Screen.AccountDetail(account.id))
+                    },
+                    onViewRiskBucketDetail = { bucketIndex ->
+                        navigateTo(Screen.RiskBucketDetail(bucketIndex))
+                    },
+                    onViewAccounts = { switchTopLevel(Screen.AccountHub) },
+                    bottomBar = { bottomBar(TopLevelTab.Main) }
+                )
+            }
 
         is Screen.PriceChanges -> {
             PriceChangeScreen(
@@ -223,7 +240,7 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewAssetHistory = { recordId ->
                     navigateTo(Screen.AssetDetail(recordId))
                 },
-                bottomBar = { bottomBar(TopLevelTab.Assets) }
+                bottomBar = { bottomBar(TopLevelTab.Ledger) }
             )
         }
 
@@ -232,6 +249,7 @@ fun FinUnityApp(database: AppDatabase) {
                 settings = viewModel.settings.value,
                 onSave = { newSettings ->
                     viewModel.updateSettings(newSettings)
+                    showMessage("设置已保存")
                     navigateBack()
                 },
                 onBack = { navigateBack() }
@@ -254,26 +272,30 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
                 onOpenTransactions = { navigateTo(Screen.AllTransactions) },
-                bottomBar = { bottomBar(TopLevelTab.Assets) }
+                bottomBar = { bottomBar(TopLevelTab.Ledger) }
             )
         }
 
         is Screen.AccountAssetsByAccount -> {
             AccountAssetsByAccountScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
+                onEditAccount = { account -> navigateTo(Screen.AddAccount(account, allowDelete = true)) },
                 onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
                 onOpenSettings = { navigateTo(Screen.Settings) },
-                bottomBar = { bottomBar(TopLevelTab.Accounts) }
+                bottomBar = { bottomBar(TopLevelTab.Mine) }
             )
         }
 
         is Screen.AddAccount -> {
             AccountScreen(
                 account = screen.account,
+                allowDelete = screen.allowDelete,
                 onSave = { account ->
                     if (screen.account == null) {
                         viewModel.addAccount(account)
+                        showMessage("账户已添加")
                         if (screen.continueToAsset) {
                             pendingNewAccount = account
                             navigateTo(Screen.AddAssetRecord(record = null, accountId = account.id))
@@ -282,11 +304,13 @@ fun FinUnityApp(database: AppDatabase) {
                         }
                     } else {
                         viewModel.updateAccount(account)
+                        showMessage("账户已更新")
                         navigateTo(Screen.AccountAssetsByAccount)
                     }
                 },
                 onDelete = { id ->
                     viewModel.deleteAccount(id)
+                    showMessage("账户已删除")
                     navigateTo(Screen.AccountAssetsByAccount)
                 },
                 onBack = { navigateBack() }
@@ -301,17 +325,21 @@ fun FinUnityApp(database: AppDatabase) {
                 onSave = { position ->
                     if (screen.position == null) {
                         viewModel.addPosition(position)
+                        showMessage("持仓已添加")
                     } else {
                         viewModel.updatePosition(position)
+                        showMessage("持仓已更新")
                     }
                     navigateBack()
                 },
                 onDelete = { id ->
                     viewModel.deletePosition(id)
+                    showMessage("持仓已删除")
                     navigateBack()
                 },
                 onSell = { id, shares ->
                     viewModel.sellPosition(id, shares)
+                    showMessage("卖出已记录")
                     navigateBack()
                 },
                 onBack = { navigateBack() }
@@ -327,8 +355,10 @@ fun FinUnityApp(database: AppDatabase) {
                 onSave = { record ->
                     if (screen.record == null) {
                         viewModel.addAssetRecord(record)
+                        showMessage("资产已记录")
                     } else {
                         viewModel.updateAssetRecord(record)
+                        showMessage("资产已更新")
                     }
                     val wasFirstAsset = pendingNewAccount != null
                     pendingNewAccount = null
@@ -336,10 +366,12 @@ fun FinUnityApp(database: AppDatabase) {
                 },
                 onDelete = { id ->
                     viewModel.deleteAssetRecord(id)
+                    showMessage("资产记录已删除")
                     currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onSell = { id, quantity ->
                     viewModel.sellAssetRecord(id, quantity)
+                    showMessage("卖出已记录")
                     currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onBack = { navigateBack() }
@@ -379,14 +411,17 @@ fun FinUnityApp(database: AppDatabase) {
                 onBack = { navigateBack() },
                 onSaveCashIn = { amount, note ->
                     viewModel.recordCashIn(screen.accountId, amount, note)
+                    showMessage("收入已记录")
                     currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onSaveCashOut = { amount, note ->
                     viewModel.recordCashOut(screen.accountId, amount, note)
+                    showMessage("支出已记录")
                     currentScreen = Screen.AccountDetail(screen.accountId)
                 },
                 onSaveTransfer = { targetAccountId, amount, note ->
                     viewModel.transferCash(screen.accountId, targetAccountId, amount, note)
+                    showMessage("转账已记录")
                     currentScreen = Screen.AccountDetail(screen.accountId)
                 }
             )
@@ -480,6 +515,13 @@ fun FinUnityApp(database: AppDatabase) {
                 onBack = { navigateBack() }
             )
         }
+        }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        )
     }
 }
 
@@ -492,20 +534,20 @@ private fun FinUnityBottomBar(
         NavigationBarItem(
             selected = selected == TopLevelTab.Main,
             onClick = { onSelect(TopLevelTab.Main) },
-            icon = { Icon(Icons.Default.Home, contentDescription = "总览") },
-            label = { Text("总览") }
+            icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
+            label = { Text("首页") }
         )
         NavigationBarItem(
-            selected = selected == TopLevelTab.Assets,
-            onClick = { onSelect(TopLevelTab.Assets) },
-            icon = { Icon(Icons.Default.DateRange, contentDescription = "资产") },
-            label = { Text("资产") }
+            selected = selected == TopLevelTab.Ledger,
+            onClick = { onSelect(TopLevelTab.Ledger) },
+            icon = { Icon(Icons.Default.DateRange, contentDescription = "账本") },
+            label = { Text("账本") }
         )
         NavigationBarItem(
-            selected = selected == TopLevelTab.Accounts,
-            onClick = { onSelect(TopLevelTab.Accounts) },
-            icon = { Icon(Icons.Default.Person, contentDescription = "账户") },
-            label = { Text("账户") }
+            selected = selected == TopLevelTab.Mine,
+            onClick = { onSelect(TopLevelTab.Mine) },
+            icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
+            label = { Text("我的") }
         )
     }
 }

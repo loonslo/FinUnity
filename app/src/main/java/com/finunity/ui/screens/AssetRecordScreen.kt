@@ -22,6 +22,8 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.displayName
+import com.finunity.data.model.AccountAssetRules
 import com.finunity.data.model.displayName
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinSoftButton
@@ -191,14 +193,24 @@ fun AssetRecordScreen(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("账户", style = MaterialTheme.typography.bodyMedium)
-                        Text(account.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("账户", style = MaterialTheme.typography.bodyMedium)
+                            Text(account.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        }
+                        Text(
+                            text = "${account.type.displayName()} 可添加：${AccountAssetRules.allowedAssetText(account.type)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                        )
                     }
                 }
             }
@@ -619,16 +631,7 @@ private fun defaultRiskBucketFor(assetType: AssetType): RiskBucket = when (asset
 }
 
 private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetType?): List<AssetType> {
-    val baseAllowed = when (accountType) {
-        AccountType.BROKER -> listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND, AssetType.CASH)
-        AccountType.BANK -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
-        AccountType.FUND -> listOf(AssetType.FUND, AssetType.CASH)
-        AccountType.CASH_MANAGEMENT -> listOf(AssetType.FUND, AssetType.CASH)
-        AccountType.BOND -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
-        AccountType.INSURANCE -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT)
-        AccountType.LIABILITY -> emptyList()
-        AccountType.OTHER, null -> AssetType.entries.toList()
-    }
+    val baseAllowed = AccountAssetRules.allowedAssetTypes(accountType)
     val allowed = if (currentType == null) {
         baseAllowed.filterNot { it == AssetType.CASH }
     } else {

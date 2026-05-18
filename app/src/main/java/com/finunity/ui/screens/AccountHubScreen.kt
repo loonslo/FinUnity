@@ -1,6 +1,7 @@
 package com.finunity.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -212,13 +213,13 @@ private fun TotalAssetOverviewCard(
                     valueColor = profitColorFor(totalProfit)
                 )
                 AssetMetricItem(
-                    label = "加权收益率",
-                    value = "--",
+                    label = "账户数",
+                    value = "可追溯",
                     valueColor = FinColors.TextPrimary
                 )
                 AssetMetricItem(
-                    label = "年化收益率",
-                    value = "--",
+                    label = "记录方式",
+                    value = "本地账本",
                     valueColor = FinColors.TextPrimary
                 )
             }
@@ -427,7 +428,9 @@ private fun profitColorFor(value: Double): Color = when {
 @Composable
 fun AccountAssetsByAccountScreen(
     accounts: List<AccountSummary>,
+    baseCurrency: String,
     onAddAccount: () -> Unit,
+    onEditAccount: (com.finunity.data.local.entity.Account) -> Unit,
     onOpenImportCsv: () -> Unit,
     onOpenSettings: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
@@ -448,20 +451,36 @@ fun AccountAssetsByAccountScreen(
         ) {
             item { Spacer(modifier = Modifier.height(16.dp)) }
             item {
-                AccountProfileHeader(
-                    onAddAccount = onAddAccount
-                )
+                AccountProfileHeader()
+            }
+            if (accounts.isNotEmpty()) {
+                item {
+                    AddAccountQuickAction(
+                        accountCount = accounts.size,
+                        onAddAccount = onAddAccount
+                    )
+                }
+            }
+            if (accounts.isEmpty()) {
+                item { AccountEmptyManagementCard(onAddAccount = onAddAccount) }
+            } else {
+                item {
+                    FinSectionLabel("账户管理")
+                }
+                items(accounts, key = { it.account.id }) { summary ->
+                    ManagementAccountCard(
+                        summary = summary,
+                        baseCurrency = baseCurrency,
+                        onView = { onEditAccount(summary.account) }
+                    )
+                }
             }
             item {
                 AccountToolsCard(
                     accountCount = accounts.size,
-                    onAddAccount = onAddAccount,
                     onOpenImportCsv = onOpenImportCsv,
                     onOpenSettings = onOpenSettings
                 )
-            }
-            if (accounts.isEmpty()) {
-                item { AccountEmptyManagementCard(onAddAccount = onAddAccount) }
             }
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
@@ -470,9 +489,7 @@ fun AccountAssetsByAccountScreen(
 
 
 @Composable
-private fun AccountProfileHeader(
-    onAddAccount: () -> Unit
-) {
+private fun AccountProfileHeader() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
@@ -509,27 +526,70 @@ private fun AccountProfileHeader(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "个人资产账本",
+                    text = "本地记录、统一查看、按用途管理",
                     style = MaterialTheme.typography.bodyMedium,
                     color = FinColors.TextSecondary
                 )
             }
+//            Text(
+//                text = "${accountCount} 个账户",
+//                style = MaterialTheme.typography.bodySmall,
+//                color = FinColors.TextSecondary
+//            )
+        }
+    }
+}
+
+@Composable
+private fun AddAccountQuickAction(
+    accountCount: Int,
+    onAddAccount: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onAddAccount),
+        shape = FinShapes.lg,
+        color = FinColors.Accent.copy(alpha = 0.08f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Surface(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clickable(onClick = onAddAccount),
-                shape = FinShapes.md,
-                color = FinColors.Accent.copy(alpha = 0.1f)
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.82f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.Add,
-                        contentDescription = "添加账户",
+                        contentDescription = null,
                         tint = FinColors.Accent,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "添加新账户",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = FinColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "当前已记录 $accountCount 个账户",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FinColors.TextSecondary
+                )
+            }
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = FinColors.TextSecondary.copy(alpha = 0.55f)
+            )
         }
     }
 }
@@ -537,97 +597,62 @@ private fun AccountProfileHeader(
 @Composable
 private fun AccountToolsCard(
     accountCount: Int,
-    onAddAccount: () -> Unit,
     onOpenImportCsv: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                text = "账户与数据",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = FinColors.TextPrimary
+        Text(
+            text = "数据工具",
+            style = MaterialTheme.typography.labelMedium,
+            color = FinColors.TextSecondary.copy(alpha = 0.72f)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SecondaryToolChip(
+                text = if (accountCount == 0) "导入表格" else "导入数据",
+                onClick = onOpenImportCsv,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.height(14.dp))
-            AccountToolRow(
-                iconText = "+",
-                title = "添加账户",
-                subtitle = "当前 $accountCount 个账户",
-                onClick = onAddAccount
-            )
-            Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color(0xFFE5E7EB).copy(alpha = 0.65f))
-            AccountToolRow(
-                iconText = "CSV",
-                title = "导入数据",
-                subtitle = "从表格导入资产记录",
-                onClick = onOpenImportCsv
-            )
-            Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color(0xFFE5E7EB).copy(alpha = 0.65f))
-            AccountToolRow(
-                iconText = "Set",
-                title = "偏好设置",
-                subtitle = "本位币、目标配置和同步设置",
-                onClick = onOpenSettings
+            SecondaryToolChip(
+                text = "偏好设置",
+                onClick = onOpenSettings,
+                modifier = Modifier.weight(1f)
             )
         }
     }
 }
 
 @Composable
-private fun AccountToolRow(
-    iconText: String,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
+private fun SecondaryToolChip(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, FinColors.Outline.copy(alpha = 0.65f))
     ) {
-        Surface(
-            modifier = Modifier.size(44.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = FinColors.Accent.copy(alpha = 0.08f)
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = iconText,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = FinColors.Accent
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = FinColors.TextPrimary
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = subtitle,
+                text = text,
                 style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
                 color = FinColors.TextSecondary
             )
         }
-        Icon(
-            Icons.Default.KeyboardArrowRight,
-            contentDescription = null,
-            tint = FinColors.TextSecondary.copy(alpha = 0.55f)
-        )
     }
 }
 

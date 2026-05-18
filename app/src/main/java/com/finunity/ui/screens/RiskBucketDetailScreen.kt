@@ -267,8 +267,36 @@ fun RiskBucketSummaryCard(
                     color = bucketColor
                 )
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = moneyPurposeTitle(summary.riskBucket),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = bucketColor
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = moneyPurposeDescription(summary.riskBucket),
+                style = MaterialTheme.typography.bodySmall,
+                color = FinColors.TextSecondary
+            )
         }
     }
+}
+
+private fun moneyPurposeTitle(bucket: RiskBucket): String = when (bucket) {
+    RiskBucket.CASH -> "随时要用的钱"
+    RiskBucket.CONSERVATIVE -> "1-3 年要用的钱"
+    RiskBucket.AGGRESSIVE -> "5 年以上长期钱"
+}
+
+private fun moneyPurposeDescription(bucket: RiskBucket): String = when (bucket) {
+    RiskBucket.CASH -> "用于日常开销、应急备用和短期周转，重点是安全和流动性。"
+    RiskBucket.CONSERVATIVE -> "用于中近期确定性支出，重点是控制波动，不追求过高收益。"
+    RiskBucket.AGGRESSIVE -> "用于长期目标和可承受波动的钱，重点是长期增长，而不是短期买卖。"
 }
 
 @Composable

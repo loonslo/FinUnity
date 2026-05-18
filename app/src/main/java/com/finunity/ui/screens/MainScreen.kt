@@ -42,6 +42,7 @@ import com.finunity.ui.components.FinCard
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinSectionLabel
+import java.text.SimpleDateFormat
 import java.text.NumberFormat
 import java.util.*
 
@@ -51,6 +52,7 @@ fun MainScreen(
     portfolioSummary: PortfolioSummary?,
     isLoading: Boolean,
     error: String? = null,
+    lastPriceUpdated: Long? = null,
     onStartAddFlow: () -> Unit,
     onEditAccount: (Account) -> Unit = {},
     onViewRiskBucketDetail: (Int) -> Unit = {},  // bucket index
@@ -91,7 +93,8 @@ fun MainScreen(
                 }
             }
         }
-        if (isLoading && portfolioSummary == null) {
+        val summary = portfolioSummary
+        if (isLoading && summary == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -100,9 +103,20 @@ fun MainScreen(
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
-        } else if (portfolioSummary == null || portfolioSummary.totalAssets == 0.0) {
+        } else if (summary == null || summary.accounts.isEmpty()) {
             EmptyState(
+                title = "开始建立你的资产账本",
+                subtitle = "先添加账户，再按用途记录活钱、稳健钱和长期钱",
+                actionText = "添加账户",
+                onAction = onStartAddFlow,
+                modifier = Modifier.padding(padding)
+            )
+        } else if (summary.totalAssets == 0.0) {
+            AccountReadyEmptyAssetState(
+                portfolioSummary = summary,
                 onStartAddFlow = onStartAddFlow,
+                onViewAccounts = onViewAccounts,
+                onEditAccount = onEditAccount,
                 modifier = Modifier.padding(padding)
             )
         } else {
@@ -117,28 +131,35 @@ fun MainScreen(
                 item { Spacer(modifier = Modifier.height(16.dp)) }
                 item {
                     AssetOverviewCard(
-                        totalAssets = portfolioSummary.totalAssets,
-                        riskBuckets = portfolioSummary.riskBuckets,
-                        baseCurrency = portfolioSummary.baseCurrency,
-                        totalCost = portfolioSummary.assetRecords.sumOf { it.costInBaseCurrency } +
-                            portfolioSummary.positions.sumOf { it.totalCost },
+                        totalAssets = summary.totalAssets,
+                        riskBuckets = summary.riskBuckets,
+                        baseCurrency = summary.baseCurrency,
+                        totalCost = summary.assetRecords.sumOf { it.costInBaseCurrency } +
+                            summary.positions.sumOf { it.totalCost },
                         onRiskBucketClick = onViewRiskBucketDetail
                     )
                 }
 
+                item {
+                    AssuranceCheckCard(
+                        portfolioSummary = summary,
+                        lastPriceUpdated = lastPriceUpdated
+                    )
+                }
+
                 // 再平衡提醒
-                if (portfolioSummary.needsRebalance && portfolioSummary.rebalanceRecommendations.isNotEmpty()) {
+                if (summary.needsRebalance && summary.rebalanceRecommendations.isNotEmpty()) {
                     item {
                         RebalanceAlertCard(
-                            portfolioSummary = portfolioSummary
+                            portfolioSummary = summary
                         )
                     }
                 }
 
                 item {
                     HomeAccountSummaryCard(
-                        accounts = portfolioSummary.accounts,
-                        baseCurrency = portfolioSummary.baseCurrency,
+                        accounts = summary.accounts,
+                        baseCurrency = summary.baseCurrency,
                         onViewAll = onViewAccounts,
                         onViewAccount = onEditAccount
                     )
@@ -152,7 +173,10 @@ fun MainScreen(
 
 @Composable
 fun EmptyState(
-    onStartAddFlow: () -> Unit,
+    title: String,
+    subtitle: String,
+    actionText: String,
+    onAction: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -180,19 +204,19 @@ fun EmptyState(
             }
             Spacer(modifier = Modifier.height(18.dp))
             Text(
-                text = "还没有资产记录",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "先添加一个账户，再记录你的第一笔资产",
+                text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Spacer(modifier = Modifier.height(32.dp))
             Button(
-                onClick = onStartAddFlow,
+                onClick = onAction,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -202,8 +226,163 @@ fun EmptyState(
                     contentColor = FinColors.Number
                 )
             ) {
-                Text("添加账户", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.Number)
+                Text(actionText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.Number)
             }
+        }
+    }
+}
+
+@Composable
+private fun AccountReadyEmptyAssetState(
+    portfolioSummary: PortfolioSummary,
+    onStartAddFlow: () -> Unit,
+    onViewAccounts: () -> Unit,
+    onEditAccount: (Account) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .background(FinColors.PageBg)
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = FinShapes.xl,
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "账户已创建",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = FinColors.TextPrimary
+                    )
+                    Text(
+                        text = "下一步，把现金、基金、股票或定期存款记录到对应账户里。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = FinColors.TextSecondary
+                    )
+                    Button(
+                        onClick = onStartAddFlow,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = FinShapes.md,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FinColors.SoftGreen,
+                            contentColor = FinColors.Number
+                        )
+                    ) {
+                        Text(
+                            text = "添加第一笔资产",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = FinColors.Number
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            HomeAccountSummaryCard(
+                accounts = portfolioSummary.accounts,
+                baseCurrency = portfolioSummary.baseCurrency,
+                onViewAll = onViewAccounts,
+                onViewAccount = onEditAccount
+            )
+        }
+        item { Spacer(modifier = Modifier.height(80.dp)) }
+    }
+}
+
+@Composable
+private fun AssuranceCheckCard(
+    portfolioSummary: PortfolioSummary,
+    lastPriceUpdated: Long?
+) {
+    val dateFormatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+    val syncText = lastPriceUpdated?.let { "价格记录更新于 ${dateFormatter.format(Date(it))}" }
+        ?: "暂无价格历史，当前以手动录入价格为准"
+    val rebalanceText = if (portfolioSummary.needsRebalance) {
+        "配置已偏离目标，建议查看再平衡方案"
+    } else {
+        "配置未明显偏离目标，暂时无需调整"
+    }
+    val sourceText = "本位币 ${portfolioSummary.baseCurrency}；价格来自 Yahoo Finance，现金与手动资产以本地记录为准"
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = FinShapes.xl,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "安心检查",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = FinColors.TextPrimary
+            )
+            AssuranceCheckRow(
+                label = "配置状态",
+                text = rebalanceText,
+                color = if (portfolioSummary.needsRebalance) FinColors.Cash else FinColors.Profit
+            )
+            AssuranceCheckRow(
+                label = "数据时间",
+                text = syncText,
+                color = FinColors.Conservative
+            )
+            AssuranceCheckRow(
+                label = "数据来源",
+                text = sourceText,
+                color = FinColors.TextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssuranceCheckRow(
+    label: String,
+    text: String,
+    color: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = FinColors.TextSecondary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = FinColors.TextPrimary
+            )
         }
     }
 }
@@ -417,12 +596,19 @@ private fun AllocationLegendRow(
                 .background(color)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = riskBucketHint(label),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
             text = "${String.format("%.0f", percentage * 100)}%",
             style = MaterialTheme.typography.bodySmall,
@@ -430,6 +616,14 @@ private fun AllocationLegendRow(
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+private fun riskBucketHint(label: String): String = when (label) {
+    "防守" -> "随时要用的钱"
+    "稳健" -> "1-3 年要用的钱"
+    "进取" -> "5 年以上长期钱"
+    "暂无分布" -> "添加资产后显示用途分布"
+    else -> "按用途管理这笔钱"
 }
 
 @Composable
