@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Settings
 import com.finunity.data.local.entity.parseTargetAllocation
+import com.finunity.ui.theme.FinColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,9 +198,13 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 enabled = isValidAllocation,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
+                )
             ) {
-                Text("保存设置", style = MaterialTheme.typography.titleMedium)
+                Text("保存设置", style = MaterialTheme.typography.titleMedium, color = FinColors.Number)
             }
             if (saveError != null) {
                 Text(
@@ -222,8 +227,7 @@ private fun TargetAllocationPreview(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier

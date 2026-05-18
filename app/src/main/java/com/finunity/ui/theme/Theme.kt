@@ -2,6 +2,7 @@ package com.finunity.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -10,6 +11,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
@@ -179,4 +181,34 @@ object FinColors {
     val Loss = FinLoss
     val Muted = FinGray3
     val Primary = FinPrimary
+    val Secondary = FinSecondary
+    val PageBg = FinBg
+    val Surface = FinSurface
+    val TextPrimary = FinGray1
+    val TextSecondary = FinGray2
+    val TextTertiary = FinGray3
+    val Number = Color(0xFF111827)
+    val Outline = Color(0xFFE5E7EB)
+    val Accent = FinPrimary
+    val SoftGreen = Color(0xFFEAF7EF)  // 按钮浅绿色背景
+
+    // Risk bucket colors
+    val Aggressive = Color(0xFF3D7A5C)
+    val Conservative = Color(0xFF8DA7C7)
+    val Cash = Color(0xFFD8B36A)
+}
+
+// 标准化圆角
+object FinShapes {
+    val sm = RoundedCornerShape(12.dp)
+    val md = RoundedCornerShape(16.dp)
+    val lg = RoundedCornerShape(20.dp)
+    val xl = RoundedCornerShape(24.dp)
+}
+
+// 标准化按钮高度
+object FinSizes {
+    val buttonHeight = 48.dp
+    val iconSize = 40.dp
+    val sectionSpacing = 16.dp
 }

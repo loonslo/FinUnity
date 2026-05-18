@@ -29,6 +29,9 @@ import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.HoldingSummary
 import com.finunity.ui.components.FinCard
 import com.finunity.ui.components.FinSectionLabel
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.theme.FinSizes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,13 +52,13 @@ fun AccountHubScreen(
 
     Scaffold(
         bottomBar = bottomBar,
-        containerColor = FinAssetPage,
+        containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(FinAssetPage)
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -108,19 +111,19 @@ private fun EyeToggleIcon(
         val eyeTop = size.height * 0.26f
         val eyeHeight = size.height * 0.48f
         drawOval(
-            color = FinTextSecondary,
+            color = FinColors.TextSecondary,
             topLeft = Offset(size.width * 0.08f, eyeTop),
             size = Size(size.width * 0.84f, eyeHeight),
             style = Stroke(width = strokeWidth)
         )
         drawCircle(
-            color = FinTextSecondary,
+            color = FinColors.TextSecondary,
             radius = size.minDimension * 0.14f,
             center = Offset(size.width * 0.5f, size.height * 0.5f)
         )
         if (!visible) {
             drawLine(
-                color = FinTextSecondary,
+                color = FinColors.TextSecondary,
                 start = Offset(size.width * 0.14f, size.height * 0.86f),
                 end = Offset(size.width * 0.86f, size.height * 0.14f),
                 strokeWidth = strokeWidth
@@ -140,9 +143,9 @@ private fun TotalAssetOverviewCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier
@@ -158,7 +161,7 @@ private fun TotalAssetOverviewCard(
                     text = "总资产",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = FinTextPrimary
+                    color = FinColors.TextPrimary
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
@@ -177,7 +180,7 @@ private fun TotalAssetOverviewCard(
                         Text(
                             text = "交易记录",
                             style = MaterialTheme.typography.bodySmall,
-                            color = FinTextSecondary
+                            color = FinColors.TextSecondary
                         )
                     }
                 }
@@ -188,13 +191,13 @@ private fun TotalAssetOverviewCard(
                     text = hiddenAware(formatCurrency(totalBalance, baseCurrency), amountsVisible),
                     style = MaterialTheme.typography.displayLarge,
                     fontWeight = FontWeight.Bold,
-                    color = FinNumber
+                    color = FinColors.Number
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "元",
                     style = MaterialTheme.typography.titleMedium,
-                    color = FinTextSecondary,
+                    color = FinColors.TextSecondary,
                     modifier = Modifier.padding(bottom = 5.dp)
                 )
             }
@@ -211,12 +214,12 @@ private fun TotalAssetOverviewCard(
                 AssetMetricItem(
                     label = "加权收益率",
                     value = "--",
-                    valueColor = FinTextPrimary
+                    valueColor = FinColors.TextPrimary
                 )
                 AssetMetricItem(
                     label = "年化收益率",
                     value = "--",
-                    valueColor = FinTextPrimary
+                    valueColor = FinColors.TextPrimary
                 )
             }
         }
@@ -233,7 +236,7 @@ private fun AssetMetricItem(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = FinTextSecondary
+            color = FinColors.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -263,9 +266,9 @@ private fun AccountAssetCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(20.dp)
@@ -276,26 +279,26 @@ private fun AccountAssetCard(
                         text = summary.account.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = FinTextPrimary
+                        color = FinColors.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "${summary.account.type.displayName()} · ${summary.account.currency}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = FinTextSecondary
+                        color = FinColors.TextSecondary
                     )
                 }
                 Text(
                     text = hiddenAware(formatCurrency(summary.balanceInBaseCurrency, baseCurrency), amountsVisible),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error else FinNumber
+                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error else FinColors.Number
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     Icons.Default.KeyboardArrowRight,
                     contentDescription = "查看账户详情",
-                    tint = FinTextSecondary
+                    tint = FinColors.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.height(18.dp))
@@ -313,7 +316,7 @@ private fun AccountAssetCard(
             AccountMetricRow(
                 label = "收益率",
                 value = profitRate?.let { formatAssetSignedPercent(it) } ?: "--",
-                valueColor = profitRate?.let { profitColorFor(it) } ?: FinTextPrimary
+                valueColor = profitRate?.let { profitColorFor(it) } ?: FinColors.TextPrimary
             )
         }
     }
@@ -323,7 +326,7 @@ private fun AccountAssetCard(
 private fun AccountMetricRow(
     label: String,
     value: String,
-    valueColor: Color = FinTextPrimary
+    valueColor: Color = FinColors.TextPrimary
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -332,7 +335,7 @@ private fun AccountMetricRow(
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = FinTextSecondary
+            color = FinColors.TextSecondary
         )
         Text(
             text = value,
@@ -347,9 +350,9 @@ private fun AccountMetricRow(
 private fun EmptyAccountState(onAddAccount: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier
@@ -359,14 +362,14 @@ private fun EmptyAccountState(onAddAccount: () -> Unit) {
         ) {
             Surface(
                 modifier = Modifier.size(56.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = FinAccent.copy(alpha = 0.08f)
+                shape = FinShapes.md,
+                color = FinColors.Accent.copy(alpha = 0.08f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.Person,
                         contentDescription = null,
-                        tint = FinAccent,
+                        tint = FinColors.Accent,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -376,26 +379,26 @@ private fun EmptyAccountState(onAddAccount: () -> Unit) {
                 text = "暂时还没有账户",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = FinTextPrimary
+                color = FinColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "先添加一个账户，开始记录你的资产",
                 style = MaterialTheme.typography.bodySmall,
-                color = FinTextSecondary
+                color = FinColors.TextSecondary
             )
             Spacer(modifier = Modifier.height(20.dp))
             Button(
                 onClick = onAddAccount,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = FinAccent,
-                    contentColor = Color.White
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
                 )
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("添加账户")
+                Text("添加账户", color = FinColors.Number)
             }
         }
     }
@@ -416,18 +419,10 @@ private fun formatAssetSignedPercent(value: Double): String {
 }
 
 private fun profitColorFor(value: Double): Color = when {
-    value > 0 -> FinProfit
-    value < 0 -> FinLoss
-    else -> FinTextPrimary
+    value > 0 -> FinColors.Profit
+    value < 0 -> FinColors.Loss
+    else -> FinColors.TextPrimary
 }
-
-private val FinAssetPage = Color(0xFFF7F8FA)
-private val FinTextPrimary = Color(0xFF1F2933)
-private val FinTextSecondary = Color(0xFF6B7280)
-private val FinNumber = Color(0xFF111827)
-private val FinAccent = Color(0xFF166B45)
-private val FinProfit = Color(0xFF1E8E5A)
-private val FinLoss = Color(0xFFE53935)
 
 @Composable
 fun AccountAssetsByAccountScreen(
@@ -440,13 +435,13 @@ fun AccountAssetsByAccountScreen(
 ) {
     Scaffold(
         bottomBar = bottomBar,
-        containerColor = FinAssetPage,
+        containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(FinAssetPage)
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -456,9 +451,6 @@ fun AccountAssetsByAccountScreen(
                 AccountProfileHeader(
                     onAddAccount = onAddAccount
                 )
-            }
-            item {
-                AccountTipCard()
             }
             item {
                 AccountToolsCard(
@@ -485,7 +477,7 @@ private fun AccountProfileHeader(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -495,15 +487,15 @@ private fun AccountProfileHeader(
         ) {
             Surface(
                 modifier = Modifier.size(64.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = FinAccent.copy(alpha = 0.09f)
+                shape = FinShapes.xl,
+                color = FinColors.Accent.copy(alpha = 0.09f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = "F",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = FinAccent
+                        color = FinColors.Accent
                     )
                 }
             }
@@ -513,56 +505,31 @@ private fun AccountProfileHeader(
                     text = "FinUnity",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = FinTextPrimary
+                    color = FinColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "个人资产账本",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = FinTextSecondary
+                    color = FinColors.TextSecondary
                 )
             }
             Surface(
                 modifier = Modifier
                     .size(48.dp)
                     .clickable(onClick = onAddAccount),
-                shape = RoundedCornerShape(18.dp),
-                color = FinAccent.copy(alpha = 0.1f)
+                shape = FinShapes.md,
+                color = FinColors.Accent.copy(alpha = 0.1f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.Add,
                         contentDescription = "添加账户",
-                        tint = FinAccent,
+                        tint = FinColors.Accent,
                         modifier = Modifier.size(28.dp)
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AccountTipCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                text = "今日提示",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = FinTextPrimary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "账户页只处理个人资料和数据维护；具体账户资产、持仓和流水从资产页进入。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = FinTextSecondary
-            )
         }
     }
 }
@@ -576,7 +543,7 @@ private fun AccountToolsCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -585,7 +552,7 @@ private fun AccountToolsCard(
                 text = "账户与数据",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = FinTextPrimary
+                color = FinColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(14.dp))
             AccountToolRow(
@@ -630,14 +597,14 @@ private fun AccountToolRow(
         Surface(
             modifier = Modifier.size(44.dp),
             shape = RoundedCornerShape(16.dp),
-            color = FinAccent.copy(alpha = 0.08f)
+            color = FinColors.Accent.copy(alpha = 0.08f)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
                     text = iconText,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = FinAccent
+                    color = FinColors.Accent
                 )
             }
         }
@@ -647,19 +614,19 @@ private fun AccountToolRow(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                color = FinTextPrimary
+                color = FinColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = FinTextSecondary
+                color = FinColors.TextSecondary
             )
         }
         Icon(
             Icons.Default.KeyboardArrowRight,
             contentDescription = null,
-            tint = FinTextSecondary.copy(alpha = 0.55f)
+            tint = FinColors.TextSecondary.copy(alpha = 0.55f)
         )
     }
 }
@@ -670,7 +637,7 @@ private fun AccountEmptyManagementCard(onAddAccount: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier
@@ -681,13 +648,13 @@ private fun AccountEmptyManagementCard(onAddAccount: () -> Unit) {
             Surface(
                 modifier = Modifier.size(64.dp),
                 shape = RoundedCornerShape(22.dp),
-                color = FinAccent.copy(alpha = 0.09f)
+                color = FinColors.Accent.copy(alpha = 0.09f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.Add,
                         contentDescription = null,
-                        tint = FinAccent,
+                        tint = FinColors.Accent,
                         modifier = Modifier.size(34.dp)
                     )
                 }
@@ -697,26 +664,26 @@ private fun AccountEmptyManagementCard(onAddAccount: () -> Unit) {
                 text = "添加你的第一个账户",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = FinTextPrimary
+                color = FinColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "用账户来归类银行卡、证券和现金资产",
                 style = MaterialTheme.typography.bodyMedium,
-                color = FinTextSecondary
+                color = FinColors.TextSecondary
             )
             Spacer(modifier = Modifier.height(22.dp))
             Button(
                 onClick = onAddAccount,
-                shape = RoundedCornerShape(18.dp),
+                shape = FinShapes.md,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = FinAccent,
-                    contentColor = Color.White
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
                 )
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("添加账户")
+                Text("添加账户", color = FinColors.Number)
             }
         }
     }
@@ -732,9 +699,9 @@ private fun ManagementAccountCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onView),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -745,15 +712,15 @@ private fun ManagementAccountCard(
         ) {
             Surface(
                 modifier = Modifier.size(52.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = FinAccent.copy(alpha = 0.08f)
+                shape = FinShapes.md,
+                color = FinColors.Accent.copy(alpha = 0.08f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = summary.account.name.take(1),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = FinAccent
+                        color = FinColors.Accent
                     )
                 }
             }
@@ -763,38 +730,38 @@ private fun ManagementAccountCard(
                     summary.account.name,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = FinTextPrimary
+                    color = FinColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     "${summary.account.type.displayName()} · ${summary.account.currency}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = FinTextSecondary
+                    color = FinColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "账户资料与持仓管理",
                     style = MaterialTheme.typography.bodySmall,
-                    color = FinTextSecondary.copy(alpha = 0.72f)
+                    color = FinColors.TextSecondary.copy(alpha = 0.72f)
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = "资产",
                     style = MaterialTheme.typography.labelSmall,
-                    color = FinTextSecondary.copy(alpha = 0.72f)
+                    color = FinColors.TextSecondary.copy(alpha = 0.72f)
                 )
                 Text(
                     text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
-                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinTextSecondary
+                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Icon(
                     Icons.Default.KeyboardArrowRight,
                     contentDescription = "查看账户",
-                    tint = FinTextSecondary.copy(alpha = 0.55f)
+                    tint = FinColors.TextSecondary.copy(alpha = 0.55f)
                 )
             }
         }

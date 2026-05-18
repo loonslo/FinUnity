@@ -33,6 +33,9 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.displayName
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinTextField
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.theme.FinSizes
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -89,7 +92,7 @@ fun AccountScreen(
     }
 
     Scaffold(
-        containerColor = AccountFormPage,
+        containerColor = FinColors.PageBg,
         topBar = {
             TopAppBar(
                 title = {},
@@ -103,7 +106,7 @@ fun AccountScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = AccountFormPage
+                    containerColor = FinColors.PageBg
                 )
             )
         },
@@ -112,7 +115,7 @@ fun AccountScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AccountFormPage)
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp)
                 .padding(top = 8.dp)
@@ -121,9 +124,9 @@ fun AccountScreen(
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(28.dp),
+                shape = FinShapes.xl,
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -141,13 +144,13 @@ fun AccountScreen(
                             text = "账户类型",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = AccountFormText
+                            color = FinColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = "常用",
                             style = MaterialTheme.typography.bodySmall,
-                            color = AccountFormMuted
+                            color = FinColors.Muted
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         FlowRow(
@@ -167,7 +170,7 @@ fun AccountScreen(
                         Text(
                             text = "其他",
                             style = MaterialTheme.typography.bodySmall,
-                            color = AccountFormMuted
+                            color = FinColors.Muted
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         FlowRow(
@@ -190,7 +193,7 @@ fun AccountScreen(
                             text = "币种",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = AccountFormText
+                            color = FinColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
@@ -234,47 +237,33 @@ fun AccountScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(18.dp),
+                    .height(48.dp),
+                shape = FinShapes.md,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccountFormAccent,
-                    contentColor = Color.White
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
                 ),
                 enabled = name.isNotBlank()
             ) {
                 Text(
                     text = "保存",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = FinColors.Number
                 )
             }
 
             // 删除按钮（仅编辑时显示）
             if (account != null) {
-                Card(
+                OutlinedButton(
+                    onClick = { showDeleteConfirmDialog = true },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
                     ),
-                    shape = RoundedCornerShape(22.dp)
+                    shape = FinShapes.md
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { showDeleteConfirmDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            ),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Text("删除账户")
-                        }
-                    }
+                    Text("删除账户")
                 }
             }
 
@@ -283,7 +272,4 @@ fun AccountScreen(
     }
 }
 
-private val AccountFormPage = Color(0xFFF7F8FA)
-private val AccountFormText = Color(0xFF1F2933)
-private val AccountFormMuted = Color(0xFF6B7280)
-private val AccountFormAccent = Color(0xFF166B45)
+// Colors migrated to FinColors in Theme.kt

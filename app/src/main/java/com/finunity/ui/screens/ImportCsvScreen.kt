@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.repository.CsvImportRepository
+import com.finunity.ui.theme.FinColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -313,7 +314,8 @@ private fun ImportDetailCard(
                     onClick = onDownloadTemplate,
                     enabled = !isLoading,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FinColors.Number)
                 ) {
                     Text("下载模板")
                 }
@@ -321,7 +323,8 @@ private fun ImportDetailCard(
                     onClick = onSelectFile,
                     enabled = !isLoading,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
@@ -329,7 +332,7 @@ private fun ImportDetailCard(
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("选择文件")
+                        Text("选择文件", color = FinColors.Number)
                     }
                 }
             }

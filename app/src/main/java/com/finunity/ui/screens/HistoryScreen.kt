@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.repository.MonthlyChange
+import com.finunity.ui.theme.FinColors
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -168,7 +169,7 @@ fun MonthlyChangeCard(
     baseCurrency: String
 ) {
     val isPositive = change.change >= 0
-    val changeColor = if (isPositive) Color(0xFF00A86B) else Color(0xFFE53935)
+    val changeColor = if (isPositive) FinColors.Profit else FinColors.Loss
     val changeSymbol = if (isPositive) "+" else ""
 
     Card(
@@ -242,7 +243,7 @@ fun CumulativeReturnCard(
     } else 0.0
 
     val isPositive = totalReturn >= 0
-    val returnColor = if (isPositive) Color(0xFF00A86B) else Color(0xFFE53935)
+    val returnColor = if (isPositive) FinColors.Profit else FinColors.Loss
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -409,7 +410,7 @@ fun SnapshotItem(
                 )
                 if (snapshot.totalCost > 0) {
                     val return_pct = ((snapshot.totalAssets - snapshot.totalCost) / snapshot.totalCost) * 100
-                    val color = if (return_pct >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+                    val color = if (return_pct >= 0) FinColors.Profit else FinColors.Loss
                     val symbol = if (return_pct >= 0) "+" else ""
                     Text(
                         text = "$symbol${String.format("%.1f", return_pct)}%",

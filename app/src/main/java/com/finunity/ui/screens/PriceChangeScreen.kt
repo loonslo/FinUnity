@@ -38,6 +38,7 @@ import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
 import com.finunity.ui.components.FinCard
+import com.finunity.ui.theme.FinColors
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -220,7 +221,7 @@ private fun PriceChangeItem(
     val priceDelta = if (latest != null && previous != null) latest.price - previous.price else 0.0
     val priceDeltaRatio = if (previous != null && previous.price > 0) priceDelta / previous.price else 0.0
     val holdingDelta = holdingDailyChange(summary, histories)
-    val color = if (holdingDelta >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val color = if (holdingDelta >= 0) FinColors.Profit else FinColors.Loss
     val isCash = summary.record.assetType == AssetType.CASH
 
     FinCard(

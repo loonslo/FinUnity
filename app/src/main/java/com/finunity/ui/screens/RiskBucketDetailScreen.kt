@@ -25,7 +25,8 @@ import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.HoldingSummary
 import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.displayName
-import java.text.SimpleDateFormat
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,7 +79,7 @@ fun RiskBucketDetailScreen(
     }
 
     Scaffold(
-        containerColor = RiskPage,
+        containerColor = FinColors.PageBg,
         topBar = {
             TopAppBar(
                 title = {},
@@ -92,7 +93,7 @@ fun RiskBucketDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = RiskPage
+                    containerColor = FinColors.PageBg
                 )
             )
         },
@@ -101,7 +102,7 @@ fun RiskBucketDetailScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(RiskPage)
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -200,18 +201,18 @@ fun RiskBucketSummaryCard(
     baseCurrency: String
 ) {
     val bucketColor = when (summary.riskBucket) {
-        RiskBucket.CONSERVATIVE -> Color(0xFF4CAF50)
-        RiskBucket.AGGRESSIVE -> MaterialTheme.colorScheme.primary
-        RiskBucket.CASH -> Color(0xFF2196F3)
+        RiskBucket.CONSERVATIVE -> FinColors.Conservative
+        RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+        RiskBucket.CASH -> FinColors.Cash
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.xl,
         colors = CardDefaults.cardColors(
             containerColor = Color.White
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(20.dp)
@@ -281,11 +282,11 @@ fun AccountInBucketItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
             containerColor = Color.White
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -320,15 +321,15 @@ fun HoldingInBucketItem(
     holding: HoldingSummary,
     baseCurrency: String
 ) {
-    val profitColor = if (holding.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (holding.profitLoss >= 0) FinColors.Profit else FinColors.Loss
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
             containerColor = Color.White
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -390,18 +391,18 @@ fun AssetRecordInBucketItem(
     baseCurrency: String,
     onClick: () -> Unit
 ) {
-    val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
     val isCash = summary.record.assetType == AssetType.CASH
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
             containerColor = Color.White
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -459,4 +460,3 @@ fun AssetRecordInBucketItem(
     }
 }
 
-private val RiskPage = Color(0xFFF7F8FA)

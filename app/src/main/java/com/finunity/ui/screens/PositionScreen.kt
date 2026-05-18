@@ -17,6 +17,7 @@ import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.ui.screens.formatCurrency
+import com.finunity.ui.theme.FinColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -292,9 +293,10 @@ fun PositionScreen(
                               (totalCost.toDoubleOrNull() ?: 0.0) > 0 &&
                               currency.isNotBlank() &&
                               selectedAccountId.isNotEmpty(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
                 ) {
-                    Text("保存", style = MaterialTheme.typography.titleMedium)
+                    Text("保存", style = MaterialTheme.typography.titleMedium, color = FinColors.Number)
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -317,9 +319,10 @@ fun PositionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FinColors.Number)
                 ) {
-                    Text("取消", style = MaterialTheme.typography.titleMedium)
+                    Text("取消", style = MaterialTheme.typography.titleMedium, color = FinColors.Number)
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))

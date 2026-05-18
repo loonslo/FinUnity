@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund), tracks stock positions, fetches real-time prices from Yahoo Finance, and provides rebalancing alerts.
+FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund), tracks stock/fund positions, fetches real-time prices from Yahoo Finance, and provides rebalancing alerts. UI is in Chinese.
 
-## Build Commands
+## Build & Test Commands
 
 ```bash
 # Build debug APK
@@ -15,55 +15,96 @@ FinUnity is an Android portfolio tracker app for managing multi-currency investm
 # Build release APK
 ./gradlew assembleRelease
 
-# Run unit tests
+# Run all unit tests
 ./gradlew test
 
-# Run unit tests with verbose output
+# Run tests with verbose output
 ./gradlew test --info
 
 # Run a specific test class
 ./gradlew test --tests "com.finunity.data.model.PortfolioCalculationTest"
+
+# Tests are pure JUnit 4 (no Android dependencies needed)
+# PortfolioCalculationTest — average cost, profit/loss, multi-currency math
+# CurrencyTest — exchange rate conversions
+# TransactionTest — transaction recording and reconciliation
+# MainViewModelTest — ViewModel logic (uses Mockito)
+# RebalanceTest — rebalancing threshold logic
+# AssetRecordTest — AssetRecord CRUD and calculations
+# TransactionAuditTest — transaction audit/reconciliation
+# RiskBucketDetailConsistencyTest — risk bucket calculation consistency
 ```
 
 ## Architecture
 
-**Pattern**: MVVM + Repository
+**Pattern**: MVVM + Repository. All data reactive via Room Flows + `combine()`.
 
 **Data Flow**:
-1. UI (Compose Screens) → ViewModel → Repository → DAO/API
-2. PriceSyncWorker (WorkManager) → Repository → DAO
+1. UI (Compose Screens) → ViewModel (MainViewModel) → Repository (PriceRepository) → DAO/API
+2. PriceSyncWorker (WorkManager, every 15 min) → Repository → DAO
+3. SnapshotWorker (WorkManager, daily at 9 AM) → HistoryRepository → DAO
 
-**Key Components**:
-- `data/local/` - Room database with DAOs for Account, Position, Price, Settings, Transaction entities
-- `data/remote/YahooFinanceApi.kt` - Retrofit interface for Yahoo Finance chart API
-- `data/repository/PriceRepository.kt` - Coordinates price fetching and caching
-- `data/repository/CsvImportRepository.kt` - CSV import for accounts, positions, transactions
-- `viewmodel/MainViewModel.kt` - Central ViewModel handling portfolio calculations
-- `worker/PriceSyncWorker.kt` - WorkManager periodic task (every 5 min)
+**Navigation**: Manual stack-based navigation in MainActivity (sealed class `Screen` with 20+ variants). Three bottom tabs: 总览 (Overview), 资产 (Assets), 账户 (Accounts).
 
-**Database Schema**:
-- `accounts` - id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance
-- `positions` - id, accountId, symbol, shares, totalCost, currency (explicit, not inferred)
-- `prices` - symbol, price, currency, timestamp
-- `settings` - baseCurrency, targetAllocation, rebalanceThreshold
-- `transactions` - id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp
+## Dual Data Model (Migration in progress)
 
-## Important Design Decisions
+The app is migrating from `Position` → `AssetRecord`. Both coexist:
 
-- **Average Cost Method**: `totalCost` is proportionally reduced when selling (shares and cost both decrease)
-- **Multi-Currency**: All values converted to `baseCurrency` (CNY default) using Yahoo Finance exchange rates
-- **Position Aggregation**: Positions with same symbol across accounts are merged into `PositionSummary`
-- **Explicit Currency**: Each position has an explicit `currency` field; do not infer from symbol
-- **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted)
-- **Offline Support**: Prices cached in Room; WorkManager refreshes every 5 minutes when network available
-- **Rebalancing**: Supports configurable target allocations per asset class; recommendations generated when drift exceeds threshold
-- **CSV Import**: Supports importing accounts, positions, and transactions from CSV files in assets/
+- **`Position`** (legacy): `id, accountId, symbol, shares, totalCost, currency`. Always STOCK type, always AGGRESSIVE risk bucket. Created by older code paths.
+- **`AssetRecord`** (new): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT) and `RiskBucket` (CONSERVATIVE/AGGRESSIVE/CASH). Has explicit `name, quantity, cost, currentPrice, currency`.
+
+The `PortfolioCalculator` handles both. `UnifiedAsset` interface bridges them. Cash is managed as AssetRecord(CASH, CASH bucket). The `adjustCashAsset()` method in MainViewModel auto-creates/updates/deletes CASH records when buying/selling.
+
+## Risk Bucket System
+
+Three risk dimensions for asset allocation:
+- **AGGRESSIVE** (进取): Stocks, ETFs, equity funds
+- **CONSERVATIVE** (稳健): Bonds, time deposits, money market funds
+- **CASH** (防守): Cash, demand deposits, Yu'ebao-type products
+
+UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.2,AGGRESSIVE:0.6,CASH:0.2"`.
+
+## Database Schema (Room, version 7)
+
+- `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
+- `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
+- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, createdAt, updatedAt
+- `prices` — symbol (PK), price, currency, updatedAt, isFallback. 10-min staleness threshold.
+- `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
+- `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
+- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
+- `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
+
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions). Destructive fallback allowed from v1, v2 only.
+
+## Key Design Decisions
+
+- **Average Cost Method**: `totalCost` is proportionally reduced when selling (shares and cost both decrease, unit cost unchanged)
+- **Multi-Currency**: All values converted to `baseCurrency` (CNY default) via Yahoo Finance exchange rates. Exchange rate symbol format: `"USDCNY=X"`.
+- **Explicit Currency**: Each position/record has explicit `currency`; do not infer from symbol
+- **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted). All other account balances are ignored — assets tracked via AssetRecord.
+- **Cash Auto-Management**: `adjustCashAsset()` creates/updates/deletes CASH AssetRecords automatically when buying/selling non-cash assets
+- **Price Cache**: Price entity has 10-min staleness, 30-sec connect/read timeouts, circuit breaker (5 failures → 5-min open)
+- **Batch Refresh**: PriceSyncWorker refreshes in batches of 5, exponential backoff (1min/5min/15min), max 3 attempts
+- **Offline Support**: Prices cached in Room; stale cache returned as `isFallback=true` when network unavailable
+- **Rebalancing**: Configurable target allocation per risk bucket; drift > threshold (default 5%) triggers recommendations
+- **CSV Import**: Supports importing accounts, positions, transactions from CSV files in assets/ directory
+- **Currency Formatting**: `formatCurrency()` in MainActivity.kt and MainScreen.kt (duplicated) — `¥` for CNY, `$` for USD, `HK$` for HKD
 
 ## Tech Stack
 
-- Kotlin 1.9.20, compileSdk 34, minSdk 26
-- Jetpack Compose with Material 3
-- Room 2.6.1 with KSP
-- WorkManager 2.9.0
-- Retrofit 2.9.0 + OkHttp 4.12.0
-- Navigation Compose 2.7.5
+- Kotlin 1.9.20, compileSdk 34, minSdk 26, jvmTarget 17
+- Jetpack Compose with Material 3 (BOM 2023.10.01)
+- Room 2.6.1 with KSP, WorkManager 2.9.0
+- Retrofit 2.9.0 + OkHttp 4.12.0 + Gson
+- Navigation Compose 2.7.5, Lifecycle ViewModel Compose 2.6.2
+- Testing: JUnit 4.13.2, Mockito 5.8.0 + mockito-kotlin 5.2.1
+
+## UI Component Kit
+
+Design system defined in `ui/theme/Theme.kt` (green primary `#166B45`, gray-based text hierarchy). Custom components in `ui/components/FinUi.kt`: FinCard (no-elevation card), FinTextField (rounded), FinPill (toggle pill), FinSoftButton (green button), profitColor/profitText helpers.
+
+## Workers
+
+- **PriceSyncWorker**: PeriodicWorkRequest every 15 min (requires network). Gets all Position symbols + AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
+- **SnapshotWorker**: PeriodicWorkRequest daily at 9 AM (no network required). Computes total assets/cost, saves AssetSnapshot, cleans up snapshots >2 years old.

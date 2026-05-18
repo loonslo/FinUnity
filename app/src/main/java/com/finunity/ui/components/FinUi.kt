@@ -19,14 +19,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.theme.FinSizes
 
-// 兼容旧代码
+// 兼容旧代码（保留别名过渡）
 val FinGreen = FinColors.Primary
-val FinLine = Color(0xFFE5E7EB)
-val FinBlue = Color(0xFF8DA7C7)
-val FinGold = Color(0xFFD8B36A)
-val FinPage = Color(0xFFF7F8FA)
+val FinLine = FinColors.Outline
+val FinBlue = FinColors.Conservative
+val FinGold = FinColors.Cash
+val FinPage = FinColors.PageBg
 val FinMuted = FinColors.Muted
+val FinAccent = FinColors.Accent
 
 // 间距系统（基于 8dp）
 val FinSpacing = object {
@@ -47,7 +50,7 @@ fun FinCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = FinShapes.md,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -81,7 +84,7 @@ fun FinPill(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
+        shape = FinShapes.sm,
         color = if (selected) FinColors.Primary.copy(alpha = 0.1f) else Color.Transparent
     ) {
         Text(
@@ -116,7 +119,7 @@ fun FinTextField(
         isError = isError,
         supportingText = supportingText?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        shape = RoundedCornerShape(12.dp),
+        shape = FinShapes.sm,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = FinColors.Primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -136,9 +139,9 @@ fun FinSoftButton(
 ) {
     Surface(
         modifier = modifier
-            .height(48.dp)
+            .height(FinSizes.buttonHeight)
             .clickable(enabled = enabled, onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = FinShapes.md,
         color = if (enabled) FinColors.Primary else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = Color.White
     ) {

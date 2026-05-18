@@ -1,6 +1,5 @@
 package com.finunity.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +29,7 @@ import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
+import com.finunity.ui.theme.FinColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -82,7 +82,6 @@ fun AssetDetailScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -103,11 +102,13 @@ fun AssetDetailScreen(
                         }
                         if (!isCash) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = onEdit, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                                    Text("买入")
+                Button(onClick = onEdit, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)) {
+                                    Text("买入", color = FinColors.Number)
                                 }
-                                OutlinedButton(onClick = onSell, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                                    Text("卖出")
+                                OutlinedButton(onClick = onSell, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FinColors.Number)) {
+                                    Text("卖出", color = FinColors.Number)
                                 }
                             }
                         }
@@ -154,9 +155,10 @@ fun AssetDetailScreen(
                 Button(
                     onClick = onEdit,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
                 ) {
-                    Text("调整持仓")
+                    Text("调整持仓", color = FinColors.Number)
                 }
             }
 

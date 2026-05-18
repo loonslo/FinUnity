@@ -51,6 +51,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.model.AccountSummary
 import com.finunity.ui.components.FinPill
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
 
 enum class CashFlowMode {
     CASH_IN,
@@ -106,13 +108,13 @@ fun CashFlowScreen(
                 )
             )
         },
-        containerColor = Color(0xFFF7F8FA),
+        containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF7F8FA))
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp, vertical = 16.dp)
                 .verticalScroll(rememberScrollState()),
@@ -197,7 +199,7 @@ fun CashFlowScreen(
                     suffix = { Text(account?.currency ?: "") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = FinShapes.sm
                 )
 
                 if (mode == CashFlowMode.TRANSFER) {
@@ -215,7 +217,7 @@ fun CashFlowScreen(
                             label = { Text("转入账户") },
                             placeholder = { Text("选择同币种账户") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
-                            shape = RoundedCornerShape(14.dp)
+                            shape = FinShapes.sm
                         )
                         ExposedDropdownMenu(
                             expanded = targetExpanded,
@@ -241,7 +243,7 @@ fun CashFlowScreen(
                     label = { Text("备注") },
                     placeholder = { Text(defaultNoteFor(mode)) },
                     minLines = 2,
-                    shape = RoundedCornerShape(14.dp)
+                    shape = FinShapes.sm
                 )
             }
 
@@ -264,11 +266,11 @@ fun CashFlowScreen(
                     enabled = canSave,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White
+                        containerColor = FinColors.SoftGreen,
+                        contentColor = FinColors.Number
                     )
                 ) {
-                    Text("保存")
+                    Text("保存", color = FinColors.Number)
                 }
             }
         }
@@ -287,7 +289,7 @@ private fun RecordEntryCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) Color(0xFFEAF7EF) else Color.White
         ),

@@ -27,6 +27,8 @@ import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,13 +65,13 @@ fun AccountDetailScreen(
                 )
             )
         },
-        containerColor = Color(0xFFF7F8FA),
+        containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF7F8FA))
+                .background(FinColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -186,15 +188,15 @@ private fun AccountActionRow(
                 .height(54.dp),
             shape = RoundedCornerShape(18.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFEAF7EF),
-                contentColor = Color(0xFF111827)
+                containerColor = FinColors.SoftGreen,
+                contentColor = FinColors.Number
             )
         ) {
             Icon(
                 Icons.Default.Add,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = Color(0xFF111827)
+                tint = FinColors.Number
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("记一笔", color = Color(0xFF111827))

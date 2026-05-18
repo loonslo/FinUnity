@@ -39,8 +39,8 @@ import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.ui.components.FinCard
-import com.finunity.ui.components.FinGreen
-import com.finunity.ui.components.FinLine
+import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinSectionLabel
 import java.text.NumberFormat
 import java.util.*
@@ -60,7 +60,7 @@ fun MainScreen(
 ) {
     Scaffold(
         bottomBar = bottomBar,
-        containerColor = Color(0xFFF7F8FA),
+        containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
         // 错误提示
@@ -109,7 +109,7 @@ fun MainScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFF7F8FA))
+                    .background(FinColors.PageBg)
                     .padding(padding)
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -158,7 +158,7 @@ fun EmptyState(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF7F8FA)),
+            .background(FinColors.PageBg),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -175,7 +175,7 @@ fun EmptyState(
                     text = "¥",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = FinGreen.copy(alpha = 0.65f)
+                    color = FinColors.Accent.copy(alpha = 0.65f)
                 )
             }
             Spacer(modifier = Modifier.height(18.dp))
@@ -193,12 +193,16 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = onStartAddFlow,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = FinShapes.md,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
                 )
             ) {
-                Text("添加账户")
+                Text("添加账户", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.Number)
             }
         }
     }
@@ -214,7 +218,7 @@ fun AssetOverviewCard(
 ) {
     val cumulativeProfit = totalAssets - totalCost
     val cumulativeRatio = if (totalCost > 0) cumulativeProfit / totalCost else 0.0
-    val profitColor = if (cumulativeProfit >= 0) Color(0xFF0F9D58) else Color(0xFFD93025)
+    val profitColor = if (cumulativeProfit >= 0) FinColors.Profit else FinColors.Loss
     val cumulativeText = "累计变化 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}"
 
     Card(
@@ -237,7 +241,7 @@ fun AssetOverviewCard(
                     text = "资产结构",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1F2933)
+                    color = FinColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(14.dp))
                 AllocationDonutSummary(
@@ -324,7 +328,7 @@ private fun AllocationDonutSummary(
                 AllocationLegendRow(
                     label = "暂无分布",
                     percentage = 0.0,
-                    color = FinLine,
+                    color = FinColors.Outline,
                     onClick = {}
                 )
             } else {
@@ -363,7 +367,7 @@ private fun AllocationDonut(
         val arcSize = Size(diameter, diameter)
 
         drawArc(
-            color = Color(0xFFEEF0F3),
+            color = FinColors.Outline.copy(alpha = 0.55f),
             startAngle = 0f,
             sweepAngle = 360f,
             useCenter = false,
@@ -451,7 +455,7 @@ private fun HomeAccountSummaryCard(
                     text = "账户",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1F2933)
+                    color = FinColors.TextPrimary
                 )
                 TextButton(onClick = onViewAll) {
                     Text("查看全部")
@@ -464,7 +468,7 @@ private fun HomeAccountSummaryCard(
                 Text(
                     text = "暂时还没有账户",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF6B7280)
+                    color = FinColors.TextSecondary
                 )
             } else {
                 accounts.take(3).forEachIndexed { index, summary ->
@@ -476,7 +480,7 @@ private fun HomeAccountSummaryCard(
                     if (index != accounts.take(3).lastIndex) {
                         Divider(
                             modifier = Modifier.padding(vertical = 12.dp),
-                            color = Color(0xFFE5E7EB).copy(alpha = 0.65f)
+                            color = FinColors.Outline.copy(alpha = 0.65f)
                         )
                     }
                 }
@@ -504,7 +508,7 @@ private fun HomeAccountRow(
                 text = summary.account.name,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF1F2933),
+                color = FinColors.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -512,7 +516,7 @@ private fun HomeAccountRow(
             Text(
                 text = "${summary.account.type.displayName()} · ${summary.account.currency}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF6B7280),
+                color = FinColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -521,21 +525,21 @@ private fun HomeAccountRow(
             text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = if (summary.balanceInBaseCurrency < 0) Color(0xFFC2413A) else Color(0xFF111827)
+            color = if (summary.balanceInBaseCurrency < 0) FinColors.Loss else FinColors.Number
         )
         Spacer(modifier = Modifier.width(4.dp))
         Icon(
             Icons.Default.KeyboardArrowRight,
             contentDescription = null,
-            tint = Color(0xFF6B7280)
+            tint = FinColors.TextSecondary
         )
     }
 }
 
 private fun allocationColor(bucket: RiskBucket): Color = when (bucket) {
-    RiskBucket.AGGRESSIVE -> Color(0xFF3D7A5C)
-    RiskBucket.CONSERVATIVE -> Color(0xFF8DA7C7)
-    RiskBucket.CASH -> Color(0xFFD8B36A)
+    RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+    RiskBucket.CONSERVATIVE -> FinColors.Conservative
+    RiskBucket.CASH -> FinColors.Cash
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -686,7 +690,7 @@ fun AssetRecordItem(
     baseCurrency: String,
     onClick: () -> Unit = {}
 ) {
-    val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
     val isCash = summary.record.assetType == com.finunity.data.local.entity.AssetType.CASH
 
     Card(
@@ -845,9 +849,9 @@ fun PositionItem(
     onClick: () -> Unit = {}
 ) {
     val profitColor = if (position.profitLoss >= 0)
-        Color(0xFF00A86B)  // 绿色
+        FinColors.Profit
     else
-        Color(0xFFE53935)   // 红色
+        FinColors.Loss
 
     Card(
         modifier = Modifier
@@ -921,7 +925,7 @@ fun HoldingItem(
     baseCurrency: String,
     onClick: () -> Unit = {}
 ) {
-    val profitColor = if (holding.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (holding.profitLoss >= 0) FinColors.Profit else FinColors.Loss
 
     Card(
         modifier = Modifier

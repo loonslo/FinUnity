@@ -178,7 +178,7 @@ fun FinUnityApp(database: AppDatabase) {
     fun startAddFlow() {
         val accounts = portfolioSummary?.accounts.orEmpty()
         if (accounts.isEmpty()) {
-            navigateTo(Screen.AccountAssetsByAccount)
+            navigateTo(Screen.AddAccount(null, continueToAsset = true))
         } else {
             showAccountPicker = true
         }
@@ -330,8 +330,9 @@ fun FinUnityApp(database: AppDatabase) {
                     } else {
                         viewModel.updateAssetRecord(record)
                     }
+                    val wasFirstAsset = pendingNewAccount != null
                     pendingNewAccount = null
-                    currentScreen = Screen.AccountDetail(record.accountId)
+                    currentScreen = if (wasFirstAsset) Screen.Main else Screen.AccountDetail(record.accountId)
                 },
                 onDelete = { id ->
                     viewModel.deleteAssetRecord(id)
