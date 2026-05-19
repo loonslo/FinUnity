@@ -279,6 +279,8 @@ fun FinUnityApp(database: AppDatabase) {
         is Screen.AccountAssetsByAccount -> {
             AccountAssetsByAccountScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
+                assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
+                holdings = portfolioSummary?.holdings ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
                 onEditAccount = { account -> navigateTo(Screen.AddAccount(account, allowDelete = true)) },
@@ -392,7 +394,6 @@ fun FinUnityApp(database: AppDatabase) {
             val accountSummary = portfolioSummary?.accounts?.find { it.account.id == screen.accountId }
             AccountDetailScreen(
                 account = accountSummary?.account ?: Account(name = "", type = AccountType.BANK, currency = "CNY", balance = 0.0),
-                accountSummary = accountSummary,
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },

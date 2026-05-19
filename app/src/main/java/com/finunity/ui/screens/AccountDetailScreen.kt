@@ -34,7 +34,6 @@ import com.finunity.ui.theme.FinShapes
 @Composable
 fun AccountDetailScreen(
     account: Account,
-    accountSummary: AccountSummary?,
     assetRecords: List<AssetRecordSummary>,
     baseCurrency: String,
     onBack: () -> Unit,
@@ -80,9 +79,10 @@ fun AccountDetailScreen(
 
             // 账户信息卡片
             item {
+                val assetValue = recordsForAccount.sumOf { it.currentValue }
                 AccountInfoCard(
                     account = account,
-                    balanceInBaseCurrency = accountSummary?.balanceInBaseCurrency ?: account.balance,
+                    assetValue = assetValue,
                     baseCurrency = baseCurrency
                 )
             }
@@ -252,7 +252,7 @@ private fun AccountActionRow(
 @Composable
 fun AccountInfoCard(
     account: Account,
-    balanceInBaseCurrency: Double,
+    assetValue: Double,
     baseCurrency: String
 ) {
     val isLiability = account.type == com.finunity.data.local.entity.AccountType.LIABILITY
@@ -304,7 +304,7 @@ fun AccountInfoCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
                 Text(
-                    text = formatCurrency(balanceInBaseCurrency, baseCurrency),
+                    text = formatCurrency(assetValue, baseCurrency),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (isLiability) MaterialTheme.colorScheme.error else Color(0xFF111827)

@@ -115,8 +115,6 @@ fun MainScreen(
             AccountReadyEmptyAssetState(
                 portfolioSummary = summary,
                 onStartAddFlow = onStartAddFlow,
-                onViewAccounts = onViewAccounts,
-                onEditAccount = onEditAccount,
                 modifier = Modifier.padding(padding)
             )
         } else {
@@ -154,15 +152,6 @@ fun MainScreen(
                             portfolioSummary = summary
                         )
                     }
-                }
-
-                item {
-                    HomeAccountSummaryCard(
-                        accounts = summary.accounts,
-                        baseCurrency = summary.baseCurrency,
-                        onViewAll = onViewAccounts,
-                        onViewAccount = onEditAccount
-                    )
                 }
 
                 item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -236,8 +225,6 @@ fun EmptyState(
 private fun AccountReadyEmptyAssetState(
     portfolioSummary: PortfolioSummary,
     onStartAddFlow: () -> Unit,
-    onViewAccounts: () -> Unit,
-    onEditAccount: (Account) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -290,14 +277,6 @@ private fun AccountReadyEmptyAssetState(
                     }
                 }
             }
-        }
-        item {
-            HomeAccountSummaryCard(
-                accounts = portfolioSummary.accounts,
-                baseCurrency = portfolioSummary.baseCurrency,
-                onViewAll = onViewAccounts,
-                onViewAccount = onEditAccount
-            )
         }
         item { Spacer(modifier = Modifier.height(80.dp)) }
     }
@@ -522,12 +501,17 @@ private fun AllocationDonutSummary(
             }
             if (cumulativeProfitText != null) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = cumulativeProfitText,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = profitColor
-                )
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    Text(
+                        text = cumulativeProfitText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = profitColor
+                    )
+                }
             }
         }
     }
@@ -815,7 +799,7 @@ fun RebalanceAlertCard(
                 Divider()
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "资产小建议",
+                    text = "再平衡方案",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )

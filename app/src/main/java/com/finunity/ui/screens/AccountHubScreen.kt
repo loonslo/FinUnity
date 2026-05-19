@@ -275,6 +275,7 @@ private fun AccountAssetCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val assetValue = assetRecords.sumOf { it.currentValue } + holdings.sumOf { it.currentValue }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = summary.account.name,
@@ -290,10 +291,10 @@ private fun AccountAssetCard(
                     )
                 }
                 Text(
-                    text = hiddenAware(formatCurrency(summary.balanceInBaseCurrency, baseCurrency), amountsVisible),
+                    text = hiddenAware(formatCurrency(assetValue, baseCurrency), amountsVisible),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error else FinColors.Number
+                    color = if (assetValue < 0) MaterialTheme.colorScheme.error else FinColors.Number
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
@@ -428,6 +429,8 @@ private fun profitColorFor(value: Double): Color = when {
 @Composable
 fun AccountAssetsByAccountScreen(
     accounts: List<AccountSummary>,
+    assetRecords: List<AssetRecordSummary>,
+    holdings: List<HoldingSummary>,
     baseCurrency: String,
     onAddAccount: () -> Unit,
     onEditAccount: (com.finunity.data.local.entity.Account) -> Unit,
@@ -453,14 +456,6 @@ fun AccountAssetsByAccountScreen(
             item {
                 AccountProfileHeader()
             }
-            if (accounts.isNotEmpty()) {
-                item {
-                    AddAccountQuickAction(
-                        accountCount = accounts.size,
-                        onAddAccount = onAddAccount
-                    )
-                }
-            }
             if (accounts.isEmpty()) {
                 item { AccountEmptyManagementCard(onAddAccount = onAddAccount) }
             } else {
@@ -468,8 +463,11 @@ fun AccountAssetsByAccountScreen(
                     FinSectionLabel("账户管理")
                 }
                 items(accounts, key = { it.account.id }) { summary ->
+                    val assetValue = assetRecords.filter { it.record.accountId == summary.account.id }.sumOf { it.currentValue } +
+                        holdings.filter { it.position.accountId == summary.account.id }.sumOf { it.currentValue }
                     ManagementAccountCard(
                         summary = summary,
+                        assetValue = assetValue,
                         baseCurrency = baseCurrency,
                         onView = { onEditAccount(summary.account) }
                     )
@@ -478,6 +476,7 @@ fun AccountAssetsByAccountScreen(
             item {
                 AccountToolsCard(
                     accountCount = accounts.size,
+                    onAddAccount = onAddAccount,
                     onOpenImportCsv = onOpenImportCsv,
                     onOpenSettings = onOpenSettings
                 )
@@ -541,62 +540,9 @@ private fun AccountProfileHeader() {
 }
 
 @Composable
-private fun AddAccountQuickAction(
-    accountCount: Int,
-    onAddAccount: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onAddAccount),
-        shape = FinShapes.lg,
-        color = FinColors.Accent.copy(alpha = 0.08f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = Color.White.copy(alpha = 0.82f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                        tint = FinColors.Accent,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "添加新账户",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = FinColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "当前已记录 $accountCount 个账户",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = FinColors.TextSecondary
-                )
-            }
-            Icon(
-                Icons.Default.KeyboardArrowRight,
-                contentDescription = null,
-                tint = FinColors.TextSecondary.copy(alpha = 0.55f)
-            )
-        }
-    }
-}
-
-@Composable
 private fun AccountToolsCard(
     accountCount: Int,
+    onAddAccount: () -> Unit,
     onOpenImportCsv: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -615,6 +561,11 @@ private fun AccountToolsCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            SecondaryToolChip(
+                text = "添加账户",
+                onClick = onAddAccount,
+                modifier = Modifier.weight(1f)
+            )
             SecondaryToolChip(
                 text = if (accountCount == 0) "导入表格" else "导入数据",
                 onClick = onOpenImportCsv,
@@ -717,6 +668,7 @@ private fun AccountEmptyManagementCard(onAddAccount: () -> Unit) {
 @Composable
 private fun ManagementAccountCard(
     summary: AccountSummary,
+    assetValue: Double,
     baseCurrency: String,
     onView: () -> Unit
 ) {
@@ -777,10 +729,10 @@ private fun ManagementAccountCard(
                     color = FinColors.TextSecondary.copy(alpha = 0.72f)
                 )
                 Text(
-                    text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
+                    text = formatCurrency(assetValue, baseCurrency),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
-                    color = if (summary.balanceInBaseCurrency < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinColors.TextSecondary
+                    color = if (assetValue < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Icon(
