@@ -149,7 +149,8 @@ fun FinSoftButton(
             .height(FinSizes.buttonHeight)
             .clickable(enabled = enabled, onClick = onClick),
         shape = FinShapes.md,
-        color = if (enabled) FinColors.Primary else MaterialTheme.colorScheme.surfaceVariant,
+        // 禁用态用半透明主色而非浅灰，保证白色文字始终清晰可读
+        color = if (enabled) FinColors.Primary else FinColors.Primary.copy(alpha = 0.45f),
         contentColor = Color.White
     ) {
         Box(

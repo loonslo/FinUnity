@@ -26,6 +26,7 @@ import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountAssetRules
 import com.finunity.data.model.displayName
+import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinSoftButton
 import com.finunity.ui.components.FinTextField
@@ -371,16 +372,35 @@ fun AssetRecordScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        riskBuckets.forEach { bucket ->
+                    if (selectedAssetType == AssetType.FUND) {
+                        // 基金按产品类型归类：货币基金=稳健，股票基金=进取
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             FinPill(
-                                selected = selectedRiskBucket == bucket,
-                                onClick = { selectedRiskBucket = bucket },
-                                text = bucket.displayName()
+                                selected = selectedRiskBucket == RiskBucket.CONSERVATIVE,
+                                onClick = { selectedRiskBucket = RiskBucket.CONSERVATIVE },
+                                text = "货币基金（稳健）"
+                            )
+                            FinPill(
+                                selected = selectedRiskBucket == RiskBucket.AGGRESSIVE,
+                                onClick = { selectedRiskBucket = RiskBucket.AGGRESSIVE },
+                                text = "股票基金（进取）"
+                            )
+                        }
+                    } else {
+                        // 其它资产类型由标的自动归类，不可手选，只读展示
+                        Surface(
+                            shape = FinShapes.sm,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = "${selectedRiskBucket.displayName()} · 按资产类型自动归类",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -546,7 +566,7 @@ fun AssetRecordScreen(
                 if (allowedAssetTypes.isEmpty()) add("当前账户类型不支持新增持仓")
                 if (selectedAssetType != AssetType.CASH && name.isBlank()) add("${getNameLabel(selectedAssetType)}")
                 if (qty <= 0) add(if (selectedAssetType == AssetType.CASH) "金额" else "数量/份额")
-                if (isTradableType && c <= 0) add("买入总成本")
+                if (isTradableType && c <= 0) add("买入单价")
                 if (isTradableType && price <= 0) add("当前价格/净值")
             }
 
@@ -581,20 +601,18 @@ fun AssetRecordScreen(
                 enabled = isFormValid
             )
 
-            if (!isNewRecord) {
+            // 编辑态、可交易资产：提供卖出入口（触发已有的卖出对话框）
+            if (!isNewRecord && selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                OutlinedButton(
+                    onClick = { showSellDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ){}
+                    Text("卖出")
                 }
             }
 
@@ -720,6 +738,14 @@ private fun DynamicAssetFields(
             }
         }
         else -> {
+            // 买入单价：编辑态用 总成本/数量 反推
+            var buyPrice by remember(selectedAssetType) {
+                mutableStateOf(run {
+                    val q = quantity.toDoubleOrNull() ?: 0.0
+                    val c = cost.toDoubleOrNull() ?: 0.0
+                    if (q > 0 && c > 0) trimNumber(c / q) else ""
+                })
+            }
             FinTextField(
                 value = quantity,
                 onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
@@ -728,9 +754,9 @@ private fun DynamicAssetFields(
                 keyboardType = KeyboardType.Decimal
             )
             FinTextField(
-                value = cost,
-                onValueChange = { onCostChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = "买入总成本",
+                value = buyPrice,
+                onValueChange = { buyPrice = it.filter { c -> c.isDigit() || c == '.' } },
+                label = "买入单价/净值",
                 placeholder = "0.00",
                 keyboardType = KeyboardType.Decimal
             )
@@ -741,8 +767,30 @@ private fun DynamicAssetFields(
                 placeholder = "0.00",
                 keyboardType = KeyboardType.Decimal
             )
+            // 总成本 = 数量 × 买入单价，自动回填
+            val previewQty = quantity.toDoubleOrNull() ?: 0.0
+            val previewBuy = buyPrice.toDoubleOrNull() ?: 0.0
+            if (previewQty > 0 && previewBuy > 0) {
+                Text(
+                    text = "买入总成本：${String.format("%.2f", previewQty * previewBuy)} $selectedCurrency",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+            LaunchedEffect(quantity, buyPrice) {
+                val q = quantity.toDoubleOrNull() ?: 0.0
+                val bp = buyPrice.toDoubleOrNull() ?: 0.0
+                onCostChange(if (q > 0 && bp > 0) trimNumber(q * bp) else "")
+            }
         }
     }
+}
+
+/** 去掉多余小数尾零，便于把计算结果回填到表单字段 */
+private fun trimNumber(value: Double): String {
+    if (value.isNaN() || value.isInfinite()) return ""
+    return java.math.BigDecimal(value).setScale(4, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros().toPlainString()
 }
 
 private fun getNameLabel(assetType: AssetType): String = when (assetType) {
@@ -780,7 +828,8 @@ private fun defaultRiskBucketFor(assetType: AssetType, accountType: AccountType?
 private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetType?): List<AssetType> {
     val baseAllowed = AccountAssetRules.allowedAssetTypes(accountType)
     val allowed = if (currentType == null) {
-        baseAllowed.filterNot { it == AssetType.CASH }
+        // 新建时不再过滤现金，只是把现金排到末尾（默认仍选中第一个非现金类型）
+        baseAllowed.sortedBy { it == AssetType.CASH }
     } else {
         baseAllowed
     }

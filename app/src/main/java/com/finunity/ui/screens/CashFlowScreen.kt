@@ -137,16 +137,19 @@ fun CashFlowScreen(
                         mode = CashFlowMode.CASH_IN
                     }
                 )
-                RecordEntryCard(
-                    title = "资产调整",
-                    subtitle = "在账户之间转账",
-                    icon = Icons.Default.Person,
-                    selected = selectedEntry == RecordEntry.ADJUST,
-                    onClick = {
-                        selectedEntry = RecordEntry.ADJUST
-                        mode = CashFlowMode.TRANSFER
-                    }
-                )
+                // 仅当存在可转入的同币种账户时，才显示"资产调整(转账)"入口
+                if (transferTargets.isNotEmpty()) {
+                    RecordEntryCard(
+                        title = "资产调整",
+                        subtitle = "在账户之间转账",
+                        icon = Icons.Default.Person,
+                        selected = selectedEntry == RecordEntry.ADJUST,
+                        onClick = {
+                            selectedEntry = RecordEntry.ADJUST
+                            mode = CashFlowMode.TRANSFER
+                        }
+                    )
+                }
             }
 
 

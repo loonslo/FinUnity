@@ -50,11 +50,11 @@ fun AccountScreen(
 ) {
     var name by remember { mutableStateOf(account?.name ?: "") }
     var selectedType by remember { mutableStateOf(account?.type ?: AccountType.BANK) }
-    var selectedCurrency by remember { mutableStateOf(account?.currency ?: "CNY") }
+    // 币种不在账户层选择，沿用已有账户的币种，新账户默认 CNY
+    val selectedCurrency = account?.currency ?: "CNY"
     var balance by remember { mutableStateOf(account?.balance?.toString() ?: "") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    val currencies = listOf("CNY", "USD", "HKD")
     val accountTypes = listOf(
         AccountType.BANK,
         AccountType.BROKER,
@@ -167,10 +167,7 @@ fun AccountScreen(
 
             AccountFormCard(
                 name = name,
-                onNameChange = { name = it },
-                selectedCurrency = selectedCurrency,
-                currencies = currencies,
-                onCurrencyChange = { selectedCurrency = it }
+                onNameChange = { name = it }
             )
 
             AccountTypeSection(
@@ -261,10 +258,7 @@ private fun AccountHeroCard(
 @Composable
 private fun AccountFormCard(
     name: String,
-    onNameChange: (String) -> Unit,
-    selectedCurrency: String,
-    currencies: List<String>,
-    onCurrencyChange: (String) -> Unit
+    onNameChange: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -286,26 +280,7 @@ private fun AccountFormCard(
                 label = "名称",
                 placeholder = "如：招商银行、富途证券"
             )
-            SectionTitle(
-                title = "默认币种",
-                subtitle = "后续资产仍可使用自己的原始币种，这里用于账户归类。"
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(FinColors.PageBg, RoundedCornerShape(16.dp))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                currencies.forEach { currency ->
-                    CurrencySegment(
-                        currency = currency,
-                        selected = selectedCurrency == currency,
-                        onClick = { onCurrencyChange(currency) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            // 币种不在账户层选择：录入每笔资产时按其原始币种填写（同一账户可持多币种资产）。
         }
     }
 }
@@ -436,37 +411,6 @@ private fun AccountAssetMatchCard(
 }
 
 @Composable
-private fun CurrencySegment(
-    currency: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(13.dp),
-        color = if (selected) Color.White else Color.Transparent
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = currency,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) FinColors.TextPrimary else FinColors.TextSecondary
-            )
-            Text(
-                text = currencyLabel(currency),
-                style = MaterialTheme.typography.labelSmall,
-                color = FinColors.TextSecondary
-            )
-        }
-    }
-}
-
-@Composable
 private fun SectionTitle(
     title: String,
     subtitle: String
@@ -550,20 +494,3 @@ private fun accountTypeInitial(type: AccountType): String = when (type) {
     AccountType.OTHER -> "其"
 }
 
-private fun accountTypeHint(type: AccountType): String = when (type) {
-    AccountType.BROKER -> "股票、ETF、基金"
-    AccountType.BANK -> "银行卡、存款"
-    AccountType.FUND -> "基金和理财"
-    AccountType.CASH_MANAGEMENT -> "余额宝、零钱"
-    AccountType.BOND -> "债券和固收"
-    AccountType.INSURANCE -> "保单现金价值"
-    AccountType.LIABILITY -> "房贷、信用卡"
-    AccountType.OTHER -> "其他资产入口"
-}
-
-private fun currencyLabel(currency: String): String = when (currency) {
-    "CNY" -> "人民币"
-    "USD" -> "美元"
-    "HKD" -> "港币"
-    else -> currency
-}
