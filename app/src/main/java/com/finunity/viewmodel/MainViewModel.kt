@@ -159,6 +159,12 @@ class MainViewModel(
     fun addAccount(account: Account) {
         viewModelScope.launch {
             database.accountDao().insert(account)
+            // 标记新手引导已完成
+            if (!_settings.value.onboarded) {
+                val updated = _settings.value.copy(onboarded = true)
+                database.settingsDao().update(updated)
+                _settings.value = updated
+            }
         }
     }
 
@@ -186,7 +192,7 @@ class MainViewModel(
                 price = position.averageCost,
                 amount = position.totalCost,
                 currency = position.currency,
-                note = "持仓买入: ${position.symbol}"
+                note = "买入 ${position.symbol} · ${String.format("%.2f", position.totalCost)} ${position.currency}"
             )
             database.transactionDao().insert(transaction)
         }
@@ -206,26 +212,21 @@ class MainViewModel(
 
     fun addAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
-            val isCash = record.assetType == AssetType.CASH
-            if (!isCash) {
-                val success = adjustCashAsset(record.accountId, -record.cost, record.currency)
-                if (!success) return@launch
-            }
-
+            // 直接声明持仓，不扣现金（录入=声明已有资产，非"用现金买入"）
             database.assetRecordDao().insert(record)
 
             // 为非现金资产记录买入流水和初始价格历史
-            if (!isCash) {
+            if (record.assetType != AssetType.CASH) {
                 val transaction = Transaction(
                     accountId = record.accountId,
-                    symbol = record.name,  // 使用名称作为代码
+                    symbol = record.name,
                     type = TransactionType.BUY,
                     shares = record.quantity,
                     price = record.averageCost,
                     amount = record.cost,
                     currency = record.currency,
-                    note = "资产记录买入: ${record.name}",
-                    recordId = record.id  // 精确追溯
+                    note = "录入 ${record.name} · ${String.format("%.2f", record.cost)} ${record.currency}",
+                    recordId = record.id
                 )
                 database.transactionDao().insert(transaction)
             }
@@ -270,7 +271,7 @@ class MainViewModel(
                                 price = null,
                                 amount = kotlin.math.abs(cashDelta),
                                 currency = record.currency,
-                                note = if (cashDelta < 0) "追加买入: ${record.name}" else "调减成本: ${record.name}",
+                                note = if (cashDelta < 0) "追加买入 ${record.name} · ${String.format("%.2f", kotlin.math.abs(cashDelta))} ${record.currency}" else "调减 ${record.name} 成本 · ${String.format("%.2f", kotlin.math.abs(cashDelta))} ${record.currency}",
                                 recordId = record.id
                             )
                         )
@@ -352,7 +353,11 @@ class MainViewModel(
             val success = adjustCashAsset(fromAccountId, -amount)
             if (!success) return@launch
             adjustCashAsset(toAccountId, amount)
-            val transferNote = note?.ifBlank { null } ?: "账户转账"
+            val userNote = note?.ifBlank { null }
+            val outNote = buildString {
+                append("转出至 ${toAccount.name} · ${String.format("%.2f", amount)} ${fromAccount.currency}")
+                if (userNote != null) append("（$userNote）")
+            }
             database.transactionDao().insert(
                 Transaction(
                     accountId = fromAccountId,
@@ -362,7 +367,7 @@ class MainViewModel(
                     price = null,
                     amount = amount,
                     currency = fromAccount.currency,
-                    note = "$transferNote：转出到 ${toAccount.name}"
+                    note = outNote
                 )
             )
             database.transactionDao().insert(
@@ -374,7 +379,10 @@ class MainViewModel(
                     price = null,
                     amount = amount,
                     currency = toAccount.currency,
-                    note = "$transferNote：来自 ${fromAccount.name}"
+                    note = buildString {
+                        append("来自 ${fromAccount.name} 转入 · ${String.format("%.2f", amount)} ${toAccount.currency}")
+                        if (userNote != null) append("（$userNote）")
+                    }
                 )
             )
         }
@@ -393,7 +401,7 @@ class MainViewModel(
         val currentAmount = existing?.currentValue ?: 0.0
         val nextAmount = currentAmount + delta
         if (nextAmount < -0.01) {
-            _error.value = "${account.name} ${cashCurrency} 现金余额不足"
+            _error.value = "${account.name} ${cashCurrency} 现金余额不足，请先记一笔入金或调低买入金额"
             return false
         }
         if (existing == null) {
@@ -455,7 +463,7 @@ class MainViewModel(
                     price = record.currentPrice,
                     amount = sellAmount,
                     currency = record.currency,
-                    note = "卖出资产: ${record.name}",
+                    note = "卖出 ${record.name} · ${String.format("%.2f", sellAmount)} ${record.currency}",
                     recordId = record.id  // 精确追溯
                 )
                 database.transactionDao().insert(transaction)
@@ -512,7 +520,7 @@ class MainViewModel(
                 price = currentPrice,
                 amount = sellAmount,
                 currency = position.currency,
-                note = "卖出持仓: ${position.symbol}"
+                note = "卖出 ${position.symbol} · ${String.format("%.2f", sellAmount)} ${position.currency}"
             )
             database.transactionDao().insert(transaction)
 
@@ -533,6 +541,14 @@ class MainViewModel(
         viewModelScope.launch {
             database.settingsDao().update(newSettings)
             _settings.value = newSettings
+        }
+    }
+
+    fun toggleAmountsVisible() {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(amountsVisible = !_settings.value.amountsVisible)
+            database.settingsDao().update(updated)
+            _settings.value = updated
         }
     }
 
@@ -560,7 +576,7 @@ class MainViewModel(
             val positions = allPositions.map { it.symbol }.distinct()
 
             // 获取股票/ETF/基金 AssetRecord 的名称作为代码（使用已获取的 allAssetRecords）
-            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name, AssetType.FUND.name)
+            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name)
             val assetRecordCodes = allAssetRecords
                 .filter { it.assetType.name in tradableTypes }
                 .map { it.name }
@@ -610,7 +626,7 @@ class MainViewModel(
                 _error.value = failureMessages.joinToString("；")
             }
         } catch (e: Exception) {
-            _error.value = "价格刷新失败: ${e.message}"
+            _error.value = "价格刷新失败，可稍后重试或手动输入价格 · ${e.message}"
         } finally {
             _isLoading.value = false
         }

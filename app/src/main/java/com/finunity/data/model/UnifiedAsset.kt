@@ -114,6 +114,7 @@ fun calculateRiskBucketSummaries(
 fun RiskBucket.displayName(): String = when (this) {
     RiskBucket.CONSERVATIVE -> "稳健"
     RiskBucket.AGGRESSIVE -> "进取"
+    RiskBucket.INSURANCE -> "保命"
     RiskBucket.CASH -> "防守"
 }
 
@@ -126,4 +127,7 @@ fun AssetType.displayName(): String = when (this) {
     AssetType.FUND -> "基金"
     AssetType.CASH -> "现金"
     AssetType.TIME_DEPOSIT -> "定期"
+    AssetType.REAL_ESTATE -> "房产"
+    AssetType.VEHICLE -> "车辆"
+    AssetType.INSURANCE_POLICY -> "保险"
 }

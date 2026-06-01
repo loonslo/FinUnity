@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 价格同步 Worker
- * 每5分钟执行一次，自动刷新股票价格并保存历史
+ * 每日执行一次，自动刷新股票/ETF 价格并保存历史（价格过期阈值 12 小时）
  */
 class PriceSyncWorker(
     context: Context,
@@ -31,7 +31,7 @@ class PriceSyncWorker(
             val symbols = database.positionDao().getAllSymbols()
 
             // 获取股票/ETF/基金 AssetRecord 的名称作为代码
-            val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name, AssetType.FUND.name)
+            val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name)
             val tradableRecords = database.assetRecordDao().getRecordsByTypes(tradableTypes)
             val assetRecordCodes = tradableRecords.map { it.name }
 
@@ -123,7 +123,8 @@ class PriceSyncWorker(
 
         /**
          * 安排定期价格同步
-         * 每15分钟执行一次，指数退避重试
+         * 每天执行一次（符合"股票每日更新一次"的产品定位），需要网络，指数退避重试。
+         * 使用 UPDATE 策略，确保从旧的 15 分钟周期升级到每日周期。
          */
         fun schedule(context: Context) {
             val constraints = Constraints.Builder()
@@ -131,15 +132,20 @@ class PriceSyncWorker(
                 .build()
 
             val workRequest = PeriodicWorkRequestBuilder<PriceSyncWorker>(
-                15, TimeUnit.MINUTES
+                24, TimeUnit.HOURS
             )
                 .setConstraints(constraints)
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    WorkRequest.MIN_BACKOFF_MILLIS,
+                    TimeUnit.MILLISECONDS
+                )
                 .build()
 
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(
                     WORK_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
+                    ExistingPeriodicWorkPolicy.UPDATE,
                     workRequest
                 )
         }

@@ -243,7 +243,9 @@ class PortfolioCalculator(
             val currentValue = computeAssetRecordValue(record)
             when (record.assetType) {
                 AssetType.STOCK, AssetType.ETF, AssetType.FUND -> totalStockValue += currentValue
-                AssetType.CASH, AssetType.TIME_DEPOSIT -> totalCash += currentValue
+                AssetType.CASH, AssetType.TIME_DEPOSIT,
+                AssetType.REAL_ESTATE, AssetType.VEHICLE,
+                AssetType.INSURANCE_POLICY -> totalCash += currentValue
             }
         }
 

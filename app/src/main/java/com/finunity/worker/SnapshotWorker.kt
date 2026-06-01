@@ -129,7 +129,9 @@ class SnapshotWorker(
                 val valueInBase = record.currentValue * exchangeRate
                 when (record.assetType) {
                     AssetType.STOCK, AssetType.ETF, AssetType.FUND -> totalStockValue += valueInBase
-                    AssetType.CASH, AssetType.TIME_DEPOSIT -> totalCash += valueInBase
+                    AssetType.CASH, AssetType.TIME_DEPOSIT,
+                    AssetType.REAL_ESTATE, AssetType.VEHICLE,
+                    AssetType.INSURANCE_POLICY -> totalCash += valueInBase
                 }
             }
 

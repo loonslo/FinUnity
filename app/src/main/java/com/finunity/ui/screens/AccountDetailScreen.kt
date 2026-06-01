@@ -106,14 +106,14 @@ fun AccountDetailScreen(
                 }
             }
 
-            // 持仓列表
+            // 资产列表
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "持仓 (${recordsForAccount.size})",
+                        text = "资产 (${recordsForAccount.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -138,7 +138,7 @@ fun AccountDetailScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "暂无持仓",
+                                    text = "暂无资产",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )
@@ -146,7 +146,7 @@ fun AccountDetailScreen(
                                 TextButton(onClick = onAddRecord) {
                                     Icon(Icons.Default.Add, contentDescription = null)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("添加持仓")
+                                    Text("添加资产")
                                 }
                             }
                         }
@@ -340,13 +340,13 @@ fun AccountStatsRow(
                 modifier = Modifier.weight(1f),
                 label = "盈亏",
                 value = "${if (totalProfitLoss >= 0) "+" else ""}${formatCurrency(totalProfitLoss, baseCurrency)}",
-                color = if (totalProfitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+                color = if (totalProfitLoss >= 0) FinColors.Profit else FinColors.Loss
             )
             StatCard(
                 modifier = Modifier.weight(1f),
                 label = "收益率",
                 value = formatSignedPercent(profitLossRatio),
-                color = if (profitLossRatio >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+                color = if (profitLossRatio >= 0) FinColors.Profit else FinColors.Loss
             )
         }
     }
@@ -393,7 +393,7 @@ fun AccountRecordItem(
     baseCurrency: String,
     onClick: () -> Unit
 ) {
-    val profitColor = if (summary.profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
     val isCash = summary.record.assetType == AssetType.CASH
 
     Card(

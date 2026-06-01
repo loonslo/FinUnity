@@ -1,8 +1,10 @@
 package com.finunity.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -29,6 +31,11 @@ fun TransactionHistoryScreen(
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    var typeFilter by remember { mutableStateOf<TransactionType?>(null) }
+    val filteredTransactions = remember(transactions, typeFilter) {
+        if (typeFilter == null) transactions
+        else transactions.filter { it.type == typeFilter }
+    }
 
     Scaffold(
         topBar = {
@@ -50,43 +57,71 @@ fun TransactionHistoryScreen(
         },
         modifier = modifier
     ) { padding ->
-        if (transactions.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+
+            // 筛选栏
+            item {
+                val filterOptions = listOf(
+                    null to "全部",
+                    TransactionType.BUY to "买入",
+                    TransactionType.SELL to "卖出",
+                    TransactionType.DEPOSIT to "入金",
+                    TransactionType.WITHDRAW to "出金",
+                    TransactionType.TRANSFER_IN to "转入",
+                    TransactionType.TRANSFER_OUT to "转出",
+                    TransactionType.DIVIDEND to "分红",
+                    TransactionType.FEE to "手续费"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "暂无交易记录",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
+                    filterOptions.forEach { (type, label) ->
+                        FilterChip(
+                            selected = typeFilter == type,
+                            onClick = { typeFilter = type },
+                            label = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                item { Spacer(modifier = Modifier.height(8.dp)) }
 
-                items(transactions) { transaction ->
+            if (filteredTransactions.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (typeFilter != null) "无此类交易记录" else "暂无交易记录",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            } else {
+                items(filteredTransactions) { transaction ->
                     TransactionItem(
                         transaction = transaction,
                         baseCurrency = baseCurrency,
                         dateFormat = dateFormat
                     )
                 }
-
-                item { Spacer(modifier = Modifier.height(80.dp)) }
             }
+
+            item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
 }

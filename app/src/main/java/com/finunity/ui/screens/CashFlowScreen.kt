@@ -62,7 +62,6 @@ enum class CashFlowMode {
 
 private enum class RecordEntry {
     CASH,
-    INVEST,
     ADJUST
 }
 
@@ -71,6 +70,7 @@ private enum class RecordEntry {
 fun CashFlowScreen(
     accountId: String,
     accounts: List<AccountSummary>,
+    baseCurrency: String = "CNY",
     onBack: () -> Unit,
     onSaveCashIn: (Double, String?) -> Unit,
     onSaveCashOut: (Double, String?) -> Unit,
@@ -138,17 +138,8 @@ fun CashFlowScreen(
                     }
                 )
                 RecordEntryCard(
-                    title = "投资买卖",
-                    subtitle = "买入、卖出资产",
-                    icon = Icons.Default.DateRange,
-                    selected = selectedEntry == RecordEntry.INVEST,
-                    onClick = {
-                        selectedEntry = RecordEntry.INVEST
-                    }
-                )
-                RecordEntryCard(
                     title = "资产调整",
-                    subtitle = "账户转账、分类调整、数据修正",
+                    subtitle = "在账户之间转账",
                     icon = Icons.Default.Person,
                     selected = selectedEntry == RecordEntry.ADJUST,
                     onClick = {
@@ -158,22 +149,6 @@ fun CashFlowScreen(
                 )
             }
 
-            if (selectedEntry == RecordEntry.INVEST) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White
-                    )
-                ) {
-                    Text(
-                        text = "投资买卖会统一接入这里。当前请先在账户详情中通过资产记录完成买入或卖出。",
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
-            }
 
             if (selectedEntry == RecordEntry.CASH || selectedEntry == RecordEntry.ADJUST) {
                 if (selectedEntry == RecordEntry.CASH) {
@@ -201,6 +176,13 @@ fun CashFlowScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = FinShapes.sm
                 )
+                if (amount != null && amount >= 10000) {
+                    Text(
+                        text = "约 ${String.format("%.2f", amount / 10000)} 万",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    )
+                }
 
                 if (mode == CashFlowMode.TRANSFER) {
                     ExposedDropdownMenuBox(
@@ -231,6 +213,59 @@ fun CashFlowScreen(
                                         targetExpanded = false
                                     }
                                 )
+                            }
+                        }
+                    }
+                    // 转账余额预览
+                    if (selectedTarget != null && amount != null && amount > 0) {
+                        val sourceSummary = accounts.firstOrNull { it.account.id == accountId }
+                        val targetSummary = accounts.firstOrNull { it.account.id == targetAccountId }
+                        val currency = account?.currency ?: "CNY"
+                        val sameAsBase = currency == baseCurrency
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (sameAsBase) {
+                                    val sourceBalance = sourceSummary?.balanceInBaseCurrency ?: 0.0
+                                    val targetBalance = targetSummary?.balanceInBaseCurrency ?: 0.0
+                                    Text("余额预览", style = MaterialTheme.typography.labelMedium, color = FinColors.TextSecondary)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("转出后 ${account?.name ?: ""}", style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            formatCurrency(sourceBalance - amount, currency),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (sourceBalance - amount < 0) MaterialTheme.colorScheme.error else FinColors.TextPrimary
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("转入后 ${targetSummary?.account?.name ?: ""}", style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            formatCurrency(targetBalance + amount, currency),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        "转出 ${formatCurrency(amount, currency)} 到 ${selectedTarget.name}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = FinColors.TextSecondary
+                                    )
+                                }
                             }
                         }
                     }

@@ -8,9 +8,9 @@ object AccountAssetRules {
         AccountType.BROKER -> listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND, AssetType.CASH)
         AccountType.BANK -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
         AccountType.FUND -> listOf(AssetType.FUND, AssetType.CASH)
-        AccountType.CASH_MANAGEMENT -> listOf(AssetType.FUND, AssetType.CASH)
+        AccountType.CASH_MANAGEMENT -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
         AccountType.BOND -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.CASH)
-        AccountType.INSURANCE -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT)
+        AccountType.INSURANCE -> listOf(AssetType.FUND, AssetType.TIME_DEPOSIT, AssetType.INSURANCE_POLICY)
         AccountType.LIABILITY -> emptyList()
         AccountType.OTHER, null -> AssetType.entries.toList()
     }
@@ -19,9 +19,9 @@ object AccountAssetRules {
         AccountType.BROKER -> "股票、ETF、基金、现金"
         AccountType.BANK -> "基金、定期存款、现金"
         AccountType.FUND -> "基金、现金"
-        AccountType.CASH_MANAGEMENT -> "基金、现金"
+        AccountType.CASH_MANAGEMENT -> "基金、定期、现金"
         AccountType.BOND -> "基金、定期存款、现金"
-        AccountType.INSURANCE -> "基金、定期存款"
+        AccountType.INSURANCE -> "基金、定期存款、保险"
         AccountType.LIABILITY -> "不添加资产，仅记录负债金额"
         AccountType.OTHER -> "股票、ETF、基金、现金、定期存款"
     }

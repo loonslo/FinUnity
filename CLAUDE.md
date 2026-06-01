@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund), tracks stock/fund positions, fetches real-time prices from Yahoo Finance, and provides rebalancing alerts. UI is in Chinese.
+FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs daily prices from Yahoo Finance, and provides rebalancing alerts with four-quadrant asset allocation. UI is in Chinese.
 
 ## Build & Test Commands
 
@@ -41,7 +41,7 @@ FinUnity is an Android portfolio tracker app for managing multi-currency investm
 
 **Data Flow**:
 1. UI (Compose Screens) → ViewModel (MainViewModel) → Repository (PriceRepository) → DAO/API
-2. PriceSyncWorker (WorkManager, every 15 min) → Repository → DAO
+2. PriceSyncWorker (WorkManager, every 24h) → Repository → DAO
 3. SnapshotWorker (WorkManager, daily at 9 AM) → HistoryRepository → DAO
 
 **Navigation**: Manual stack-based navigation in MainActivity (sealed class `Screen` with 20+ variants). Three bottom tabs: 总览 (Overview), 资产 (Assets), 账户 (Accounts).
@@ -51,31 +51,32 @@ FinUnity is an Android portfolio tracker app for managing multi-currency investm
 The app is migrating from `Position` → `AssetRecord`. Both coexist:
 
 - **`Position`** (legacy): `id, accountId, symbol, shares, totalCost, currency`. Always STOCK type, always AGGRESSIVE risk bucket. Created by older code paths.
-- **`AssetRecord`** (new): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT) and `RiskBucket` (CONSERVATIVE/AGGRESSIVE/CASH). Has explicit `name, quantity, cost, currentPrice, currency`.
+- **`AssetRecord`** (new): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT/REAL_ESTATE/VEHICLE/INSURANCE_POLICY) and `RiskBucket` (CONSERVATIVE/AGGRESSIVE/INSURANCE/CASH). Has explicit `name, quantity, cost, currentPrice, currency`.
 
 The `PortfolioCalculator` handles both. `UnifiedAsset` interface bridges them. Cash is managed as AssetRecord(CASH, CASH bucket). The `adjustCashAsset()` method in MainViewModel auto-creates/updates/deletes CASH records when buying/selling.
 
-## Risk Bucket System
+## Risk Bucket System (四象限)
 
-Three risk dimensions for asset allocation:
-- **AGGRESSIVE** (进取): Stocks, ETFs, equity funds
-- **CONSERVATIVE** (稳健): Bonds, time deposits, money market funds
-- **CASH** (防守): Cash, demand deposits, Yu'ebao-type products
+Four risk dimensions for asset allocation:
+- **AGGRESSIVE** (进取/生钱的钱): Stocks, ETFs, equity funds
+- **CONSERVATIVE** (稳健/保本的钱): Bonds, time deposits, money market funds, real estate, vehicles
+- **INSURANCE** (保命/保命的钱): Insurance policies, emergency funds
+- **CASH** (防守/要花的钱): Cash, demand deposits, Yu'ebao-type products
 
-UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.2,AGGRESSIVE:0.6,CASH:0.2"`.
+UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INSURANCE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1"`.
 
-## Database Schema (Room, version 7)
+## Database Schema (Room, version 9)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
 - `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, createdAt, updatedAt
-- `prices` — symbol (PK), price, currency, updatedAt, isFallback. 10-min staleness threshold.
+- `prices` — symbol (PK), price, currency, updatedAt, isFallback. 12h staleness threshold.
 - `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
 - `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
 - `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings). Destructive fallback allowed from v1, v2 only.
 
 ## Key Design Decisions
 
@@ -84,12 +85,12 @@ UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), gold (CASH)
 - **Explicit Currency**: Each position/record has explicit `currency`; do not infer from symbol
 - **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted). All other account balances are ignored — assets tracked via AssetRecord.
 - **Cash Auto-Management**: `adjustCashAsset()` creates/updates/deletes CASH AssetRecords automatically when buying/selling non-cash assets
-- **Price Cache**: Price entity has 10-min staleness, 30-sec connect/read timeouts, circuit breaker (5 failures → 5-min open)
+- **Price Cache**: Price entity has 12h staleness, 30-sec connect/read timeouts, circuit breaker (5 failures → 5-min open)
 - **Batch Refresh**: PriceSyncWorker refreshes in batches of 5, exponential backoff (1min/5min/15min), max 3 attempts
 - **Offline Support**: Prices cached in Room; stale cache returned as `isFallback=true` when network unavailable
 - **Rebalancing**: Configurable target allocation per risk bucket; drift > threshold (default 5%) triggers recommendations
 - **CSV Import**: Supports importing accounts, positions, transactions from CSV files in assets/ directory
-- **Currency Formatting**: `formatCurrency()` in MainActivity.kt and MainScreen.kt (duplicated) — `¥` for CNY, `$` for USD, `HK$` for HKD
+- **Currency Formatting**: `formatCurrency()` in MainScreen.kt (single source) — `¥` for CNY, `$` for USD, `HK$` for HKD
 
 ## Tech Stack
 
@@ -106,5 +107,5 @@ Design system defined in `ui/theme/Theme.kt` (green primary `#166B45`, gray-base
 
 ## Workers
 
-- **PriceSyncWorker**: PeriodicWorkRequest every 15 min (requires network). Gets all Position symbols + AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
+- **PriceSyncWorker**: PeriodicWorkRequest every 24h (requires network). Gets all Position symbols + AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
 - **SnapshotWorker**: PeriodicWorkRequest daily at 9 AM (no network required). Computes total assets/cost, saves AssetSnapshot, cleans up snapshots >2 years old.

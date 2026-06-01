@@ -10,12 +10,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Settings
-import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.ui.theme.FinColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,30 +24,14 @@ fun SettingsScreen(
     settings: Settings,
     onSave: (Settings) -> Unit,
     onBack: () -> Unit,
+    onOpenTargetAllocation: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val initialTargetAllocationMap = remember(settings.targetAllocation) {
-        parseTargetAllocation(settings.targetAllocation)
-    }
     var baseCurrency by remember { mutableStateOf(settings.baseCurrency) }
     var rebalanceThreshold by remember { mutableStateOf((settings.rebalanceThreshold * 100).toString()) }
-    var conservativePercent by remember {
-        mutableStateOf(((initialTargetAllocationMap["CONSERVATIVE"] ?: 0.2) * 100).toInt().toString())
-    }
-    var aggressivePercent by remember {
-        mutableStateOf(((initialTargetAllocationMap["AGGRESSIVE"] ?: 0.6) * 100).toInt().toString())
-    }
-    var defensivePercent by remember {
-        mutableStateOf(((initialTargetAllocationMap["CASH"] ?: 0.2) * 100).toInt().toString())
-    }
 
     val currencies = listOf("CNY", "USD", "HKD")
     val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
-
-    val conservativeValue = conservativePercent.toDoubleOrNull() ?: 0.0
-    val aggressiveValue = aggressivePercent.toDoubleOrNull() ?: 0.0
-    val defensiveValue = defensivePercent.toDoubleOrNull() ?: 0.0
-    val allocationTotalPercent = conservativeValue + aggressiveValue + defensiveValue
 
     Scaffold(
         topBar = {
@@ -132,7 +116,7 @@ fun SettingsScreen(
                 )
             }
 
-            // 目标资产配置
+            // 目标资产配置 → 跳转独立配置页
             Column {
                 Text(
                     text = "目标资产配置",
@@ -140,64 +124,55 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                AllocationPercentField(
-                    label = "稳健",
-                    value = conservativePercent,
-                    onValueChange = { conservativePercent = it.filter { c -> c.isDigit() || c == '.' } }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                AllocationPercentField(
-                    label = "进取",
-                    value = aggressivePercent,
-                    onValueChange = { aggressivePercent = it.filter { c -> c.isDigit() || c == '.' } }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                AllocationPercentField(
-                    label = "防守",
-                    value = defensivePercent,
-                    onValueChange = { defensivePercent = it.filter { c -> c.isDigit() || c == '.' } }
-                )
-                Text(
-                    text = "合计 ${String.format("%.0f", allocationTotalPercent)}%，需等于 100%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (kotlin.math.abs(allocationTotalPercent - 100.0) <= 0.001) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    } else {
-                        MaterialTheme.colorScheme.error
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    onClick = onOpenTargetAllocation
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "编辑目标配置",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "调整四象限目标比例，使用独立配置表单",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        }
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
                     }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                TargetAllocationPreview(
-                    conservative = conservativeValue,
-                    aggressive = aggressiveValue,
-                    defensive = defensiveValue
-                )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 保存按钮
-            val isValidAllocation = kotlin.math.abs(allocationTotalPercent - 100.0) <= 0.001
-            val saveError = when {
-                !isValidAllocation -> "目标配置无效：各项占比之和应为 100%"
-                else -> null
-            }
-
+            // 保存按钮（仅本位币和阈值）
             Button(
                 onClick = {
-                    // 用户输入的是百分比（如 5 表示 5%），需要除以 100 转为小数
                     val threshold = (rebalanceThreshold.toDoubleOrNull() ?: 5.0) / 100
                     val newSettings = settings.copy(
                         baseCurrency = baseCurrency,
-                        rebalanceThreshold = threshold.coerceIn(0.01, 0.5),
-                        targetAllocation = "CONSERVATIVE:${conservativeValue / 100},AGGRESSIVE:${aggressiveValue / 100},CASH:${defensiveValue / 100}"
+                        rebalanceThreshold = threshold.coerceIn(0.01, 0.5)
                     )
                     onSave(newSettings)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                enabled = isValidAllocation,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = FinColors.SoftGreen,
@@ -206,102 +181,8 @@ fun SettingsScreen(
             ) {
                 Text("保存设置", style = MaterialTheme.typography.titleMedium, color = FinColors.Number)
             }
-            if (saveError != null) {
-                Text(
-                    text = saveError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
 
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
-}
-
-@Composable
-private fun TargetAllocationPreview(
-    conservative: Double,
-    aggressive: Double,
-    defensive: Double
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("目标配置预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                text = targetSummary(conservative, aggressive, defensive),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            TargetBar(label = "进取", value = aggressive, color = androidx.compose.ui.graphics.Color(0xFF3D7A5C))
-            TargetBar(label = "稳健", value = conservative, color = androidx.compose.ui.graphics.Color(0xFF8DA7C7))
-            TargetBar(label = "防守", value = defensive, color = androidx.compose.ui.graphics.Color(0xFFD8B36A))
-        }
-    }
-}
-
-@Composable
-private fun TargetBar(
-    label: String,
-    value: Double,
-    color: androidx.compose.ui.graphics.Color
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text("${String.format("%.0f", value)}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth((value / 100).toFloat().coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(color, RoundedCornerShape(999.dp))
-            )
-        }
-    }
-}
-
-private fun targetSummary(
-    conservative: Double,
-    aggressive: Double,
-    defensive: Double
-): String = when {
-    aggressive >= conservative && aggressive >= defensive -> "进取为主，兼顾稳健与防守"
-    conservative >= aggressive && conservative >= defensive -> "稳健为主，控制波动"
-    else -> "防守为主，保留灵活空间"
-}
-
-@Composable
-private fun AllocationPercentField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        suffix = { Text("%") },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        shape = RoundedCornerShape(12.dp)
-    )
 }

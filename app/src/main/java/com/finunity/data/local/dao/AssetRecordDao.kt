@@ -46,4 +46,7 @@ interface AssetRecordDao {
 
     @Query("SELECT * FROM asset_records WHERE assetType IN (:types)")
     suspend fun getRecordsByTypes(types: List<String>): List<AssetRecord>
+
+    @Query("DELETE FROM asset_records")
+    suspend fun deleteAll()
 }

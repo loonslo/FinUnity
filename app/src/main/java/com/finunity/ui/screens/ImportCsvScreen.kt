@@ -368,6 +368,8 @@ private fun templateCsv(importType: ImportType): String = when (importType) {
         账户名,资产类型,风险维度,名称,数量,成本,当前价,币种
         我的券商,股票,进取,AAPL,100,15000,180,美元
         招商银行,定期存款,稳健,一年定期,10000,10000,1.03,人民币
+        平安保险,保险,保命,重疾险,1,6000,6000,人民币
+        工商银行,现金,防守,活期余额,5000,5000,1,人民币
     """.trimIndent()
     ImportType.TRANSACTIONS -> """
         账户名,代码,交易类型,数量,价格,金额,币种,备注

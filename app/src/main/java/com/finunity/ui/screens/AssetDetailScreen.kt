@@ -1,5 +1,6 @@
 package com.finunity.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.AssetType
@@ -43,14 +46,20 @@ fun AssetDetailScreen(
     baseCurrency: String,
     onBack: () -> Unit,
     onEdit: () -> Unit,
-    onSell: () -> Unit,
+    onDelete: () -> Unit = {},
+    onSell: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("概览", "流水", "价格")
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    val profitColor = if (summary.profitLoss >= 0) Color(0xFF0F9D58) else Color(0xFFD93025)
-    val isCash = summary.record.assetType == AssetType.CASH
+    val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
+    val hideProfit = summary.record.assetType in listOf(
+        AssetType.CASH,
+        AssetType.REAL_ESTATE,
+        AssetType.VEHICLE,
+        AssetType.INSURANCE_POLICY
+    )
 
     Scaffold(
         topBar = {
@@ -95,20 +104,8 @@ fun AssetDetailScreen(
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(formatCurrency(summary.currentValue, baseCurrency), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                if (!isCash) {
+                                if (!hideProfit) {
                                     Text(formatSignedPercent(summary.profitLossRatio), color = profitColor, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                        if (!isCash) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onEdit, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)) {
-                                    Text("买入", color = FinColors.Number)
-                                }
-                                OutlinedButton(onClick = onSell, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FinColors.Number)) {
-                                    Text("卖出", color = FinColors.Number)
                                 }
                             }
                         }
@@ -140,6 +137,20 @@ fun AssetDetailScreen(
                     }
                 }
                 2 -> {
+                    val tradable = summary.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+                    if (tradable && priceHistory.size >= 2) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                PriceTrendChart(priceHistory, summary.record.currency)
+                            }
+                        }
+                    } else if (tradable && priceHistory.size in 1..1) {
+                        item { EmptyDetailText("积累几天价格后展示趋势") }
+                    }
                     if (priceHistory.isEmpty()) {
                         item { EmptyDetailText("暂无价格记录") }
                     } else {
@@ -150,15 +161,39 @@ fun AssetDetailScreen(
                 }
             }
 
-            // 调整持仓按钮
+            // 操作区：记一笔（主）+ 编辑资料 / 删除（次）
             item {
                 Button(
                     onClick = onEdit,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
                 ) {
-                    Text("调整持仓", color = FinColors.Number)
+                    Text("记一笔", color = FinColors.Number)
+                }
+            }
+            if (!hideProfit) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onEdit,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("编辑资料", color = FinColors.TextSecondary)
+                        }
+                        OutlinedButton(
+                            onClick = onDelete,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("删除资产", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
             }
 
@@ -169,11 +204,16 @@ fun AssetDetailScreen(
 
 @Composable
 private fun DetailOverview(summary: AssetRecordSummary, baseCurrency: String) {
-    val isCash = summary.record.assetType == AssetType.CASH
+    val hideProfit = summary.record.assetType in listOf(
+        AssetType.CASH,
+        AssetType.REAL_ESTATE,
+        AssetType.VEHICLE,
+        AssetType.INSURANCE_POLICY
+    )
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             DetailRow("当前市值", formatCurrency(summary.currentValue, baseCurrency))
-            if (!isCash) {
+            if (!hideProfit) {
                 DetailRow("买入成本", formatCurrency(summary.costInBaseCurrency, baseCurrency))
                 DetailRow("累计盈亏", "${if (summary.profitLoss >= 0) "+" else ""}${formatCurrency(summary.profitLoss, baseCurrency)}")
                 DetailRow("收益率", formatSignedPercent(summary.profitLossRatio))
@@ -211,6 +251,83 @@ private fun DetailPriceItem(history: PriceHistory, dateFormat: SimpleDateFormat)
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(dateFormat.format(Date(history.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(String.format("%.2f", history.price), fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun PriceTrendChart(history: List<PriceHistory>, currency: String) {
+    val sorted = remember(history) { history.sortedBy { it.timestamp } }
+    val prices = remember(sorted) { sorted.map { it.price.toFloat() } }
+    val priceMin = remember(prices) { prices.minOrNull() ?: 0f }
+    val priceMax = remember(prices) { prices.maxOrNull() ?: 0f }
+    val priceRange = priceMax - priceMin
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        // 顶部价格区间
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "最高 ${String.format("%.2f", priceMax)} $currency",
+                style = MaterialTheme.typography.bodySmall,
+                color = FinColors.TextSecondary
+            )
+            Text(
+                text = "最低 ${String.format("%.2f", priceMin)} $currency",
+                style = MaterialTheme.typography.bodySmall,
+                color = FinColors.TextSecondary
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        // 折线图
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+        ) {
+            val width = size.width
+            val height = size.height
+            val padding = 4f
+            val chartHeight = height - padding * 2
+
+            if (prices.size >= 2) {
+                val points = if (priceRange > 0f) {
+                    prices.mapIndexed { index, price ->
+                        val x = if (prices.size > 1) index.toFloat() / (prices.size - 1) * (width - padding * 2) + padding else width / 2f
+                        val y = chartHeight - ((price - priceMin) / priceRange) * chartHeight + padding
+                        Offset(x, y)
+                    }
+                } else {
+                    // 所有价格相等，画居中水平线
+                    val midY = height / 2f
+                    prices.mapIndexed { index, _ ->
+                        val x = if (prices.size > 1) index.toFloat() / (prices.size - 1) * (width - padding * 2) + padding else width / 2f
+                        Offset(x, midY)
+                    }
+                }
+
+                // 画折线
+                for (i in 0 until points.size - 1) {
+                    drawLine(
+                        color = FinColors.Accent,
+                        start = points[i],
+                        end = points[i + 1],
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // 画数据点
+                for (point in points) {
+                    drawCircle(
+                        color = FinColors.Accent,
+                        radius = 3.dp.toPx(),
+                        center = point
+                    )
+                }
+            }
         }
     }
 }

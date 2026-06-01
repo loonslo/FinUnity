@@ -17,23 +17,30 @@ data class Price(
     val isFallback: Boolean = false     // 是否是过期缓存回退（而非实时数据）
 ) {
     /**
-     * 价格是否过期（超过10分钟）
+     * 价格是否过期。
+     * 本应用按"每日更新一次"设计：每日 Worker 负责刷新，按需读取优先走缓存。
+     * 因此过期阈值放宽到 12 小时，避免每次组合重算都打网络。
      */
     fun isStale(): Boolean {
-        return System.currentTimeMillis() - updatedAt > 10 * 60 * 1000
+        return System.currentTimeMillis() - updatedAt > STALE_THRESHOLD_MS
     }
 
     /**
-     * 价格的置信度描述
+     * 价格的置信度描述（按"天"为尺度）
      */
     fun confidence(): PriceConfidence {
         val age = System.currentTimeMillis() - updatedAt
         return when {
-            age <= 5 * 60 * 1000 -> PriceConfidence.REAL_TIME
-            age <= 30 * 60 * 1000 -> PriceConfidence.NEAR_REALTIME
-            age <= 2 * 60 * 60 * 1000 -> PriceConfidence.DELAYED
-            else -> PriceConfidence.STALE
+            age <= 12 * 60 * 60 * 1000 -> PriceConfidence.REAL_TIME      // 当日数据
+            age <= 24 * 60 * 60 * 1000 -> PriceConfidence.NEAR_REALTIME  // 一天内
+            age <= 3L * 24 * 60 * 60 * 1000 -> PriceConfidence.DELAYED   // 三天内
+            else -> PriceConfidence.STALE                                 // 超过三天
         }
+    }
+
+    companion object {
+        /** 价格过期阈值：12 小时 */
+        const val STALE_THRESHOLD_MS = 12L * 60 * 60 * 1000
     }
 }
 

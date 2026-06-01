@@ -86,6 +86,30 @@ object Migration6To7 {
 }
 
 /**
+ * Database migration from version 7 to 8.
+ * Adds onboarded column to settings table for onboarding persistence.
+ */
+object Migration7To8 {
+    val migration: Migration = object : Migration(7, 8) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE settings ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
+/**
+ * Database migration from version 8 to 9.
+ * Adds amountsVisible column to settings table for global amount visibility toggle.
+ */
+object Migration8To9 {
+    val migration: Migration = object : Migration(8, 9) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE settings ADD COLUMN amountsVisible INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+}
+
+/**
  * Provider for all database migrations.
  */
 object DatabaseMigrations {
@@ -93,6 +117,8 @@ object DatabaseMigrations {
         Migration3To4.migration,
         Migration4To5.migration,
         Migration5To6.migration,
-        Migration6To7.migration
+        Migration6To7.migration,
+        Migration7To8.migration,
+        Migration8To9.migration
     )
 }

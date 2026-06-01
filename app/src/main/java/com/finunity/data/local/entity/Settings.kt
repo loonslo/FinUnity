@@ -12,9 +12,12 @@ data class Settings(
     @PrimaryKey
     val id: Int = 1,                    // 始终为1，单例
     val baseCurrency: String = "CNY",   // 基准货币
-    // 目标资产配置，使用风险维度 key：CONSERVATIVE/AGGRESSIVE/CASH（显示为稳健/进取/防守）
-    val targetAllocation: String = "CONSERVATIVE:0.2,AGGRESSIVE:0.6,CASH:0.2",
-    val rebalanceThreshold: Double = 0.05  // 再平衡阈值，默认5%偏离度触发提醒
+    // 目标资产配置（标普四象限），key：CONSERVATIVE/AGGRESSIVE/INSURANCE/CASH（稳健/进取/保命/防守）
+    // 默认采用经典标普比例：保本40% 生钱30% 保命20% 要花10%
+    val targetAllocation: String = "CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1",
+    val rebalanceThreshold: Double = 0.05,  // 再平衡阈值，默认5%偏离度触发提醒
+    val onboarded: Boolean = false,          // 是否已完成新手引导
+    val amountsVisible: Boolean = true       // 金额是否可见（全局隐藏开关）
 )
 
 /**
@@ -25,6 +28,7 @@ fun parseTargetAllocation(allocationStr: String): Map<String, Double> {
     fun normalizeKey(key: String): String = when (key.trim().uppercase()) {
         "稳健", "CONSERVATIVE" -> "CONSERVATIVE"
         "进取", "AGGRESSIVE" -> "AGGRESSIVE"
+        "保命", "INSURANCE" -> "INSURANCE"
         "防守", "CASH" -> "CASH"
         else -> key.trim()
     }
@@ -56,6 +60,7 @@ fun calculateRebalanceRecommendations(
     fun labelOf(asset: String): String = when (asset) {
         "CONSERVATIVE" -> "稳健"
         "AGGRESSIVE" -> "进取"
+        "INSURANCE" -> "保命"
         "CASH" -> "防守"
         else -> asset
     }

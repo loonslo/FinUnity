@@ -103,6 +103,7 @@ private fun parseAssetType(value: String): AssetType? = when (value.trim().upper
 private fun parseRiskBucket(value: String, assetType: AssetType): RiskBucket? = when (value.trim().uppercase()) {
     "稳健", "CONSERVATIVE" -> RiskBucket.CONSERVATIVE
     "进取", "AGGRESSIVE" -> RiskBucket.AGGRESSIVE
+    "保命", "INSURANCE" -> RiskBucket.INSURANCE
     "防守", "CASH", "" -> if (assetType == AssetType.CASH) RiskBucket.CASH else null
     else -> null
 }

@@ -65,18 +65,26 @@ data class AssetRecord(
  * 资产类型枚举
  */
 enum class AssetType {
-    STOCK,       // 股票
-    ETF,         // 交易所交易基金
-    FUND,        // 基金
-    CASH,        // 现金/活期
-    TIME_DEPOSIT // 定期存款
+    STOCK,            // 股票
+    ETF,              // 交易所交易基金
+    FUND,             // 基金
+    CASH,             // 现金/活期
+    TIME_DEPOSIT,     // 定期存款
+    REAL_ESTATE,      // 房产
+    VEHICLE,          // 车辆
+    INSURANCE_POLICY  // 保单/年金
 }
 
 /**
- * 风险维度枚举
+ * 风险维度枚举（标普四象限）
+ * - CASH（要花的钱 / 防守）：活期、余额宝等随时可用的钱
+ * - INSURANCE（保命的钱 / 保命）：保险、应急保障，专款专用不轻易动用
+ * - CONSERVATIVE（保本的钱 / 稳健）：定期、债券、货币基金等低波动资产
+ * - AGGRESSIVE（生钱的钱 / 进取）：股票、ETF、股票型基金等高风险资产
  */
 enum class RiskBucket {
-    CONSERVATIVE,  // 稳健型：现金、定期存款、货币基金等低风险资产
+    CONSERVATIVE,  // 稳健型：定期存款、债券、货币基金等低风险资产
     AGGRESSIVE,    // 进取型：股票、ETF、股票型基金等高风险资产
-    CASH          // 防守型：活期存款、余额宝等随时可用的资金
+    INSURANCE,     // 保命型：保险、应急保障资金
+    CASH           // 防守型：活期存款、余额宝等随时可用的资金
 }

@@ -68,6 +68,13 @@ fun RiskBucketDetailScreen(
                     it.record.riskBucket == RiskBucket.CONSERVATIVE
                 }
             }
+            RiskBucket.INSURANCE -> {
+                // 账户有保命型资产记录（保险/应急）
+                assetRecords.any {
+                    it.record.accountId == account.account.id &&
+                    it.record.riskBucket == RiskBucket.INSURANCE
+                }
+            }
         }
     }
 
@@ -134,13 +141,14 @@ fun RiskBucketDetailScreen(
                             .filter { it.record.accountId == accountSummary.account.id }
                             .sumOf { it.currentValue }
                     val bucketValueForAccount = when (riskBucketSummary.riskBucket) {
-                        RiskBucket.CASH -> recordValueForAccount
                         RiskBucket.AGGRESSIVE -> {
                             recordValueForAccount + holdingsInBucket
                                 .filter { it.position.accountId == accountSummary.account.id }
                                 .sumOf { it.currentValue }
                         }
-                        RiskBucket.CONSERVATIVE -> recordValueForAccount
+                        RiskBucket.CASH,
+                        RiskBucket.CONSERVATIVE,
+                        RiskBucket.INSURANCE -> recordValueForAccount
                     }
 
                     AccountInBucketItem(
@@ -175,7 +183,7 @@ fun RiskBucketDetailScreen(
             if (holdingsInBucket.isNotEmpty()) {
                 item {
                     Text(
-                        text = "旧持仓 (${holdingsInBucket.size})",
+                        text = "证券持仓（迁移数据）(${holdingsInBucket.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -203,6 +211,7 @@ fun RiskBucketSummaryCard(
     val bucketColor = when (summary.riskBucket) {
         RiskBucket.CONSERVATIVE -> FinColors.Conservative
         RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+        RiskBucket.INSURANCE -> FinColors.Insurance
         RiskBucket.CASH -> FinColors.Cash
     }
 
@@ -288,13 +297,15 @@ fun RiskBucketSummaryCard(
 }
 
 private fun moneyPurposeTitle(bucket: RiskBucket): String = when (bucket) {
-    RiskBucket.CASH -> "随时要用的钱"
-    RiskBucket.CONSERVATIVE -> "1-3 年要用的钱"
-    RiskBucket.AGGRESSIVE -> "5 年以上长期钱"
+    RiskBucket.CASH -> "要花的钱 · 随时要用"
+    RiskBucket.INSURANCE -> "保命的钱 · 应急与保险"
+    RiskBucket.CONSERVATIVE -> "保本的钱 · 1-3 年要用"
+    RiskBucket.AGGRESSIVE -> "生钱的钱 · 5 年以上长期"
 }
 
 private fun moneyPurposeDescription(bucket: RiskBucket): String = when (bucket) {
     RiskBucket.CASH -> "用于日常开销、应急备用和短期周转，重点是安全和流动性。"
+    RiskBucket.INSURANCE -> "用于意外、重疾等保障和应急储备，专款专用，不参与日常开销和投资。"
     RiskBucket.CONSERVATIVE -> "用于中近期确定性支出，重点是控制波动，不追求过高收益。"
     RiskBucket.AGGRESSIVE -> "用于长期目标和可承受波动的钱，重点是长期增长，而不是短期买卖。"
 }
@@ -391,7 +402,7 @@ fun HoldingInBucketItem(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${holding.accountName} · 旧持仓",
+                    text = "${holding.accountName} · 证券持仓（迁移数据）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )

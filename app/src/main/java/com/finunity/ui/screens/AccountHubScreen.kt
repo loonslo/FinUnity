@@ -44,12 +44,14 @@ fun AccountHubScreen(
     onViewAccount: (String) -> Unit,
     onAddAccount: () -> Unit,
     onOpenTransactions: () -> Unit,
+    onOpenPriceChanges: () -> Unit = {},
+    amountsVisible: Boolean = true,
+    onToggleAmounts: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val totalBalance = accounts.sumOf { it.balanceInBaseCurrency }
     val totalProfit = assetRecords.sumOf { it.profitLoss } + holdings.sumOf { it.profitLoss }
-    var amountsVisible by remember { mutableStateOf(true) }
 
     Scaffold(
         bottomBar = bottomBar,
@@ -70,10 +72,12 @@ fun AccountHubScreen(
                 TotalAssetOverviewCard(
                     totalBalance = totalBalance,
                     totalProfit = totalProfit,
+                    accountCount = accounts.size,
                     baseCurrency = baseCurrency,
                     amountsVisible = amountsVisible,
-                    onToggleAmounts = { amountsVisible = !amountsVisible },
-                    onOpenTransactions = onOpenTransactions
+                    onToggleAmounts = onToggleAmounts,
+                    onOpenTransactions = onOpenTransactions,
+                    onOpenPriceChanges = onOpenPriceChanges
                 )
             }
 
@@ -137,10 +141,12 @@ private fun EyeToggleIcon(
 private fun TotalAssetOverviewCard(
     totalBalance: Double,
     totalProfit: Double,
+    accountCount: Int,
     baseCurrency: String,
     amountsVisible: Boolean,
     onToggleAmounts: () -> Unit,
-    onOpenTransactions: () -> Unit
+    onOpenTransactions: () -> Unit,
+    onOpenPriceChanges: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -184,6 +190,16 @@ private fun TotalAssetOverviewCard(
                             color = FinColors.TextSecondary
                         )
                     }
+                    TextButton(
+                        onClick = onOpenPriceChanges,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "价格变化",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = FinColors.TextSecondary
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(18.dp))
@@ -214,12 +230,7 @@ private fun TotalAssetOverviewCard(
                 )
                 AssetMetricItem(
                     label = "账户数",
-                    value = "可追溯",
-                    valueColor = FinColors.TextPrimary
-                )
-                AssetMetricItem(
-                    label = "记录方式",
-                    value = "本地账本",
+                    value = "$accountCount 个",
                     valueColor = FinColors.TextPrimary
                 )
             }
@@ -305,7 +316,7 @@ private fun AccountAssetCard(
             }
             Spacer(modifier = Modifier.height(18.dp))
             AccountMetricRow(
-                label = "持仓数量",
+                label = "资产数量",
                 value = "${holdingCount} 项"
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -314,12 +325,14 @@ private fun AccountAssetCard(
                 value = hiddenAware(formatSignedCurrency(profit, baseCurrency), amountsVisible),
                 valueColor = profitColorFor(profit)
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            AccountMetricRow(
-                label = "收益率",
-                value = profitRate?.let { formatAssetSignedPercent(it) } ?: "--",
-                valueColor = profitRate?.let { profitColorFor(it) } ?: FinColors.TextPrimary
-            )
+            if (profitRate != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                AccountMetricRow(
+                    label = "收益率",
+                    value = formatAssetSignedPercent(profitRate),
+                    valueColor = profitColorFor(profitRate)
+                )
+            }
         }
     }
 }
@@ -436,6 +449,9 @@ fun AccountAssetsByAccountScreen(
     onEditAccount: (com.finunity.data.local.entity.Account) -> Unit,
     onOpenImportCsv: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenBackup: () -> Unit = {},
+    amountsVisible: Boolean = true,
+    onToggleAmounts: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -469,6 +485,7 @@ fun AccountAssetsByAccountScreen(
                         summary = summary,
                         assetValue = assetValue,
                         baseCurrency = baseCurrency,
+                        amountsVisible = amountsVisible,
                         onView = { onEditAccount(summary.account) }
                     )
                 }
@@ -478,7 +495,8 @@ fun AccountAssetsByAccountScreen(
                     accountCount = accounts.size,
                     onAddAccount = onAddAccount,
                     onOpenImportCsv = onOpenImportCsv,
-                    onOpenSettings = onOpenSettings
+                    onOpenSettings = onOpenSettings,
+                    onOpenBackup = onOpenBackup
                 )
             }
             item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -508,7 +526,7 @@ private fun AccountProfileHeader() {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = "F",
+                        text = "账",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = FinColors.Accent
@@ -518,14 +536,14 @@ private fun AccountProfileHeader() {
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "FinUnity",
+                    text = "账户与数据",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = FinColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "本地记录、统一查看、按用途管理",
+                    text = "本地账本、统一查看、按用途管理",
                     style = MaterialTheme.typography.bodyMedium,
                     color = FinColors.TextSecondary
                 )
@@ -544,7 +562,8 @@ private fun AccountToolsCard(
     accountCount: Int,
     onAddAccount: () -> Unit,
     onOpenImportCsv: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenBackup: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -569,6 +588,11 @@ private fun AccountToolsCard(
             SecondaryToolChip(
                 text = if (accountCount == 0) "导入表格" else "导入数据",
                 onClick = onOpenImportCsv,
+                modifier = Modifier.weight(1f)
+            )
+            SecondaryToolChip(
+                text = "备份恢复",
+                onClick = onOpenBackup,
                 modifier = Modifier.weight(1f)
             )
             SecondaryToolChip(
@@ -670,6 +694,7 @@ private fun ManagementAccountCard(
     summary: AccountSummary,
     assetValue: Double,
     baseCurrency: String,
+    amountsVisible: Boolean = true,
     onView: () -> Unit
 ) {
     Card(
@@ -729,7 +754,7 @@ private fun ManagementAccountCard(
                     color = FinColors.TextSecondary.copy(alpha = 0.72f)
                 )
                 Text(
-                    text = formatCurrency(assetValue, baseCurrency),
+                    text = hiddenAware(formatCurrency(assetValue, baseCurrency), amountsVisible),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = if (assetValue < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinColors.TextSecondary

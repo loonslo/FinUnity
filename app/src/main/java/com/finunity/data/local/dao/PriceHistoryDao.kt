@@ -33,4 +33,7 @@ interface PriceHistoryDao {
 
     @Query("SELECT COUNT(*) FROM price_history WHERE recordId = :recordId")
     suspend fun getHistoryCount(recordId: String): Int
+
+    @Query("DELETE FROM price_history")
+    suspend fun deleteAll()
 }

@@ -36,4 +36,7 @@ interface PositionDao {
      */
     @Query("SELECT DISTINCT symbol FROM positions")
     suspend fun getAllSymbols(): List<String>
+
+    @Query("DELETE FROM positions")
+    suspend fun deleteAll()
 }

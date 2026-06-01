@@ -1,8 +1,12 @@
 package com.finunity
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,17 +43,20 @@ import com.finunity.ui.screens.AssetDetailScreen
 import com.finunity.ui.screens.CashFlowScreen
 import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.MainScreen
+import com.finunity.ui.screens.formatCurrency
 import com.finunity.ui.screens.PositionScreen
 import com.finunity.ui.screens.PriceChangeScreen
 import com.finunity.ui.screens.PriceHistoryScreen
 import com.finunity.ui.screens.SettingsScreen
 import com.finunity.ui.screens.RiskBucketDetailScreen
 import com.finunity.ui.screens.TransactionHistoryScreen
+import com.finunity.ui.screens.BackupScreen
 import com.finunity.ui.screens.ImportCsvScreen
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.ui.theme.FinUnityTheme
 import com.finunity.viewmodel.MainViewModel
 import com.finunity.worker.PriceSyncWorker
+import com.finunity.worker.ReviewReminderWorker
 import com.finunity.worker.SnapshotWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -59,10 +66,24 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var database: AppDatabase
 
+    // Android 13+ 通知权限请求
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> /* 拒绝不阻塞功能，仅不发提醒 */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         database = AppDatabase.getDatabase(applicationContext)
+
+        // 申请 Android 13+ 通知权限（首启弹窗，拒绝不崩溃）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         // 启动后台价格同步
         PriceSyncWorker.schedule(this)
@@ -70,13 +91,19 @@ class MainActivity : ComponentActivity() {
         // 启动后台资产快照
         SnapshotWorker.scheduleDaily(this)
 
+        // 启动月度复盘提醒
+        ReviewReminderWorker.scheduleMonthly(this)
+
+        // 处理通知点击跳转
+        val openScreen = intent.getStringExtra("open")
+
         setContent {
             FinUnityTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    FinUnityApp(database)
+                    FinUnityApp(database, openScreen)
                 }
             }
         }
@@ -86,6 +113,10 @@ class MainActivity : ComponentActivity() {
 sealed class Screen {
     data object Main : Screen()
     data object Settings : Screen()
+    data object Planning : Screen()
+    data object MonthlyReview : Screen()
+    data object ExpenseSimulation : Screen()
+    data object TargetAllocation : Screen()
     data object ImportCsv : Screen()
     data object AccountHub : Screen()
     data object AccountAssetsByAccount : Screen()
@@ -106,6 +137,7 @@ sealed class Screen {
     data class AssetTransactionHistory(val recordId: String, val assetName: String) : Screen()
     data class PriceHistory(val recordId: String, val assetName: String) : Screen()
     data class AssetDetail(val recordId: String) : Screen()
+    data object Backup : Screen()
 }
 
 private enum class TopLevelTab {
@@ -115,7 +147,7 @@ private enum class TopLevelTab {
 }
 
 @Composable
-fun FinUnityApp(database: AppDatabase) {
+fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
     val viewModel: MainViewModel = viewModel(
         factory = MainViewModel.Factory(database)
     )
@@ -125,7 +157,10 @@ fun FinUnityApp(database: AppDatabase) {
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
+    val initialScreen = remember(openScreen) {
+        if (openScreen == "review") Screen.MonthlyReview else Screen.Main
+    }
+    var currentScreen by remember { mutableStateOf<Screen>(initialScreen) }
     var navStack by remember { mutableStateOf(listOf<Screen>()) }
     var showAccountPicker by remember { mutableStateOf(false) }
     var pendingNewAccount by remember { mutableStateOf<Account?>(null) }
@@ -220,6 +255,7 @@ fun FinUnityApp(database: AppDatabase) {
                     isLoading = isLoading,
                     error = error,
                     lastPriceUpdated = lastPriceUpdated,
+                    onboarded = viewModel.settings.value.onboarded,
                     onStartAddFlow = { startAddFlow() },
                     onEditAccount = { account ->
                         navigateTo(Screen.AccountDetail(account.id))
@@ -228,6 +264,8 @@ fun FinUnityApp(database: AppDatabase) {
                         navigateTo(Screen.RiskBucketDetail(bucketIndex))
                     },
                     onViewAccounts = { switchTopLevel(Screen.AccountHub) },
+                    onRefreshPrices = { scope.launch { viewModel.refreshPrices() } },
+                    onOpenPlanning = { navigateTo(Screen.Planning) },
                     bottomBar = { bottomBar(TopLevelTab.Main) }
                 )
             }
@@ -252,6 +290,46 @@ fun FinUnityApp(database: AppDatabase) {
                     showMessage("设置已保存")
                     navigateBack()
                 },
+                onBack = { navigateBack() },
+                onOpenTargetAllocation = { navigateTo(Screen.TargetAllocation) }
+            )
+        }
+
+        is Screen.Planning -> {
+            com.finunity.ui.screens.PlanningScreen(
+                portfolioSummary = portfolioSummary,
+                onBack = { navigateBack() },
+                onEditTarget = { navigateTo(Screen.TargetAllocation) },
+                onReview = { navigateTo(Screen.MonthlyReview) },
+                onOpenHistory = { navigateTo(Screen.History) },
+                onSimulateExpense = { navigateTo(Screen.ExpenseSimulation) }
+            )
+        }
+
+        is Screen.ExpenseSimulation -> {
+            com.finunity.ui.screens.ExpenseSimulationScreen(
+                portfolioSummary = portfolioSummary,
+                onBack = { navigateBack() }
+            )
+        }
+
+        is Screen.MonthlyReview -> {
+            com.finunity.ui.screens.MonthlyReviewScreen(
+                portfolioSummary = portfolioSummary,
+                monthlyChange = monthlyChange,
+                onBack = { navigateBack() },
+                onEditTarget = { navigateTo(Screen.TargetAllocation) }
+            )
+        }
+
+        is Screen.TargetAllocation -> {
+            com.finunity.ui.screens.TargetAllocationScreen(
+                settings = viewModel.settings.value,
+                onSave = { newSettings ->
+                    viewModel.updateSettings(newSettings)
+                    showMessage("目标配置已保存")
+                    navigateBack()
+                },
                 onBack = { navigateBack() }
             )
         }
@@ -264,6 +342,7 @@ fun FinUnityApp(database: AppDatabase) {
         }
 
         is Screen.AccountHub -> {
+            val amountsVisible = viewModel.settings.value.amountsVisible
             AccountHubScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
@@ -272,21 +351,35 @@ fun FinUnityApp(database: AppDatabase) {
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
                 onOpenTransactions = { navigateTo(Screen.AllTransactions) },
+                onOpenPriceChanges = { navigateTo(Screen.PriceChanges) },
+                amountsVisible = amountsVisible,
+                onToggleAmounts = { viewModel.toggleAmountsVisible() },
                 bottomBar = { bottomBar(TopLevelTab.Ledger) }
             )
         }
 
         is Screen.AccountAssetsByAccount -> {
+            val amountsVisible = viewModel.settings.value.amountsVisible
             AccountAssetsByAccountScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                 holdings = portfolioSummary?.holdings ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
-                onEditAccount = { account -> navigateTo(Screen.AddAccount(account, allowDelete = true)) },
+                onEditAccount = { account -> navigateTo(Screen.AccountDetail(account.id)) },
                 onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
                 onOpenSettings = { navigateTo(Screen.Settings) },
+                onOpenBackup = { navigateTo(Screen.Backup) },
+                amountsVisible = amountsVisible,
+                onToggleAmounts = { viewModel.toggleAmountsVisible() },
                 bottomBar = { bottomBar(TopLevelTab.Mine) }
+            )
+        }
+
+        is Screen.Backup -> {
+            BackupScreen(
+                database = database,
+                onBack = { navigateBack() }
             )
         }
 
@@ -397,7 +490,7 @@ fun FinUnityApp(database: AppDatabase) {
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },
-                onEditAccount = { navigateTo(Screen.AddAccount(accountSummary?.account)) },
+                onEditAccount = { navigateTo(Screen.AddAccount(accountSummary?.account, allowDelete = true)) },
                 onRecordCashFlow = { navigateTo(Screen.CashFlow(screen.accountId)) },
                 onAddRecord = { navigateTo(Screen.AddAssetRecord(record = null, accountId = screen.accountId)) },
                 onEditRecord = { record -> navigateTo(Screen.AssetDetail(record.id)) },
@@ -409,6 +502,7 @@ fun FinUnityApp(database: AppDatabase) {
             CashFlowScreen(
                 accountId = screen.accountId,
                 accounts = portfolioSummary?.accounts ?: emptyList(),
+                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },
                 onSaveCashIn = { amount, note ->
                     viewModel.recordCashIn(screen.accountId, amount, note)
@@ -495,11 +589,10 @@ fun FinUnityApp(database: AppDatabase) {
                             accountId = summary.record.accountId
                         ))
                     },
-                    onSell = {
-                        navigateTo(Screen.AddAssetRecord(
-                            record = summary.record,
-                            accountId = summary.record.accountId
-                        ))
+                    onDelete = {
+                        viewModel.deleteAssetRecord(summary.record.id)
+                        showMessage("资产已删除")
+                        navigateBack()
                     }
                 )
             } else {
@@ -615,15 +708,4 @@ fun AccountPickerDialog(
         },
         shape = RoundedCornerShape(16.dp)
     )
-}
-
-fun formatCurrency(amount: Double, currency: String): String {
-    if (amount.isNaN() || amount.isInfinite()) return "--"
-    val safeAmount = amount
-    return when (currency) {
-        "CNY" -> "¥${String.format("%.2f", safeAmount)}"
-        "USD" -> "$${String.format("%.2f", safeAmount)}"
-        "HKD" -> "HK$${String.format("%.2f", safeAmount)}"
-        else -> "${currency}${String.format("%.2f", safeAmount)}"
-    }
 }

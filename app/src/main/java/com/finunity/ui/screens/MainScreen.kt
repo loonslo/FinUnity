@@ -53,10 +53,13 @@ fun MainScreen(
     isLoading: Boolean,
     error: String? = null,
     lastPriceUpdated: Long? = null,
+    onboarded: Boolean = false,
     onStartAddFlow: () -> Unit,
     onEditAccount: (Account) -> Unit = {},
     onViewRiskBucketDetail: (Int) -> Unit = {},  // bucket index
     onViewAccounts: () -> Unit = {},
+    onRefreshPrices: () -> Unit = {},
+    onOpenPlanning: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -103,14 +106,21 @@ fun MainScreen(
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
-        } else if (summary == null || summary.accounts.isEmpty()) {
-            EmptyState(
-                title = "开始建立你的资产账本",
-                subtitle = "先添加账户，再按用途记录活钱、稳健钱和长期钱",
-                actionText = "添加账户",
-                onAction = onStartAddFlow,
+        } else if (!onboarded && (summary == null || summary.accounts.isEmpty())) {
+            OnboardingScreen(
+                onStart = onStartAddFlow,
                 modifier = Modifier.padding(padding)
             )
+        } else if (summary == null) {
+            // onboarded 但数据尚未就绪，等待加载
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
         } else if (summary.totalAssets == 0.0) {
             AccountReadyEmptyAssetState(
                 portfolioSummary = summary,
@@ -141,81 +151,21 @@ fun MainScreen(
                 item {
                     AssuranceCheckCard(
                         portfolioSummary = summary,
-                        lastPriceUpdated = lastPriceUpdated
+                        lastPriceUpdated = lastPriceUpdated,
+                        isLoading = isLoading,
+                        onRefreshPrices = onRefreshPrices
                     )
                 }
 
-                // 再平衡提醒
-                if (summary.needsRebalance && summary.rebalanceRecommendations.isNotEmpty()) {
-                    item {
-                        RebalanceAlertCard(
-                            portfolioSummary = summary
-                        )
-                    }
+                // 规划入口（始终提供，决策动作收敛到规划页）
+                item {
+                    PlanningEntryCard(
+                        needsRebalance = summary.needsRebalance,
+                        onClick = onOpenPlanning
+                    )
                 }
 
                 item { Spacer(modifier = Modifier.height(80.dp)) }
-            }
-        }
-    }
-}
-
-@Composable
-fun EmptyState(
-    title: String,
-    subtitle: String,
-    actionText: String,
-    onAction: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(FinColors.PageBg),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .background(Color(0xFFEAF7EF), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "¥",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = FinColors.Accent.copy(alpha = 0.65f)
-                )
-            }
-            Spacer(modifier = Modifier.height(18.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = onAction,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = FinShapes.md,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = FinColors.SoftGreen,
-                    contentColor = FinColors.Number
-                )
-            ) {
-                Text(actionText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.Number)
             }
         }
     }
@@ -285,7 +235,9 @@ private fun AccountReadyEmptyAssetState(
 @Composable
 private fun AssuranceCheckCard(
     portfolioSummary: PortfolioSummary,
-    lastPriceUpdated: Long?
+    lastPriceUpdated: Long?,
+    isLoading: Boolean = false,
+    onRefreshPrices: () -> Unit = {}
 ) {
     val dateFormatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     val syncText = lastPriceUpdated?.let { "价格记录更新于 ${dateFormatter.format(Date(it))}" }
@@ -307,12 +259,36 @@ private fun AssuranceCheckCard(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "安心检查",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = FinColors.TextPrimary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "安心检查",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FinColors.TextPrimary
+                )
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = FinColors.Accent
+                    )
+                } else {
+                    Text(
+                        text = "立即刷新",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = FinColors.Accent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable(onClick = onRefreshPrices)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
             AssuranceCheckRow(
                 label = "配置状态",
                 text = rebalanceText,
@@ -603,9 +579,10 @@ private fun AllocationLegendRow(
 }
 
 private fun riskBucketHint(label: String): String = when (label) {
-    "防守" -> "随时要用的钱"
-    "稳健" -> "1-3 年要用的钱"
-    "进取" -> "5 年以上长期钱"
+    "防守" -> "要花的钱 · 随时要用"
+    "保命" -> "保命的钱 · 应急与保险"
+    "稳健" -> "保本的钱 · 1-3 年要用"
+    "进取" -> "生钱的钱 · 5 年以上长期"
     "暂无分布" -> "添加资产后显示用途分布"
     else -> "按用途管理这笔钱"
 }
@@ -717,149 +694,52 @@ private fun HomeAccountRow(
 private fun allocationColor(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
     RiskBucket.CONSERVATIVE -> FinColors.Conservative
+    RiskBucket.INSURANCE -> FinColors.Insurance
     RiskBucket.CASH -> FinColors.Cash
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RebalanceAlertCard(
-    portfolioSummary: PortfolioSummary
+private fun PlanningEntryCard(
+    needsRebalance: Boolean,
+    onClick: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val targetAllocation = remember(portfolioSummary.targetAllocation) {
-        parseTargetAllocation(portfolioSummary.targetAllocation)
-    }
-    val adviceItems = targetAllocation.mapNotNull { (key, target) ->
-        val current = portfolioSummary.allocations[key] ?: 0.0
-        val drift = current - target
-        if (kotlin.math.abs(drift) <= portfolioSummary.rebalanceThreshold) {
-            null
-        } else {
-            RebalanceAdvice(
-                label = riskBucketLabel(key),
-                current = current,
-                target = target,
-                amount = kotlin.math.abs(drift) * portfolioSummary.totalAssets,
-                action = if (drift > 0) "减少" else "增加"
-            )
-        }
-    }
-    if (adviceItems.isEmpty()) return
-    val firstAdvice = adviceItems.first()
-
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        ),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${firstAdvice.label}资产有点${if (firstAdvice.action == "减少") "多" else "少"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "可以考虑${firstAdvice.action} ${formatCurrency(firstAdvice.amount, portfolioSummary.baseCurrency)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Surface(
-                    onClick = { expanded = !expanded },
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-                ) {
-                    Text(
-                        text = if (expanded) "收起" else "查看方案",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                    )
-                }
-            }
-
-            // 展开的详情
-            if (expanded) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Divider()
-                Spacer(modifier = Modifier.height(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "再平衡方案",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    text = "资产规划",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FinColors.TextPrimary
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                adviceItems.forEach { advice ->
-                    RebalanceAdviceRow(
-                        advice = advice,
-                        baseCurrency = portfolioSummary.baseCurrency
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (needsRebalance) "配置已偏离目标，去看看怎么调整"
+                    else "对照标普四象限目标，做一次决策检查",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (needsRebalance) FinColors.Cash else FinColors.TextSecondary
+                )
             }
-        }
-    }
-}
-
-private data class RebalanceAdvice(
-    val label: String,
-    val current: Double,
-    val target: Double,
-    val amount: Double,
-    val action: String
-)
-
-@Composable
-private fun RebalanceAdviceRow(
-    advice: RebalanceAdvice,
-    baseCurrency: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "${advice.label}资产有点${if (advice.action == "减少") "多" else "少"}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "当前 ${String.format("%.0f", advice.current * 100)}%，目标 ${String.format("%.0f", advice.target * 100)}%",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = FinColors.TextSecondary
             )
         }
-        Text(
-            text = "可以考虑${advice.action} ${formatCurrency(advice.amount, baseCurrency)}",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (advice.action == "减少") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-        )
     }
-}
-
-private fun riskBucketLabel(key: String): String = when (key) {
-    "CONSERVATIVE" -> "稳健"
-    "AGGRESSIVE" -> "进取"
-    "CASH" -> "防守"
-    else -> key
 }
 
 @Composable
@@ -919,83 +799,6 @@ fun AssetRecordItem(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun RatioRing(
-    aggressiveRatio: Float,
-    conservativeRatio: Float,
-    defensiveRatio: Float,
-    modifier: Modifier = Modifier
-) {
-    val aggressiveColor = Color(0xFFE53935)
-    val conservativeColor = Color(0xFF4CAF50)
-    val defensiveColor = Color(0xFF2196F3)
-    val backgroundColor = Color.White.copy(alpha = 0.2f)
-
-    Canvas(modifier = modifier) {
-        val strokeWidth = 12.dp.toPx()
-        val radius = (size.minDimension - strokeWidth) / 2
-        val center = Offset(size.width / 2, size.height / 2)
-
-        // 背景环
-        drawCircle(
-            color = backgroundColor,
-            radius = radius,
-            center = center,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-        )
-
-        // 三段式进度环
-        val total = aggressiveRatio + conservativeRatio + defensiveRatio
-        if (total <= 0f) return@Canvas
-
-        var currentAngle = -90f
-
-        // 稳健段 (绿色)
-        val conservativeSweep = (conservativeRatio / total) * 360f
-        if (conservativeSweep > 0) {
-            drawArc(
-                color = conservativeColor,
-                startAngle = currentAngle,
-                sweepAngle = conservativeSweep,
-                useCenter = false,
-                topLeft = Offset(center.x - radius, center.y - radius),
-                size = Size(radius * 2, radius * 2),
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-            )
-            currentAngle += conservativeSweep
-        }
-
-        // 进取段 (红色)
-        val aggressiveSweep = (aggressiveRatio / total) * 360f
-        if (aggressiveSweep > 0) {
-            drawArc(
-                color = aggressiveColor,
-                startAngle = currentAngle,
-                sweepAngle = aggressiveSweep,
-                useCenter = false,
-                topLeft = Offset(center.x - radius, center.y - radius),
-                size = Size(radius * 2, radius * 2),
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-            )
-            currentAngle += aggressiveSweep
-        }
-
-        // 防守段 (蓝色)
-        val defensiveSweep = (defensiveRatio / total) * 360f
-        if (defensiveSweep > 0) {
-            drawArc(
-                color = defensiveColor,
-                startAngle = currentAngle,
-                sweepAngle = defensiveSweep,
-                useCenter = false,
-                topLeft = Offset(center.x - radius, center.y - radius),
-                size = Size(radius * 2, radius * 2),
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-            )
         }
     }
 }
