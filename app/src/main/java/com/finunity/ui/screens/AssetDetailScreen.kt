@@ -2,6 +2,7 @@ package com.finunity.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,14 +13,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -47,13 +52,15 @@ fun AssetDetailScreen(
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit = {},
-    onSell: () -> Unit = {},
+    onBuy: (addQuantity: Double, buyPrice: Double) -> Unit = { _, _ -> },
+    onSell: (sellQuantity: Double) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("概览", "流水", "价格")
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
+    val isTradable = summary.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
     val hideProfit = summary.record.assetType in listOf(
         AssetType.CASH,
         AssetType.REAL_ESTATE,
@@ -61,7 +68,48 @@ fun AssetDetailScreen(
         AssetType.INSURANCE_POLICY
     )
 
+    var showBuyDialog by remember { mutableStateOf(false) }
+    var showSellDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    if (showBuyDialog) {
+        BuyDialog(
+            assetName = summary.record.name,
+            currency = summary.record.currency,
+            defaultPrice = summary.record.currentPrice,
+            onConfirm = { qty, price -> showBuyDialog = false; onBuy(qty, price) },
+            onDismiss = { showBuyDialog = false }
+        )
+    }
+    if (showSellDialog) {
+        SellDialog(
+            assetName = summary.record.name,
+            currency = summary.record.currency,
+            holdingQty = summary.record.quantity,
+            currentPrice = summary.record.currentPrice,
+            onConfirm = { qty -> showSellDialog = false; onSell(qty) },
+            onDismiss = { showSellDialog = false }
+        )
+    }
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("删除资产") },
+            text = { Text("将删除「${summary.record.name}」及其交易流水与价格历史，且不可恢复。确定删除吗？") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteDialog = false; onDelete() }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {},
@@ -74,8 +122,56 @@ fun AssetDetailScreen(
                         )
                     }
                 },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "更多",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("编辑资料") },
+                                onClick = { menuExpanded = false; onEdit() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("删除资产", color = MaterialTheme.colorScheme.error) },
+                                onClick = { menuExpanded = false; showDeleteDialog = true }
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
+        },
+        bottomBar = {
+            if (isTradable) {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = { showBuyDialog = true },
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
+                        ) { Text("买入", color = FinColors.Number, fontWeight = FontWeight.SemiBold) }
+                        OutlinedButton(
+                            onClick = { showSellDialog = true },
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("卖出", color = FinColors.TextPrimary, fontWeight = FontWeight.SemiBold) }
+                    }
+                }
+            }
         },
         modifier = modifier
     ) { padding ->
@@ -161,43 +257,7 @@ fun AssetDetailScreen(
                 }
             }
 
-            // 操作区：记一笔（主）+ 编辑资料 / 删除（次）
-            item {
-                Button(
-                    onClick = onEdit,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
-                ) {
-                    Text("记一笔", color = FinColors.Number)
-                }
-            }
-            if (!hideProfit) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onEdit,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("编辑资料", color = FinColors.TextSecondary)
-                        }
-                        OutlinedButton(
-                            onClick = onDelete,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("删除资产", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(80.dp)) }
+            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }
@@ -234,13 +294,31 @@ private fun DetailRow(label: String, value: String) {
 
 @Composable
 private fun DetailTransactionItem(tx: Transaction, dateFormat: SimpleDateFormat) {
+    val typeLabel = when (tx.type) {
+        com.finunity.data.local.entity.TransactionType.BUY -> "买入"
+        com.finunity.data.local.entity.TransactionType.SELL -> "卖出"
+        com.finunity.data.local.entity.TransactionType.DIVIDEND -> "分红"
+        com.finunity.data.local.entity.TransactionType.FEE -> "手续费"
+        com.finunity.data.local.entity.TransactionType.TRANSFER_IN -> "转入"
+        com.finunity.data.local.entity.TransactionType.TRANSFER_OUT -> "转出"
+        com.finunity.data.local.entity.TransactionType.DEPOSIT -> "入金"
+        com.finunity.data.local.entity.TransactionType.WITHDRAW -> "出金"
+    }
+    // 数量 × 单价（份额与单价齐全时展示）
+    val detailLine = if (tx.shares != null && tx.shares > 0 && tx.price != null && tx.price > 0) {
+        "${String.format("%.4f", tx.shares).trimEnd('0').trimEnd('.')} × ${String.format("%.2f", tx.price)} ${tx.currency}"
+    } else null
+
     Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text(tx.type.name, fontWeight = FontWeight.Medium)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(typeLabel, fontWeight = FontWeight.Medium, color = FinColors.TextPrimary)
+                if (detailLine != null) {
+                    Text(detailLine, style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                }
                 Text(dateFormat.format(Date(tx.timestamp)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("${String.format("%.2f", tx.amount)} ${tx.currency}", fontWeight = FontWeight.SemiBold)
+            Text("${String.format("%.2f", tx.amount)} ${tx.currency}", fontWeight = FontWeight.SemiBold, color = FinColors.Number)
         }
     }
 }
@@ -339,4 +417,126 @@ private fun EmptyDetailText(text: String) {
         modifier = Modifier.fillMaxWidth().padding(24.dp),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BuyDialog(
+    assetName: String,
+    currency: String,
+    defaultPrice: Double,
+    onConfirm: (qty: Double, price: Double) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var qtyText by remember { mutableStateOf("") }
+    var priceText by remember { mutableStateOf(if (defaultPrice > 0) String.format("%.2f", defaultPrice) else "") }
+    val qty = qtyText.toDoubleOrNull() ?: 0.0
+    val price = priceText.toDoubleOrNull() ?: 0.0
+    val valid = qty > 0 && price > 0
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("买入 $assetName", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+            SheetField(value = qtyText, onValueChange = { qtyText = it.filter { c -> c.isDigit() || c == '.' } }, label = "买入数量")
+            SheetField(value = priceText, onValueChange = { priceText = it.filter { c -> c.isDigit() || c == '.' } }, label = "买入单价/净值", suffix = currency)
+            SheetAmountRow(label = "本次买入金额", amount = if (valid) "${String.format("%.2f", qty * price)} $currency" else "—")
+            Button(
+                onClick = { onConfirm(qty, price) },
+                enabled = valid,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = FinColors.Accent, contentColor = Color.White)
+            ) { Text("确认买入", fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SellDialog(
+    assetName: String,
+    currency: String,
+    holdingQty: Double,
+    currentPrice: Double,
+    onConfirm: (qty: Double) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var qtyText by remember { mutableStateOf("") }
+    val parsed = qtyText.toDoubleOrNull()
+    val sellQty = parsed ?: holdingQty
+    val holdingLabel = String.format("%.4f", holdingQty).trimEnd('0').trimEnd('.')
+    val error = when {
+        qtyText.isNotBlank() && parsed == null -> "请输入有效数量"
+        sellQty <= 0 -> "卖出数量必须大于 0"
+        sellQty > holdingQty -> "不能超过持有数量 $holdingLabel"
+        else -> null
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("卖出 $assetName", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+            Text("当前持有 $holdingLabel，留空表示全部卖出", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+            SheetField(
+                value = qtyText,
+                onValueChange = { qtyText = it.filter { c -> c.isDigit() || c == '.' } },
+                label = "卖出数量",
+                isError = error != null,
+                supportingText = error
+            )
+            SheetAmountRow(label = "预计金额", amount = if (error == null) "${String.format("%.2f", sellQty * currentPrice)} $currency" else "—")
+            Button(
+                onClick = { onConfirm(sellQty) },
+                enabled = error == null,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = FinColors.Loss, contentColor = Color.White)
+            ) { Text("确认卖出", fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+@Composable
+private fun SheetField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    suffix: String? = null,
+    isError: Boolean = false,
+    supportingText: String? = null
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        suffix = suffix?.let { { Text(it) } },
+        singleLine = true,
+        isError = isError,
+        supportingText = supportingText?.let { { Text(it) } },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun SheetAmountRow(label: String, amount: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = FinColors.TextSecondary)
+        Text(amount, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.Number)
+    }
 }

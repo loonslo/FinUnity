@@ -353,7 +353,7 @@ fun AssetOverviewCard(
     val cumulativeProfit = totalAssets - totalCost
     val cumulativeRatio = if (totalCost > 0) cumulativeProfit / totalCost else 0.0
     val profitColor = if (cumulativeProfit >= 0) FinColors.Profit else FinColors.Loss
-    val cumulativeText = "累计变化 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}"
+    val cumulativeText = "累计收益 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}"
 
     Card(
         modifier = Modifier.fillMaxWidth(),

@@ -72,6 +72,7 @@ fun CashFlowScreen(
     accounts: List<AccountSummary>,
     baseCurrency: String = "CNY",
     onBack: () -> Unit,
+    onAddAsset: () -> Unit,
     onSaveCashIn: (Double, String?) -> Unit,
     onSaveCashOut: (Double, String?) -> Unit,
     onSaveTransfer: (String, Double, String?) -> Unit,
@@ -128,9 +129,16 @@ fun CashFlowScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 RecordEntryCard(
+                    title = "添加资产",
+                    subtitle = "股票、ETF、基金、定期、现金等持仓",
+                    icon = Icons.Default.Add,
+                    selected = false,
+                    onClick = onAddAsset
+                )
+                RecordEntryCard(
                     title = "日常收支",
                     subtitle = "工资、消费、现金增减",
-                    icon = Icons.Default.Add,
+                    icon = Icons.Default.DateRange,
                     selected = selectedEntry == RecordEntry.CASH,
                     onClick = {
                         selectedEntry = RecordEntry.CASH

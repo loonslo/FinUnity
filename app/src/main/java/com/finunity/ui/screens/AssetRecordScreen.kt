@@ -37,8 +37,6 @@ fun AssetRecordScreen(
     record: AssetRecord?,
     account: Account?,
     onSave: (AssetRecord) -> Unit,
-    onDelete: (String) -> Unit,
-    onSell: (String, Double) -> Unit,  // recordId, quantity
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -52,9 +50,6 @@ fun AssetRecordScreen(
     var cost by remember { mutableStateOf(record?.cost?.toString() ?: "") }
     var currentPrice by remember { mutableStateOf(record?.currentPrice?.toString() ?: "") }
     var selectedCurrency by remember { mutableStateOf(record?.currency ?: account?.currency ?: "CNY") }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showSellDialog by remember { mutableStateOf(false) }
-    var sellQuantity by remember { mutableStateOf("") }
     var showUnsavedDialog by remember { mutableStateOf(false) }
 
     val riskBuckets = RiskBucket.entries
@@ -114,140 +109,6 @@ fun AssetRecordScreen(
         )
     }
 
-    // 删除确认对话框
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除资产") },
-            text = {
-                Column {
-                    Text("确定要删除「${record?.name ?: ""}」吗？")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "关联的交易流水和价格历史将一并删除，此操作不可恢复。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        record?.let { onDelete(it.id) }
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
-    // 卖出确认对话框
-    if (showSellDialog) {
-        val currentQty = record?.quantity ?: 0.0
-        val parsedSellQty = sellQuantity.toDoubleOrNull()
-        val sellQty = parsedSellQty ?: currentQty
-        var sellPrice by remember { mutableStateOf(String.format("%.2f", record?.currentPrice ?: 0.0)) }
-        var sellFee by remember { mutableStateOf("") }
-        var sellDate by remember { mutableStateOf(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())) }
-        var sellNote by remember { mutableStateOf("") }
-        val parsedPrice = sellPrice.toDoubleOrNull()
-        val sellAmount = sellQty * (parsedPrice ?: 0.0)
-        val sellError = when {
-            sellQuantity.isNotBlank() && parsedSellQty == null -> "请输入有效数量"
-            sellQty <= 0 -> "卖出数量必须大于 0"
-            sellQty > currentQty -> "卖出数量不能超过当前持有"
-            parsedPrice == null || parsedPrice <= 0 -> "请输入有效成交价"
-            else -> null
-        }
-
-        AlertDialog(
-            onDismissRequest = { showSellDialog = false },
-            title = { Text("确认卖出") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("卖出 ${record?.name}", fontWeight = FontWeight.Medium)
-                    Text("持有 ${String.format("%.4f", currentQty)} 份，当前价 ${String.format("%.2f", record?.currentPrice ?: 0.0)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    OutlinedTextField(
-                        value = sellQuantity,
-                        onValueChange = { sellQuantity = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("卖出数量（留空为全部）") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = sellPrice,
-                        onValueChange = { sellPrice = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("成交价") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        suffix = { Text(record?.currency ?: "") }
-                    )
-                    OutlinedTextField(
-                        value = sellFee,
-                        onValueChange = { sellFee = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("费用（可选）") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = sellDate,
-                        onValueChange = { sellDate = it },
-                        label = { Text("日期") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = sellNote,
-                        onValueChange = { sellNote = it },
-                        label = { Text("备注（可选）") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    if (parsedPrice != null && parsedPrice > 0) {
-                        Text(
-                            text = "成交金额: ${String.format("%.2f", sellAmount)} ${record?.currency ?: ""}${if (sellFee.toDoubleOrNull() != null && sellFee.toDoubleOrNull()!! > 0) "（含费）" else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                    if (sellError != null) {
-                        Text(sellError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showSellDialog = false
-                        record?.let { r ->
-                            onSell(r.id, sellQty)
-                        }
-                    },
-                    enabled = sellError == null
-                ) {
-                    Text("确认卖出", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSellDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -261,17 +122,7 @@ fun AssetRecordScreen(
                         )
                     }
                 },
-                actions = {
-                    if (!isNewRecord) {
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(
-                                Icons.Default.Warning,
-                                contentDescription = "删除",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                },
+                // 删除入口统一在资产详情页，编辑资料页不再重复提供
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )
@@ -353,7 +204,6 @@ fun AssetRecordScreen(
                                     quantity = ""
                                     cost = ""
                                     currentPrice = ""
-                                    sellQuantity = ""
                                     selectedRiskBucket = defaultRiskBucketFor(type, account?.type)
                                 }
                                 selectedAssetType = type
@@ -601,20 +451,7 @@ fun AssetRecordScreen(
                 enabled = isFormValid
             )
 
-            // 编辑态、可交易资产：提供卖出入口（触发已有的卖出对话框）
-            if (!isNewRecord && selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { showSellDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("卖出")
-                }
-            }
+            // 买入/卖出（调仓）已收敛到资产详情页主操作；编辑表单只负责修改资料
 
             Spacer(modifier = Modifier.height(32.dp))
         }

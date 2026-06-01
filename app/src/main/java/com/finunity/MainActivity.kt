@@ -290,8 +290,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                     showMessage("设置已保存")
                     navigateBack()
                 },
-                onBack = { navigateBack() },
-                onOpenTargetAllocation = { navigateTo(Screen.TargetAllocation) }
+                onBack = { navigateBack() }
             )
         }
 
@@ -359,19 +358,12 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
         }
 
         is Screen.AccountAssetsByAccount -> {
-            val amountsVisible = viewModel.settings.value.amountsVisible
             AccountAssetsByAccountScreen(
-                accounts = portfolioSummary?.accounts ?: emptyList(),
-                assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
-                holdings = portfolioSummary?.holdings ?: emptyList(),
-                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                accountCount = portfolioSummary?.accounts?.size ?: 0,
                 onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
-                onEditAccount = { account -> navigateTo(Screen.AccountDetail(account.id)) },
                 onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
                 onOpenSettings = { navigateTo(Screen.Settings) },
                 onOpenBackup = { navigateTo(Screen.Backup) },
-                amountsVisible = amountsVisible,
-                onToggleAmounts = { viewModel.toggleAmountsVisible() },
                 bottomBar = { bottomBar(TopLevelTab.Mine) }
             )
         }
@@ -459,16 +451,6 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                     pendingNewAccount = null
                     currentScreen = if (wasFirstAsset) Screen.Main else Screen.AccountDetail(record.accountId)
                 },
-                onDelete = { id ->
-                    viewModel.deleteAssetRecord(id)
-                    showMessage("资产记录已删除")
-                    currentScreen = Screen.AccountDetail(screen.accountId)
-                },
-                onSell = { id, quantity ->
-                    viewModel.sellAssetRecord(id, quantity)
-                    showMessage("卖出已记录")
-                    currentScreen = Screen.AccountDetail(screen.accountId)
-                },
                 onBack = { navigateBack() }
             )
         }
@@ -504,6 +486,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 accounts = portfolioSummary?.accounts ?: emptyList(),
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
                 onBack = { navigateBack() },
+                onAddAsset = { navigateTo(Screen.AddAssetRecord(record = null, accountId = screen.accountId)) },
                 onSaveCashIn = { amount, note ->
                     viewModel.recordCashIn(screen.accountId, amount, note)
                     showMessage("收入已记录")
@@ -593,6 +576,14 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                         viewModel.deleteAssetRecord(summary.record.id)
                         showMessage("资产已删除")
                         navigateBack()
+                    },
+                    onBuy = { addQty, price ->
+                        viewModel.buyMoreAssetRecord(summary.record.id, addQty, price)
+                        showMessage("买入已记录")
+                    },
+                    onSell = { sellQty ->
+                        viewModel.sellAssetRecord(summary.record.id, sellQty)
+                        showMessage("卖出已记录")
                     }
                 )
             } else {

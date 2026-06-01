@@ -24,7 +24,6 @@ fun SettingsScreen(
     settings: Settings,
     onSave: (Settings) -> Unit,
     onBack: () -> Unit,
-    onOpenTargetAllocation: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var baseCurrency by remember { mutableStateOf(settings.baseCurrency) }
@@ -116,47 +115,7 @@ fun SettingsScreen(
                 )
             }
 
-            // 目标资产配置 → 跳转独立配置页
-            Column {
-                Text(
-                    text = "目标资产配置",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    onClick = onOpenTargetAllocation
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "编辑目标配置",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = "调整四象限目标比例，使用独立配置表单",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
-                        Text(
-                            text = "›",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                        )
-                    }
-                }
-            }
+            // 目标资产配置统一在「规划」页编辑，设置页不再重复入口（仅保留本位币与再平衡阈值）
 
             Spacer(modifier = Modifier.height(16.dp))
 

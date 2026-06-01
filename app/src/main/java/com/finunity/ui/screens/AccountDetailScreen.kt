@@ -90,7 +90,6 @@ fun AccountDetailScreen(
             item {
                 AccountActionRow(
                     onRecordCashFlow = onRecordCashFlow,
-                    onAddRecord = onAddRecord,
                     onViewTransactions = onViewTransactions,
                     onEditAccount = onEditAccount
                 )
@@ -170,7 +169,6 @@ fun AccountDetailScreen(
 @Composable
 private fun AccountActionRow(
     onRecordCashFlow: () -> Unit,
-    onAddRecord: () -> Unit,
     onViewTransactions: () -> Unit,
     onEditAccount: () -> Unit
 ) {
@@ -220,14 +218,6 @@ private fun AccountActionRow(
                 expanded = expanded,
                 onDismissRequest = { expanded = false }
             ) {
-                DropdownMenuItem(
-                    text = { Text("添加资产") },
-                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    onClick = {
-                        expanded = false
-                        onAddRecord()
-                    }
-                )
                 DropdownMenuItem(
                     text = { Text("交易流水") },
                     leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },

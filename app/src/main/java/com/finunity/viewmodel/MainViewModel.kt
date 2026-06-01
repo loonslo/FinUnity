@@ -243,6 +243,41 @@ class MainViewModel(
         }
     }
 
+    /**
+     * 买入加仓：在现有持仓上追加数量与成本，重算均价并记录买入流水。
+     * 录入模型为"声明持仓"，此处不自动扣减账户现金（资金来源不强假设）。
+     */
+    fun buyMoreAssetRecord(recordId: String, addQuantity: Double, buyPrice: Double) {
+        viewModelScope.launch {
+            if (addQuantity <= 0 || buyPrice <= 0) {
+                _error.value = "请输入有效的买入数量和单价"
+                return@launch
+            }
+            val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
+            val addCost = addQuantity * buyPrice
+            val updated = record.copy(
+                quantity = record.quantity + addQuantity,
+                cost = record.cost + addCost,
+                updatedAt = System.currentTimeMillis()
+            )
+            database.assetRecordDao().update(updated)
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = record.accountId,
+                    symbol = record.name,
+                    type = TransactionType.BUY,
+                    shares = addQuantity,
+                    price = buyPrice,
+                    amount = addCost,
+                    currency = record.currency,
+                    note = "买入 ${record.name} · ${String.format("%.2f", addCost)} ${record.currency}",
+                    recordId = record.id
+                )
+            )
+            // 不在此写入价格历史：价格 Tab 只反映真实行情变化，本次买入的成交价记录在流水里
+        }
+    }
+
     fun updateAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
             val existing = database.assetRecordDao().getRecordById(record.id)

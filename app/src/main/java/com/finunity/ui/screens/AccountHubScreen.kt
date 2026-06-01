@@ -441,17 +441,11 @@ private fun profitColorFor(value: Double): Color = when {
 
 @Composable
 fun AccountAssetsByAccountScreen(
-    accounts: List<AccountSummary>,
-    assetRecords: List<AssetRecordSummary>,
-    holdings: List<HoldingSummary>,
-    baseCurrency: String,
+    accountCount: Int,
     onAddAccount: () -> Unit,
-    onEditAccount: (com.finunity.data.local.entity.Account) -> Unit,
     onOpenImportCsv: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenBackup: () -> Unit = {},
-    amountsVisible: Boolean = true,
-    onToggleAmounts: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -472,27 +466,10 @@ fun AccountAssetsByAccountScreen(
             item {
                 AccountProfileHeader()
             }
-            if (accounts.isEmpty()) {
-                item { AccountEmptyManagementCard(onAddAccount = onAddAccount) }
-            } else {
-                item {
-                    FinSectionLabel("账户管理")
-                }
-                items(accounts, key = { it.account.id }) { summary ->
-                    val assetValue = assetRecords.filter { it.record.accountId == summary.account.id }.sumOf { it.currentValue } +
-                        holdings.filter { it.position.accountId == summary.account.id }.sumOf { it.currentValue }
-                    ManagementAccountCard(
-                        summary = summary,
-                        assetValue = assetValue,
-                        baseCurrency = baseCurrency,
-                        amountsVisible = amountsVisible,
-                        onView = { onEditAccount(summary.account) }
-                    )
-                }
-            }
+            // 账户的浏览与管理统一在「账本」Tab，「我的」只承载个人资料与数据工具，避免重复
             item {
                 AccountToolsCard(
-                    accountCount = accounts.size,
+                    accountCount = accountCount,
                     onAddAccount = onAddAccount,
                     onOpenImportCsv = onOpenImportCsv,
                     onOpenSettings = onOpenSettings,
@@ -631,141 +608,3 @@ private fun SecondaryToolChip(
     }
 }
 
-@Composable
-private fun AccountEmptyManagementCard(onAddAccount: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Surface(
-                modifier = Modifier.size(64.dp),
-                shape = RoundedCornerShape(22.dp),
-                color = FinColors.Accent.copy(alpha = 0.09f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                        tint = FinColors.Accent,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(18.dp))
-            Text(
-                text = "添加你的第一个账户",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = FinColors.TextPrimary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "用账户来归类银行卡、证券和现金资产",
-                style = MaterialTheme.typography.bodyMedium,
-                color = FinColors.TextSecondary
-            )
-            Spacer(modifier = Modifier.height(22.dp))
-            Button(
-                onClick = onAddAccount,
-                shape = FinShapes.md,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = FinColors.SoftGreen,
-                    contentColor = FinColors.Number
-                )
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("添加账户", color = FinColors.Number)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManagementAccountCard(
-    summary: AccountSummary,
-    assetValue: Double,
-    baseCurrency: String,
-    amountsVisible: Boolean = true,
-    onView: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onView),
-        shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier.size(52.dp),
-                shape = FinShapes.md,
-                color = FinColors.Accent.copy(alpha = 0.08f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = summary.account.name.take(1),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = FinColors.Accent
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    summary.account.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = FinColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "${summary.account.type.displayName()} · ${summary.account.currency}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = FinColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "账户资料与持仓管理",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = FinColors.TextSecondary.copy(alpha = 0.72f)
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "资产",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = FinColors.TextSecondary.copy(alpha = 0.72f)
-                )
-                Text(
-                    text = hiddenAware(formatCurrency(assetValue, baseCurrency), amountsVisible),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = if (assetValue < 0) MaterialTheme.colorScheme.error.copy(alpha = 0.72f) else FinColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Icon(
-                    Icons.Default.KeyboardArrowRight,
-                    contentDescription = "查看账户",
-                    tint = FinColors.TextSecondary.copy(alpha = 0.55f)
-                )
-            }
-        }
-    }
-}
