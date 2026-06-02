@@ -137,6 +137,7 @@ sealed class Screen {
     data class AssetTransactionHistory(val recordId: String, val assetName: String) : Screen()
     data class PriceHistory(val recordId: String, val assetName: String) : Screen()
     data class AssetDetail(val recordId: String) : Screen()
+    data class Trade(val recordId: String, val isBuy: Boolean) : Screen()
     data object Backup : Screen()
 }
 
@@ -577,13 +578,30 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                         showMessage("资产已删除")
                         navigateBack()
                     },
-                    onBuy = { addQty, price ->
-                        viewModel.buyMoreAssetRecord(summary.record.id, addQty, price)
+                    onBuy = { navigateTo(Screen.Trade(summary.record.id, isBuy = true)) },
+                    onSell = { navigateTo(Screen.Trade(summary.record.id, isBuy = false)) }
+                )
+            } else {
+                navigateBack()
+            }
+        }
+
+        is Screen.Trade -> {
+            val tradeSummary = portfolioSummary?.assetRecords?.find { it.record.id == screen.recordId }
+            if (tradeSummary != null) {
+                com.finunity.ui.screens.TradeScreen(
+                    summary = tradeSummary,
+                    isBuy = screen.isBuy,
+                    onBack = { navigateBack() },
+                    onConfirmBuy = { qty, price ->
+                        viewModel.buyMoreAssetRecord(screen.recordId, qty, price)
                         showMessage("买入已记录")
+                        navigateBack()
                     },
-                    onSell = { sellQty ->
-                        viewModel.sellAssetRecord(summary.record.id, sellQty)
+                    onConfirmSell = { qty ->
+                        viewModel.sellAssetRecord(screen.recordId, qty)
                         showMessage("卖出已记录")
+                        navigateBack()
                     }
                 )
             } else {

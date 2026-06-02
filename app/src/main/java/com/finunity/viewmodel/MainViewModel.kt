@@ -258,6 +258,8 @@ class MainViewModel(
             val updated = record.copy(
                 quantity = record.quantity + addQuantity,
                 cost = record.cost + addCost,
+                // 手动资产以最新一次买入价作为最新价，体现到概览/盈亏/价格曲线
+                currentPrice = buyPrice,
                 updatedAt = System.currentTimeMillis()
             )
             database.assetRecordDao().update(updated)
@@ -274,7 +276,14 @@ class MainViewModel(
                     recordId = record.id
                 )
             )
-            // 不在此写入价格历史：价格 Tab 只反映真实行情变化，本次买入的成交价记录在流水里
+            // 记录本次买入价到价格曲线（price=买入价，cost=最新均价）
+            database.priceHistoryDao().insert(
+                PriceHistory(
+                    recordId = record.id,
+                    price = buyPrice,
+                    cost = updated.averageCost
+                )
+            )
         }
     }
 
