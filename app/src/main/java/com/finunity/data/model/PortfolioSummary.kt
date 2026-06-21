@@ -27,10 +27,69 @@ data class PortfolioSummary(
     val positions: List<PositionSummary>,
     val landingPoints: List<LandingPoint> = emptyList(), // 落点跟踪（子桶级目标 vs 现有）
     val lockedAssets: Double = 0.0,    // 锁定专款合计（生存层/嫁妆等），不计入可投策略盘
+    val maxAggressiveRatio: Double = 0.70, // 永不满仓 · 风险仓位上限（进取占比）
     val lastUpdated: Long             // 最后更新时间
 ) {
     /** 可投策略盘 = 总资产 − 锁定专款 */
     val strategyAssets: Double get() = totalAssets - lockedAssets
+
+    /** 风险仓位 = 进取（生钱的钱）占比 0.0–1.0 */
+    val aggressiveRatio: Double get() = allocations["AGGRESSIVE"] ?: 0.0
+
+    /** 风险体检告警（永不满仓 + 落点红线 + 达标提示） */
+    val riskAlerts: List<RiskAlert> get() = evaluateRiskAlerts(aggressiveRatio, maxAggressiveRatio, landingPoints)
+}
+
+/** 风险体检告警等级 */
+enum class RiskAlertLevel { WARNING, INFO }
+
+/** 风险体检单条告警 */
+data class RiskAlert(
+    val level: RiskAlertLevel,
+    val title: String,
+    val detail: String
+)
+
+/**
+ * 风险体检：把方案红线集中判定，返回告警列表（纯函数，便于单测）。
+ * - 永不满仓：进取占比超过上限 → WARNING
+ * - 落点超上限红线 → WARNING（每个落点一条）
+ * - 落点已达目标（未超限）→ INFO（提示可停止加仓）
+ */
+fun evaluateRiskAlerts(
+    aggressiveRatio: Double,
+    maxAggressiveRatio: Double,
+    landingPoints: List<LandingPoint>
+): List<RiskAlert> {
+    val alerts = mutableListOf<RiskAlert>()
+
+    if (maxAggressiveRatio in 0.0..1.0 && aggressiveRatio > maxAggressiveRatio + 1e-9) {
+        val cur = Math.round(aggressiveRatio * 100).toInt()
+        val cap = Math.round(maxAggressiveRatio * 100).toInt()
+        alerts += RiskAlert(
+            RiskAlertLevel.WARNING,
+            "风险仓位偏高",
+            "进取（生钱的钱）已占 $cur%，超过上限 $cap%。建议新钱先进防守/稳健，暂不追加进取。"
+        )
+    }
+
+    landingPoints.filter { it.overCap }.forEach {
+        alerts += RiskAlert(
+            RiskAlertLevel.WARNING,
+            "${it.subCategory}：已超上限",
+            "已超过你为该落点设的上限红线，建议不再加仓。"
+        )
+    }
+
+    landingPoints.filter { it.reachedTarget && !it.overCap }.forEach {
+        alerts += RiskAlert(
+            RiskAlertLevel.INFO,
+            "${it.subCategory}：已达目标",
+            it.stopNote.ifBlank { "已到目标金额，可停止加仓、转为再平衡。" }
+        )
+    }
+
+    return alerts
 }
 
 /**

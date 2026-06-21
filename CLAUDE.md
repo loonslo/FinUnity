@@ -65,7 +65,7 @@ Four risk dimensions for asset allocation:
 
 UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INSURANCE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1"`.
 
-## Database Schema (Room, version 10)
+## Database Schema (Room, version 11)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
@@ -74,14 +74,16 @@ UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INS
 - `prices` — symbol (PK), price, currency, updatedAt, isFallback. 12h staleness threshold.
 - `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
 - `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
-- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
+- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05), onboarded, amountsVisible, maxAggressiveRatio (永不满仓·风险仓位上限, default 0.70)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table), v10→v11 (add maxAggressiveRatio to settings). Destructive fallback allowed from v1, v2 only.
 
 ## Landing Points (落点表 · 子桶配置)
 
 The 落点 system sits *below* the four risk buckets, implementing the per-asset target/stop-condition table from the QDII rebalance plan. Assets carry a `subCategory` tag; `AllocationTarget` rows hold per-落点 `targetAmount`/`capAmount`/`stopNote`. `PortfolioCalculator.computeLandingPoints()` joins them into `LandingPoint` rows (current vs target, gap, progress, overCap, reachedTarget). `computeLockedValue()` sums `locked` records; `PortfolioSummary.strategyAssets = totalAssets - lockedAssets` is the investable pool. UI: `LandingPointScreen` (entry from PlanningScreen), edit form on AssetRecordScreen (subCategory + locked). Backup `BackupData` v3 includes `allocationTargets`.
+
+**Risk check (风险体检 · 永不满仓)**: `evaluateRiskAlerts()` (pure fn in PortfolioSummary.kt) produces `RiskAlert` rows — WARNING when 进取(AGGRESSIVE) ratio exceeds `settings.maxAggressiveRatio`, WARNING per over-cap landing point, INFO per reached-target point. Surfaced in a 风险体检 card atop PlanningScreen; the ratio cap is edited in TargetAllocationScreen.
 
 ## Key Design Decisions
 

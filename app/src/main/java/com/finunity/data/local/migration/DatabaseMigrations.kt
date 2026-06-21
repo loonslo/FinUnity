@@ -137,6 +137,18 @@ object Migration9To10 {
 }
 
 /**
+ * Database migration from version 10 to 11.
+ * Adds maxAggressiveRatio (永不满仓 · 风险仓位上限) to settings.
+ */
+object Migration10To11 {
+    val migration: Migration = object : Migration(10, 11) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE settings ADD COLUMN maxAggressiveRatio REAL NOT NULL DEFAULT 0.7")
+        }
+    }
+}
+
+/**
  * Provider for all database migrations.
  */
 object DatabaseMigrations {
@@ -147,6 +159,7 @@ object DatabaseMigrations {
         Migration6To7.migration,
         Migration7To8.migration,
         Migration8To9.migration,
-        Migration9To10.migration
+        Migration9To10.migration,
+        Migration10To11.migration
     )
 }

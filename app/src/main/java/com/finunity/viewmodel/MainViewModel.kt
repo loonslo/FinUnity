@@ -156,6 +156,7 @@ class MainViewModel(
                 positions = positionSummaries,
                 landingPoints = landingPoints,
                 lockedAssets = lockedAssets,
+                maxAggressiveRatio = settings.maxAggressiveRatio,
                 lastUpdated = System.currentTimeMillis()
             )
         } catch (e: Exception) {

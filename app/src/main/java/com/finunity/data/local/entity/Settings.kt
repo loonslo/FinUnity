@@ -17,7 +17,9 @@ data class Settings(
     val targetAllocation: String = "CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1",
     val rebalanceThreshold: Double = 0.05,  // 再平衡阈值，默认5%偏离度触发提醒
     val onboarded: Boolean = false,          // 是否已完成新手引导
-    val amountsVisible: Boolean = true       // 金额是否可见（全局隐藏开关）
+    val amountsVisible: Boolean = true,      // 金额是否可见（全局隐藏开关）
+    // 永不满仓 · 风险仓位上限：进取（生钱的钱）占比超过此值即提示"风险仓位偏高"。默认 0.70，0/1 之外视为不启用
+    val maxAggressiveRatio: Double = 0.70
 )
 
 /**

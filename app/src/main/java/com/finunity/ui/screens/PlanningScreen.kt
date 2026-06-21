@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.data.model.PortfolioSummary
+import com.finunity.data.model.RiskAlert
+import com.finunity.data.model.RiskAlertLevel
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
@@ -77,6 +79,15 @@ fun PlanningScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
+
+            // 风险体检（永不满仓 + 落点红线）
+            item {
+                RiskCheckCard(
+                    aggressiveRatio = summary?.aggressiveRatio ?: 0.0,
+                    maxAggressiveRatio = summary?.maxAggressiveRatio ?: 0.70,
+                    alerts = summary?.riskAlerts ?: emptyList()
+                )
+            }
 
             // 状态摘要
             item {
@@ -179,6 +190,77 @@ fun PlanningScreen(
             }
 
             item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun RiskCheckCard(
+    aggressiveRatio: Double,
+    maxAggressiveRatio: Double,
+    alerts: List<RiskAlert>
+) {
+    val exceeded = maxAggressiveRatio in 0.0..1.0 && aggressiveRatio > maxAggressiveRatio + 1e-9
+    val barColor = if (exceeded) FinColors.Loss else FinColors.Aggressive
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = FinShapes.xl,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("风险体检", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+
+            // 风险仓位（进取占比）vs 上限
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("风险仓位（进取）", style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium, color = FinColors.TextPrimary)
+                    Text(
+                        text = "${(aggressiveRatio * 100).toInt()}% / 上限 ${(maxAggressiveRatio * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (exceeded) FinColors.Loss else FinColors.TextSecondary
+                    )
+                }
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(8.dp)
+                        .clip(RoundedCornerShape(999.dp)).background(FinColors.Outline)
+                ) {
+                    // 上限刻度（浅色背景到上限处）
+                    Box(modifier = Modifier.fillMaxHeight()
+                        .fillMaxWidth(maxAggressiveRatio.toFloat().coerceIn(0f, 1f))
+                        .background(barColor.copy(alpha = 0.18f)))
+                    // 当前仓位
+                    Box(modifier = Modifier.fillMaxHeight()
+                        .fillMaxWidth(aggressiveRatio.toFloat().coerceIn(0f, 1f))
+                        .background(barColor))
+                }
+            }
+
+            if (alerts.isEmpty()) {
+                Text("未触及红线，结构健康。", style = MaterialTheme.typography.bodySmall,
+                    color = FinColors.Profit)
+            } else {
+                alerts.forEach { alert ->
+                    val color = if (alert.level == RiskAlertLevel.WARNING) FinColors.Loss else FinColors.Accent
+                    Row(verticalAlignment = Alignment.Top) {
+                        Box(modifier = Modifier.padding(top = 6.dp).size(6.dp)
+                            .clip(RoundedCornerShape(999.dp)).background(color))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(alert.title, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium, color = color)
+                            Text(alert.detail, style = MaterialTheme.typography.bodySmall,
+                                color = FinColors.TextSecondary)
+                        }
+                    }
+                }
+            }
         }
     }
 }

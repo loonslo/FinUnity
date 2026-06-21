@@ -57,6 +57,7 @@ fun TargetAllocationScreen(
     var conservative by remember { mutableStateOf(((initialMap["CONSERVATIVE"] ?: 0.4) * 100).toInt().toString()) }
     var insurance by remember { mutableStateOf(((initialMap["INSURANCE"] ?: 0.0) * 100).toInt().toString()) }
     var cash by remember { mutableStateOf(((initialMap["CASH"] ?: 0.1) * 100).toInt().toString()) }
+    var maxAgg by remember { mutableStateOf((settings.maxAggressiveRatio * 100).toInt().toString()) }
 
     val aggressiveV = aggressive.toDoubleOrNull() ?: 0.0
     val conservativeV = conservative.toDoubleOrNull() ?: 0.0
@@ -181,12 +182,34 @@ fun TargetAllocationScreen(
                 }
             }
 
+            // 永不满仓 · 风险仓位上限
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = FinShapes.xl,
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("永不满仓 · 风险仓位上限", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+                    Text(
+                        text = "进取（生钱的钱）占比超过此上限时，规划页「风险体检」会提示风险仓位偏高。默认 70%。",
+                        style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary
+                    )
+                    PercentRow("风险仓位上限", "进取占比的红线", FinColors.Aggressive, maxAgg) {
+                        maxAgg = it.filter { c -> c.isDigit() }
+                    }
+                }
+            }
+
             Button(
                 onClick = {
+                    val maxAggV = (maxAgg.toIntOrNull() ?: 70).coerceIn(0, 100)
                     onSave(
                         settings.copy(
                             targetAllocation = "CONSERVATIVE:${conservativeV / 100},AGGRESSIVE:${aggressiveV / 100}," +
-                                "INSURANCE:${insuranceV / 100},CASH:${cashV / 100}"
+                                "INSURANCE:${insuranceV / 100},CASH:${cashV / 100}",
+                            maxAggressiveRatio = maxAggV / 100.0
                         )
                     )
                 },
