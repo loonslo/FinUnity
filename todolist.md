@@ -331,3 +331,56 @@ P2-5 全局视觉统一      （收口式清理，放最后避免反复冲突）
 
 > 第四节"体验与信任细节"建议**穿插**在相关功能任务里顺手完成（例如做 P2-4 时一并处理资产详情主操作去重、改 `RiskBucketDetailScreen` 时顺手把"旧持仓"改名），不必单独排期。
 > 第五节为备查，不进当前迭代。
+
+---
+
+## 六、资产配置方案落地（QDII 定投再平衡方案 v9.4 对照）
+
+> 背景：把方案 v9.4 当需求文档对照现有 app，核心结论是"方案运作在四象限之下的颗粒度，app 原本只到四象限"。
+> 已分两批落地地基，剩余项记录在此作为待办。已完成项见下方 ✅。
+
+### 已完成（已在 PR：feat/landing-points-allocation）
+- ✅ **子桶落点字段**：`AssetRecord.subCategory`（标普/纳指/红利/训练仓/弹药…）+ `locked`（专款隔离）。
+- ✅ **落点目标表**：`AllocationTarget`（目标/上限/停止条件）+ `LandingPointScreen` 落点表（目标/现有/缺口/进度/超限/达标）。迁移 v9→v10，备份 v3。
+- ✅ **可投策略盘**：`PortfolioSummary.strategyAssets = 总资产 − 锁定专款`（`computeLockedValue`）。
+- ✅ **永不满仓风险仓位红线**：`Settings.maxAggressiveRatio` + `evaluateRiskAlerts()`，规划页「风险体检」卡（进取占比超限 / 落点超上限 / 落点达标）。迁移 v10→v11。
+
+### 待办
+
+#### TD-1 专款隔离接入再平衡口径
+**目标**：四象限偏离/再平衡建议改按"可投策略盘"（排除 `locked` 专款）计算，而非总资产；现仅算出 `strategyAssets` 但再平衡仍用 totalAssets。
+**改动**：`MainViewModel.calculatePortfolio` 里 `currentAllocationMap` 与 `calculateRebalanceRecommendations` 的口径基数；`PlanningScreen`/`MonthlyReviewScreen` 的金额换算同步用 strategyAssets。注意 locked 资产仍要在总资产/象限明细里显示，只是不进偏离计算。
+**依赖**：无（数据已具备）。
+
+#### TD-2 标的级红线告警（落点级已做，补标的级）
+**目标**：方案 6.8/6.9 的标的红线——单只持仓≤X、单一行业/产业链≤Y、训练仓合计≤6万、黄金≤策略盘5%、个股从成本亏损≥10%/15% 复核。
+**现状**：落点级 `overCap`（按 AllocationTarget.capAmount）已做。标的级需要按 `AssetRecord` 维度或 `assetType=ETF/黄金` 聚合判定，可能需在 record 上加"行业标签"或复用 subCategory。
+**改动**：扩展 `evaluateRiskAlerts()` 或新增 `evaluateHoldingRedlines()`；阈值存 Settings 或常量。
+**依赖**：黄金≤策略盘5% 需 strategyAssets（已具备）；行业上限需新增行业标签字段。
+
+#### TD-3 回撤加仓阶梯（天玑法 · 方案 6.1）
+**目标**：用 `asset_snapshots` 算"自高点回撤%"，映射到加仓档位（-5/-10/-15/-20/-25% → 定投倍数 + 弹药金额），在规划页提示"当前处于哪一档、该用什么钱加仓"。
+**改动**：新增计算（取快照历史最高 totalAssets 或某象限峰值 → 当前回撤）；阶梯参数可借用 PRD 2.4 默认表；新增展示卡或并入风险体检。
+**依赖**：需积累足够每日快照才有意义；峰值口径需定（总资产 vs 进取桶 vs 大盘指数）。
+
+#### TD-4 压力测试（方案第五章 / PRD 步骤7）
+**目标**：套用 PRD 2.3 历史情景跌幅表（2022/2020/2008/2000），按落点/象限权重算组合峰谷浮亏，对比"最大可承受亏损 M"。
+**改动**：新增 `StressTestScreen` + 纯函数 `computeStressLoss(weights, drops)`；M 作为新设置项（或在页面输入）；情景跌幅可编辑。
+**依赖**：落点权重已具备；M 需新增 Settings 字段或页面输入。
+
+#### TD-5 复盘清单升级（方案第九章）
+**目标**：`MonthlyReviewScreen` 增加月/季/年结构化 checklist：防守是否充足、风险仓位是否≤上限、各落点进度、训练仓是否≤6万、弹药是否还在、境外是否只增不减等。
+**改动**：在复盘页加 checklist 区块（可勾选，状态可不持久化或存简单记录）；多数判定可复用 `riskAlerts` 与 `landingPoints`。
+**依赖**：无。
+
+#### TD-6 信号→应对 · 其余规则（方案第六章）
+**目标**：补齐方案第六章里数据可得的信号：账户偏离再平衡增强、境外证券遗产税阈值（$45K/50K/60K，需币种敞口）、QDII 限购提醒（手动标记）。
+**依赖**：遗产税阈值需统计美元计价境外资产敞口（可由 currency=USD + 标记境外推算）。
+
+#### TD-7 估值门槛 / 场内溢价 / 币种敞口（P2 · 数据依赖，先做手动输入版）
+**目标**：方案 3.1 红利估值门槛（股息率/PE）、3.2 场内溢价≥3%不买、币种敞口。
+**现状**：app 不抓 PE/股息率/场内价 vs IOPV。
+**改动**：先做"手动输入字段 + 阈值提醒"，不接实时行情；后续若接数据再自动化。
+**依赖**：数据源（暂缺），故优先级最低。
+
+> 验收沿用全局约定：每项完成后 `./gradlew assembleDebug` 与 `./gradlew testDebugUnitTest` 必须绿；纯逻辑（红线/缺口/压测/回撤）抽成可单测的纯函数。
