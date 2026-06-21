@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import com.finunity.data.local.dao.AccountDao
+import com.finunity.data.local.dao.AllocationTargetDao
 import com.finunity.data.local.dao.AssetRecordDao
 import com.finunity.data.local.dao.AssetSnapshotDao
 import com.finunity.data.local.dao.PositionDao
@@ -16,6 +17,7 @@ import com.finunity.data.local.dao.SettingsDao
 import com.finunity.data.local.dao.TransactionDao
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.Position
@@ -26,8 +28,8 @@ import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.migration.DatabaseMigrations
 
 @Database(
-    entities = [Account::class, Position::class, Price::class, Settings::class, Transaction::class, AssetSnapshot::class, AssetRecord::class, PriceHistory::class],
-    version = 9,
+    entities = [Account::class, Position::class, Price::class, Settings::class, Transaction::class, AssetSnapshot::class, AssetRecord::class, PriceHistory::class, AllocationTarget::class],
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -41,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun assetSnapshotDao(): AssetSnapshotDao
     abstract fun assetRecordDao(): AssetRecordDao
     abstract fun priceHistoryDao(): PriceHistoryDao
+    abstract fun allocationTargetDao(): AllocationTargetDao
 
     companion object {
         @Volatile

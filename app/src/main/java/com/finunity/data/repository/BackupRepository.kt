@@ -3,6 +3,7 @@ package com.finunity.data.repository
 import androidx.room.withTransaction
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.Position
@@ -18,7 +19,7 @@ import kotlinx.coroutines.withContext
  * 备份数据结构
  */
 data class BackupData(
-    val version: Int = 2,  // v2: 增加 priceHistory, assetSnapshots
+    val version: Int = 3,  // v2: 增加 priceHistory, assetSnapshots；v3: 增加 allocationTargets
     val exportedAt: Long = System.currentTimeMillis(),
     val accounts: List<Account>,
     val assetRecords: List<AssetRecord>,
@@ -26,6 +27,7 @@ data class BackupData(
     val transactions: List<Transaction>,
     val priceHistory: List<PriceHistory> = emptyList(),
     val assetSnapshots: List<AssetSnapshot> = emptyList(),
+    val allocationTargets: List<AllocationTarget> = emptyList(),
     val settings: Settings
 )
 
@@ -47,6 +49,7 @@ class BackupRepository(private val db: AppDatabase) {
         val transactions = db.transactionDao().getAllTransactions().first()
         val priceHistory = db.priceHistoryDao().getAllHistory().first()
         val assetSnapshots = db.assetSnapshotDao().getAllSnapshots().first()
+        val allocationTargets = db.allocationTargetDao().getAllTargets().first()
         val settings = db.settingsDao().getSettingsOnce() ?: Settings()
 
         val backup = BackupData(
@@ -56,6 +59,7 @@ class BackupRepository(private val db: AppDatabase) {
             transactions = transactions,
             priceHistory = priceHistory,
             assetSnapshots = assetSnapshots,
+            allocationTargets = allocationTargets,
             settings = settings
         )
         gson.toJson(backup)
@@ -76,6 +80,7 @@ class BackupRepository(private val db: AppDatabase) {
                 db.assetRecordDao().deleteAll()
                 db.positionDao().deleteAll()
                 db.accountDao().deleteAll()
+                db.allocationTargetDao().deleteAll()
 
                 // 按外键依赖顺序插入：账户 → 资产记录/持仓 → 交易 → 价格历史
                 backup.accounts.forEach { db.accountDao().insert(it) }
@@ -84,6 +89,7 @@ class BackupRepository(private val db: AppDatabase) {
                 backup.transactions.forEach { db.transactionDao().insert(it) }
                 backup.priceHistory.forEach { db.priceHistoryDao().insert(it) }
                 backup.assetSnapshots.forEach { db.assetSnapshotDao().insert(it) }
+                backup.allocationTargets.orEmpty().forEach { db.allocationTargetDao().upsert(it) }
                 db.settingsDao().update(backup.settings)
             }
 

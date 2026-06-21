@@ -116,6 +116,7 @@ sealed class Screen {
     data object Planning : Screen()
     data object MonthlyReview : Screen()
     data object ExpenseSimulation : Screen()
+    data object LandingPoints : Screen()
     data object TargetAllocation : Screen()
     data object ImportCsv : Screen()
     data object AccountHub : Screen()
@@ -302,7 +303,23 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 onEditTarget = { navigateTo(Screen.TargetAllocation) },
                 onReview = { navigateTo(Screen.MonthlyReview) },
                 onOpenHistory = { navigateTo(Screen.History) },
-                onSimulateExpense = { navigateTo(Screen.ExpenseSimulation) }
+                onSimulateExpense = { navigateTo(Screen.ExpenseSimulation) },
+                onOpenLandingPoints = { navigateTo(Screen.LandingPoints) }
+            )
+        }
+
+        is Screen.LandingPoints -> {
+            com.finunity.ui.screens.LandingPointScreen(
+                portfolioSummary = portfolioSummary,
+                onBack = { navigateBack() },
+                onSaveTarget = { target ->
+                    viewModel.saveAllocationTarget(target)
+                    showMessage("落点目标已保存")
+                },
+                onDeleteTarget = { subCategory ->
+                    viewModel.deleteAllocationTarget(subCategory)
+                    showMessage("落点目标已删除")
+                }
             )
         }
 

@@ -224,6 +224,66 @@ class PortfolioCalculator(
     }
 
     /**
+     * 计算锁定专款合计（基准货币）。
+     * locked=true 的资产记录（生存层、嫁妆等）属于专款隔离，不计入可投策略盘、不参与再平衡。
+     */
+    suspend fun computeLockedValue(): Double = withContext(Dispatchers.IO) {
+        var total = 0.0
+        for (record in assetRecords) {
+            if (record.locked) total += computeAssetRecordValue(record)
+        }
+        total
+    }
+
+    /**
+     * 计算落点表（子桶级目标 vs 现有）。
+     *
+     * 按 [AssetRecord.subCategory] 把持仓归入落点并汇总现值；与传入的目标列表对齐：
+     * - 有目标的落点：填入目标/上限/停止条件；
+     * - 有持仓但无目标的落点：作为"未跟踪"行展示，提示用户补设目标；
+     * - 有目标但暂无持仓的落点：现值 0，缺口=目标，提示从 0 建仓。
+     * 旧 Position 无 subCategory，统一并入"未归类"落点。
+     */
+    suspend fun computeLandingPoints(
+        targets: List<com.finunity.data.local.entity.AllocationTarget>
+    ): List<LandingPoint> = withContext(Dispatchers.IO) {
+        // 汇总每个落点的现值
+        val currentBySubCategory = mutableMapOf<String, Double>()
+        for (record in assetRecords) {
+            // orEmpty 兜底旧备份经 Gson 反序列化后可能为 null 的情况
+            val key = record.subCategory.orEmpty().trim()
+            if (key.isEmpty()) continue
+            currentBySubCategory[key] = (currentBySubCategory[key] ?: 0.0) + computeAssetRecordValue(record)
+        }
+
+        val targetBySubCategory = targets.associateBy { it.subCategory.trim() }
+        val allKeys = (currentBySubCategory.keys + targetBySubCategory.keys).toMutableSet()
+
+        val bucketOrder = listOf(
+            RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH
+        )
+
+        allKeys.map { key ->
+            val target = targetBySubCategory[key]
+            val current = currentBySubCategory[key] ?: 0.0
+            LandingPoint(
+                subCategory = key,
+                riskBucket = target?.riskBucket ?: RiskBucket.AGGRESSIVE,
+                currentValue = current,
+                targetAmount = target?.targetAmount ?: 0.0,
+                capAmount = target?.capAmount ?: 0.0,
+                stopNote = target?.stopNote ?: "",
+                hasTarget = target != null
+            )
+        }.sortedWith(
+            // 已设目标的优先，其次按象限固定顺序，再按缺口从大到小
+            compareByDescending<LandingPoint> { it.hasTarget }
+                .thenBy { bucketOrder.indexOf(it.riskBucket).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+                .thenByDescending { it.gap }
+        )
+    }
+
+    /**
      * 计算总资产（基准货币）
      */
     suspend fun computeTotalAssets(): Double = withContext(Dispatchers.IO) {

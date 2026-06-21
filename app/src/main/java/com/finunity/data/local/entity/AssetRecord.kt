@@ -33,6 +33,8 @@ data class AssetRecord(
     val cost: Double,                         // 买入成本
     val currentPrice: Double,                 // 当前价格/净值
     val currency: String,                     // 币种：CNY, USD, HKD
+    val subCategory: String = "",             // 子类/落点标签，如"标普500""纳指100""红利""训练仓""弹药""生存层"。空=未归落点
+    val locked: Boolean = false,              // 锁定专款（生存层/嫁妆等），不计入可投策略盘、不参与再平衡建议
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {

@@ -65,18 +65,23 @@ Four risk dimensions for asset allocation:
 
 UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INSURANCE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1"`.
 
-## Database Schema (Room, version 9)
+## Database Schema (Room, version 10)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
-- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, createdAt, updatedAt
+- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, **subCategory, locked**, createdAt, updatedAt. `subCategory` is the 落点/子桶 tag (标普500/纳指100/红利/训练仓/弹药…); `locked` marks 专款 (生存层/嫁妆) excluded from the investable strategy pool & rebalance.
+- `allocation_targets` (new) — subCategory (PK), riskBucket, targetAmount, capAmount, stopNote, updatedAt. Sub-bucket (落点) level target/cap/stop, joined to asset_records by subCategory to produce the 落点表 (LandingPoint).
 - `prices` — symbol (PK), price, currency, updatedAt, isFallback. 12h staleness threshold.
 - `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
 - `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
 - `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table). Destructive fallback allowed from v1, v2 only.
+
+## Landing Points (落点表 · 子桶配置)
+
+The 落点 system sits *below* the four risk buckets, implementing the per-asset target/stop-condition table from the QDII rebalance plan. Assets carry a `subCategory` tag; `AllocationTarget` rows hold per-落点 `targetAmount`/`capAmount`/`stopNote`. `PortfolioCalculator.computeLandingPoints()` joins them into `LandingPoint` rows (current vs target, gap, progress, overCap, reachedTarget). `computeLockedValue()` sums `locked` records; `PortfolioSummary.strategyAssets = totalAssets - lockedAssets` is the investable pool. UI: `LandingPointScreen` (entry from PlanningScreen), edit form on AssetRecordScreen (subCategory + locked). Backup `BackupData` v3 includes `allocationTargets`.
 
 ## Key Design Decisions
 

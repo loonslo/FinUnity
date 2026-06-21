@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.Position
@@ -73,14 +74,16 @@ class MainViewModel(
                 database.accountDao().getAllAccounts(),
                 database.positionDao().getAllPositions(),
                 database.assetRecordDao().getAllRecords(),
+                database.allocationTargetDao().getAllTargets(),
                 _settings
-            ) { accounts, positions, assetRecords, settings ->
-                PortfolioInputs(accounts, positions, assetRecords, settings)
+            ) { accounts, positions, assetRecords, allocationTargets, settings ->
+                PortfolioInputs(accounts, positions, assetRecords, allocationTargets, settings)
             }.collect { inputs ->
                 calculatePortfolio(
                     accounts = inputs.accounts,
                     positions = inputs.positions,
                     assetRecords = inputs.assetRecords,
+                    allocationTargets = inputs.allocationTargets,
                     settings = inputs.settings
                 )
             }
@@ -91,6 +94,7 @@ class MainViewModel(
         accounts: List<Account>,
         positions: List<Position>,
         assetRecords: List<AssetRecord>,
+        allocationTargets: List<AllocationTarget>,
         settings: Settings
     ) {
         _isLoading.value = true
@@ -131,6 +135,9 @@ class MainViewModel(
                 settings.rebalanceThreshold
             )
 
+            val landingPoints = calculator.computeLandingPoints(allocationTargets)
+            val lockedAssets = calculator.computeLockedValue()
+
             _portfolioSummary.value = PortfolioSummary(
                 totalAssets = totalAssets,
                 cashAssets = totalCash,
@@ -147,6 +154,8 @@ class MainViewModel(
                 assetRecords = assetRecordSummaries.sortedByDescending { it.currentValue },
                 holdings = holdingSummaries.sortedByDescending { it.currentValue },
                 positions = positionSummaries,
+                landingPoints = landingPoints,
+                lockedAssets = lockedAssets,
                 lastUpdated = System.currentTimeMillis()
             )
         } catch (e: Exception) {
@@ -344,6 +353,24 @@ class MainViewModel(
             // 如果用户想卖出，应该调用 sellAssetRecord() 方法
             // 这里只是纯粹删除记录，不产生任何交易流水
             database.assetRecordDao().deleteById(recordId)
+        }
+    }
+
+    /** 新增/更新落点目标（subCategory 为主键，重名即覆盖） */
+    fun saveAllocationTarget(target: AllocationTarget) {
+        viewModelScope.launch {
+            if (target.subCategory.isBlank()) {
+                _error.value = "请填写落点名称"
+                return@launch
+            }
+            database.allocationTargetDao().upsert(target.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    /** 删除落点目标（不影响已归该落点的持仓，只是不再跟踪目标） */
+    fun deleteAllocationTarget(subCategory: String) {
+        viewModelScope.launch {
+            database.allocationTargetDao().deleteBySubCategory(subCategory)
         }
     }
 
@@ -661,9 +688,10 @@ class MainViewModel(
 
             // 重新读取更新后的 asset records（价格已回写，需重新获取以反映最新价格）
             val updatedAssetRecords = database.assetRecordDao().getAllRecords().first()
+            val allocationTargets = database.allocationTargetDao().getAllTargets().first()
 
             // 重新计算（allPositions 和 updatedAssetRecords 已在前面获取）
-            calculatePortfolio(accounts, allPositions, updatedAssetRecords, settings)
+            calculatePortfolio(accounts, allPositions, updatedAssetRecords, allocationTargets, settings)
 
             // 如果有部分失败但整体没抛异常，仍提示用户
             if (failureMessages.isNotEmpty()) {
@@ -757,6 +785,7 @@ class MainViewModel(
         val accounts: List<Account>,
         val positions: List<Position>,
         val assetRecords: List<AssetRecord>,
+        val allocationTargets: List<AllocationTarget>,
         val settings: Settings
     )
 }

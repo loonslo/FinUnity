@@ -36,6 +36,7 @@ fun PlanningScreen(
     onReview: () -> Unit,
     onOpenHistory: () -> Unit = {},
     onSimulateExpense: () -> Unit = {},
+    onOpenLandingPoints: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val summary = portfolioSummary
@@ -140,6 +141,15 @@ fun PlanningScreen(
                         }
                     }
                 }
+            }
+
+            // 落点跟踪入口
+            item {
+                EntryRowCard(
+                    title = "落点跟踪",
+                    subtitle = "象限之下的每个落点：目标 / 现有 / 缺口 / 停止条件",
+                    onClick = onOpenLandingPoints
+                )
             }
 
             // 复盘入口

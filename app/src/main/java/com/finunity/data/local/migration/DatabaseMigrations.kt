@@ -110,6 +110,33 @@ object Migration8To9 {
 }
 
 /**
+ * Database migration from version 9 to 10.
+ * Adds落点/专款 fields to asset_records and a new allocation_targets table
+ * for sub-bucket (落点) level target / cap / stop-condition tracking.
+ */
+object Migration9To10 {
+    val migration: Migration = object : Migration(9, 10) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            // 落点标签 + 专款锁定
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN subCategory TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN locked INTEGER NOT NULL DEFAULT 0")
+
+            // 落点目标表
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS allocation_targets (
+                    subCategory TEXT PRIMARY KEY NOT NULL,
+                    riskBucket TEXT NOT NULL,
+                    targetAmount REAL NOT NULL,
+                    capAmount REAL NOT NULL DEFAULT 0,
+                    stopNote TEXT NOT NULL DEFAULT '',
+                    updatedAt INTEGER NOT NULL
+                )
+            """.trimIndent())
+        }
+    }
+}
+
+/**
  * Provider for all database migrations.
  */
 object DatabaseMigrations {
@@ -119,6 +146,7 @@ object DatabaseMigrations {
         Migration5To6.migration,
         Migration6To7.migration,
         Migration7To8.migration,
-        Migration8To9.migration
+        Migration8To9.migration,
+        Migration9To10.migration
     )
 }

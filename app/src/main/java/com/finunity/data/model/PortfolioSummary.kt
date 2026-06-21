@@ -3,6 +3,7 @@ package com.finunity.data.model
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.Position
+import com.finunity.data.local.entity.RiskBucket
 
 /**
  * 资产汇总数据
@@ -24,8 +25,39 @@ data class PortfolioSummary(
     val assetRecords: List<AssetRecordSummary>,
     val holdings: List<HoldingSummary>,
     val positions: List<PositionSummary>,
+    val landingPoints: List<LandingPoint> = emptyList(), // 落点跟踪（子桶级目标 vs 现有）
+    val lockedAssets: Double = 0.0,    // 锁定专款合计（生存层/嫁妆等），不计入可投策略盘
     val lastUpdated: Long             // 最后更新时间
-)
+) {
+    /** 可投策略盘 = 总资产 − 锁定专款 */
+    val strategyAssets: Double get() = totalAssets - lockedAssets
+}
+
+/**
+ * 落点跟踪行（对应方案第三章加仓落点表的一行）
+ * 把"四象限之下"的具体落点（标普/纳指/红利/训练仓/弹药…）的目标、现有、缺口、红线汇总。
+ */
+data class LandingPoint(
+    val subCategory: String,          // 落点名称
+    val riskBucket: RiskBucket,       // 所属象限
+    val currentValue: Double,         // 现有市值（基准货币）
+    val targetAmount: Double,         // 目标金额，0 表示未设目标（有持仓但未归落点目标）
+    val capAmount: Double,            // 上限红线，0 表示不设
+    val stopNote: String,             // 停止条件
+    val hasTarget: Boolean            // 是否已设置目标（区分"未跟踪"落点）
+) {
+    /** 缺口：>0 还需买入，<0 已超配 */
+    val gap: Double get() = targetAmount - currentValue
+
+    /** 完成进度 0.0–1.0（无目标时为 0） */
+    val progress: Double get() = if (targetAmount > 0) (currentValue / targetAmount).coerceIn(0.0, 1.0) else 0.0
+
+    /** 是否触及/超过上限红线 */
+    val overCap: Boolean get() = capAmount > 0 && currentValue > capAmount + 0.01
+
+    /** 是否已达成目标（可停止加仓） */
+    val reachedTarget: Boolean get() = targetAmount > 0 && currentValue >= targetAmount - 0.01
+}
 
 /**
  * 账户汇总

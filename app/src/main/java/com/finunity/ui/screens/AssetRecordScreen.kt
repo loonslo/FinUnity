@@ -50,6 +50,8 @@ fun AssetRecordScreen(
     var cost by remember { mutableStateOf(record?.cost?.toString() ?: "") }
     var currentPrice by remember { mutableStateOf(record?.currentPrice?.toString() ?: "") }
     var selectedCurrency by remember { mutableStateOf(record?.currency ?: account?.currency ?: "CNY") }
+    var subCategory by remember { mutableStateOf(record?.subCategory ?: "") }
+    var locked by remember { mutableStateOf(record?.locked ?: false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
 
     val riskBuckets = RiskBucket.entries
@@ -67,10 +69,11 @@ fun AssetRecordScreen(
     }
 
     // 检测是否有未保存的修改
-    val hasUnsavedChanges = remember(name, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket) {
+    val hasUnsavedChanges = remember(name, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, locked) {
         if (record == null) {
             // 新建时只要有输入就有改动
-            name.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank()
+            name.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank() ||
+            subCategory.isNotBlank() || locked
         } else {
             // 编辑时对比原始值
             name != record.name ||
@@ -79,7 +82,9 @@ fun AssetRecordScreen(
             currentPrice != record.currentPrice.toString() ||
             selectedCurrency != record.currency ||
             selectedAssetType != record.assetType ||
-            selectedRiskBucket != record.riskBucket
+            selectedRiskBucket != record.riskBucket ||
+            subCategory != record.subCategory ||
+            locked != record.locked
         }
     }
 
@@ -315,6 +320,49 @@ fun AssetRecordScreen(
                 }
             }
 
+            // 落点 / 子类 + 专款锁定（对应方案第三章落点表与专款隔离）
+            Column {
+                Text(
+                    text = "落点 / 子类（选填）",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                FinTextField(
+                    value = subCategory,
+                    onValueChange = { subCategory = it },
+                    label = "落点",
+                    placeholder = "如：标普500、纳指100、红利、训练仓、弹药"
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "归入同一落点的资产会在「落点跟踪」里合并，对照目标金额看缺口。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "锁定为专款",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "生存层、嫁妆等专款隔离，不计入可投策略盘、不参与再平衡。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(checked = locked, onCheckedChange = { locked = it })
+                }
+            }
+
             if (quantity.isNotEmpty() && cost.isNotEmpty() && currentPrice.isNotEmpty()) {
                 val qty = quantity.toDoubleOrNull() ?: 0.0
                 val c = cost.toDoubleOrNull() ?: 0.0
@@ -441,6 +489,8 @@ fun AssetRecordScreen(
                         cost = c,
                         currentPrice = price,
                         currency = selectedCurrency,
+                        subCategory = subCategory.trim(),
+                        locked = locked,
                         createdAt = record?.createdAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()
                     )
