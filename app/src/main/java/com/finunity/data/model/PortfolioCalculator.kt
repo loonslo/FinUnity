@@ -192,12 +192,16 @@ class PortfolioCalculator(
     /**
      * 计算风险维度汇总
      */
-    suspend fun computeRiskBucketSummaries(totalAssets: Double): List<RiskBucketSummary> = withContext(Dispatchers.IO) {
+    suspend fun computeRiskBucketSummaries(
+        totalAssets: Double,
+        excludeLocked: Boolean = false
+    ): List<RiskBucketSummary> = withContext(Dispatchers.IO) {
         val riskBucketTotals = mutableMapOf<RiskBucket, Double>()
         val riskBucketCounts = mutableMapOf<RiskBucket, Int>()
 
         // AssetRecord 计入风险维度
         for (record in assetRecords) {
+            if (excludeLocked && record.locked) continue
             val currentValue = computeAssetRecordValue(record)
             riskBucketTotals[record.riskBucket] = (riskBucketTotals[record.riskBucket] ?: 0.0) + currentValue
             riskBucketCounts[record.riskBucket] = (riskBucketCounts[record.riskBucket] ?: 0) + 1
@@ -343,6 +347,35 @@ class PortfolioCalculator(
                 total += computeAssetRecordValue(record)
             }
         }
+        total
+    }
+
+    /**
+     * 计算今日盈亏（基准货币）。
+     * 今日盈亏 = Σ (现价 − 昨收) × 数量 × 汇率，仅统计有昨收价的可交易标的。
+     * 昨收未知（previousClose<=0，如休市/停牌/接口未返回）的标的记 0，不参与、不报错。
+     */
+    suspend fun computeTodayChange(): Double = withContext(Dispatchers.IO) {
+        var total = 0.0
+        val tradableTypes = listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+
+        // 新资产记录：现价取 record.currentPrice（与市值口径一致），昨收取价格缓存
+        for (record in assetRecords) {
+            if (record.assetType !in tradableTypes) continue
+            val prevClose = priceRepository.getPrice(record.name)?.previousClose ?: 0.0
+            if (prevClose <= 0.0) continue
+            val rate = getRate(record.currency, baseCurrency) ?: 1.0
+            total += (record.currentPrice - prevClose) * record.quantity * rate
+        }
+
+        // 旧持仓：现价取价格缓存（与市值口径一致）
+        for (position in positions) {
+            val cached = priceRepository.getPrice(position.symbol) ?: continue
+            if (cached.previousClose <= 0.0) continue
+            val rate = getRate(position.currency, baseCurrency) ?: 1.0
+            total += (cached.price - cached.previousClose) * position.shares * rate
+        }
+
         total
     }
 

@@ -35,6 +35,7 @@ import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.PositionSummary
 import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.displayName
+import com.finunity.data.repository.MonthlyChange
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.local.entity.parseTargetAllocation
@@ -53,6 +54,7 @@ fun MainScreen(
     isLoading: Boolean,
     error: String? = null,
     lastPriceUpdated: Long? = null,
+    monthlyChange: MonthlyChange? = null,
     onboarded: Boolean = false,
     onStartAddFlow: () -> Unit,
     onEditAccount: (Account) -> Unit = {},
@@ -144,6 +146,8 @@ fun MainScreen(
                         baseCurrency = summary.baseCurrency,
                         totalCost = summary.assetRecords.sumOf { it.costInBaseCurrency } +
                             summary.positions.sumOf { it.totalCost },
+                        todayChange = summary.todayChange,
+                        todayChangeRatio = summary.todayChangeRatio,
                         onRiskBucketClick = onViewRiskBucketDetail
                     )
                 }
@@ -163,6 +167,10 @@ fun MainScreen(
                         needsRebalance = summary.needsRebalance,
                         onClick = onOpenPlanning
                     )
+                }
+
+                if (monthlyChange != null) {
+                    item { RecentChangeCard(monthlyChange, summary.baseCurrency) }
                 }
 
                 item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -348,12 +356,15 @@ fun AssetOverviewCard(
     baseCurrency: String,
     totalCost: Double,
     riskBuckets: List<RiskBucketSummary>,
+    todayChange: Double = 0.0,
+    todayChangeRatio: Double = 0.0,
     onRiskBucketClick: (Int) -> Unit = {}
 ) {
     val cumulativeProfit = totalAssets - totalCost
     val cumulativeRatio = if (totalCost > 0) cumulativeProfit / totalCost else 0.0
     val profitColor = if (cumulativeProfit >= 0) FinColors.Profit else FinColors.Loss
     val cumulativeText = "累计收益 ${if (cumulativeProfit >= 0) "+" else ""}${formatCurrency(cumulativeProfit, baseCurrency)} ${formatSignedPercent(cumulativeRatio)}"
+    val todayColor = if (todayChange >= 0) FinColors.Profit else FinColors.Loss
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -371,6 +382,19 @@ fun AssetOverviewCard(
             Column(
                 modifier = Modifier.padding(20.dp)
             ) {
+                Text(
+                    text = "今日营收",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = FinColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "${if (todayChange >= 0) "+" else ""}${formatCurrency(todayChange, baseCurrency)} ${formatSignedPercent(todayChangeRatio)}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = todayColor
+                )
+                Spacer(modifier = Modifier.height(18.dp))
                 Text(
                     text = "资产结构",
                     style = MaterialTheme.typography.titleMedium,
@@ -1085,7 +1109,36 @@ private fun AccountItemRow(
     }
 }
 
+object AmountVisibility {
+    var visible: Boolean = true
+}
+
+@Composable
+private fun RecentChangeCard(change: MonthlyChange, baseCurrency: String) {
+    val up = change.change >= 0.0
+    Card(
+        modifier = Modifier.fillMaxWidth(), shape = FinShapes.xl,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("最近变化", style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+                Text("较上月快照", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+            }
+            Text(
+                "${if (up) "+" else ""}${formatCurrency(change.change, baseCurrency)} · ${if (up) "+" else ""}${String.format("%.1f", change.percentageChange)}%",
+                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                color = if (up) FinColors.Profit else FinColors.Loss
+            )
+        }
+    }
+}
+
 fun formatCurrency(amount: Double, currency: String): String {
+    if (!AmountVisibility.visible) return "••••"
     if (amount.isNaN() || amount.isInfinite()) return "--"
     val safeAmount = amount
     val formatted = NumberFormat.getNumberInstance(Locale.US).apply {

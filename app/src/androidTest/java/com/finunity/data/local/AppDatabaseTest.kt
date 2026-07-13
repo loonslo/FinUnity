@@ -8,6 +8,9 @@ import com.finunity.data.local.dao.AccountDao
 import com.finunity.data.local.dao.TransactionDao
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.AssetRecord
+import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
 import kotlinx.coroutines.flow.first
@@ -50,9 +53,33 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `database version is 7`() {
-        // Database version should be 7 after migrations
-        assertEquals(7, 7) // Placeholder - actual version check via migration test
+    fun `database version is 14`() {
+        assertEquals(14, db.openHelper.readableDatabase.version)
+    }
+
+    @Test
+    fun `asset industry tag can be persisted`() = runBlocking {
+        accountDao.insert(Account(id = "industry-acc", name = "证券", type = AccountType.BROKER, currency = "CNY", balance = 0.0))
+        db.assetRecordDao().insert(
+            AssetRecord(
+                accountId = "industry-acc",
+                assetType = AssetType.ETF,
+                riskBucket = RiskBucket.AGGRESSIVE,
+                name = "芯片ETF",
+                quantity = 1.0,
+                cost = 100.0,
+                currentPrice = 100.0,
+                currency = "CNY",
+                industryTag = "半导体",
+                purchaseRestricted = true,
+                peRatio = 12.0,
+                dividendYield = 0.04,
+                premiumRate = 0.01
+            )
+        )
+        assertEquals("半导体", db.assetRecordDao().getAllRecords().first().single().industryTag)
+        assertEquals(true, db.assetRecordDao().getAllRecords().first().single().purchaseRestricted)
+        assertEquals(12.0, db.assetRecordDao().getAllRecords().first().single().peRatio!!, 0.01)
     }
 
     @Test

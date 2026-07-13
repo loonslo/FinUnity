@@ -26,18 +26,29 @@ data class PortfolioSummary(
     val holdings: List<HoldingSummary>,
     val positions: List<PositionSummary>,
     val landingPoints: List<LandingPoint> = emptyList(), // 落点跟踪（子桶级目标 vs 现有）
+    val holdingRedlineAlerts: List<RiskAlert> = emptyList(), // 标的/行业/训练仓/黄金/个股亏损红线
+    val signalAlerts: List<RiskAlert> = emptyList(),
+    val drawdownAdvice: DrawdownAdvice? = null,
     val lockedAssets: Double = 0.0,    // 锁定专款合计（生存层/嫁妆等），不计入可投策略盘
     val maxAggressiveRatio: Double = 0.70, // 永不满仓 · 风险仓位上限（进取占比）
+    val todayChange: Double = 0.0,     // 今日盈亏（基准货币）
     val lastUpdated: Long             // 最后更新时间
 ) {
     /** 可投策略盘 = 总资产 − 锁定专款 */
     val strategyAssets: Double get() = totalAssets - lockedAssets
 
+    /** 今日盈亏比例：分母为昨日市值（今日市值 − 今日盈亏） */
+    val todayChangeRatio: Double get() {
+        val prevValue = totalAssets - todayChange
+        return if (prevValue > 0) todayChange / prevValue else 0.0
+    }
+
     /** 风险仓位 = 进取（生钱的钱）占比 0.0–1.0 */
     val aggressiveRatio: Double get() = allocations["AGGRESSIVE"] ?: 0.0
 
     /** 风险体检告警（永不满仓 + 落点红线 + 达标提示） */
-    val riskAlerts: List<RiskAlert> get() = evaluateRiskAlerts(aggressiveRatio, maxAggressiveRatio, landingPoints)
+    val riskAlerts: List<RiskAlert> get() =
+        evaluateRiskAlerts(aggressiveRatio, maxAggressiveRatio, landingPoints) + holdingRedlineAlerts + signalAlerts
 }
 
 /** 风险体检告警等级 */
@@ -49,6 +60,72 @@ data class RiskAlert(
     val title: String,
     val detail: String
 )
+
+data class HoldingRedlineInput(
+    val name: String,
+    val currentValue: Double,
+    val cost: Double,
+    val assetType: com.finunity.data.local.entity.AssetType,
+    val subCategory: String = "",
+    val industryTag: String = ""
+)
+
+object HoldingRedlineDefaults {
+    const val SINGLE_HOLDING_RATIO = 0.10
+    const val INDUSTRY_RATIO = 0.20
+    const val TRAINING_CAP = 60_000.0
+    const val GOLD_RATIO = 0.05
+    const val LOSS_REVIEW_RATIO = 0.10
+    const val LOSS_STRICT_REVIEW_RATIO = 0.15
+}
+
+/** 标的级红线判定：所有比例均相对可投策略盘。 */
+fun evaluateHoldingRedlines(
+    holdings: List<HoldingRedlineInput>,
+    strategyAssets: Double
+): List<RiskAlert> {
+    if (strategyAssets <= 0.0) return emptyList()
+    val alerts = mutableListOf<RiskAlert>()
+    val tradableTypes = setOf(
+        com.finunity.data.local.entity.AssetType.STOCK,
+        com.finunity.data.local.entity.AssetType.ETF,
+        com.finunity.data.local.entity.AssetType.FUND
+    )
+    val tradable = holdings.filter { it.assetType in tradableTypes }
+
+    tradable.filter { it.currentValue / strategyAssets > HoldingRedlineDefaults.SINGLE_HOLDING_RATIO + 1e-9 }
+        .forEach {
+            alerts += RiskAlert(RiskAlertLevel.WARNING, "${it.name}：单只持仓过高", "已占策略盘 ${Math.round(it.currentValue / strategyAssets * 100)}%，超过 10% 红线。")
+        }
+
+    tradable.filter { it.industryTag.isNotBlank() }.groupBy { it.industryTag.trim() }.forEach { (industry, rows) ->
+        val value = rows.sumOf { it.currentValue }
+        if (value / strategyAssets > HoldingRedlineDefaults.INDUSTRY_RATIO + 1e-9) {
+            alerts += RiskAlert(RiskAlertLevel.WARNING, "$industry：行业过度集中", "合计占策略盘 ${Math.round(value / strategyAssets * 100)}%，超过 20% 红线。")
+        }
+    }
+
+    val training = tradable.filter { it.subCategory.trim() == "训练仓" }.sumOf { it.currentValue }
+    if (training > HoldingRedlineDefaults.TRAINING_CAP + 0.01) {
+        alerts += RiskAlert(RiskAlertLevel.WARNING, "训练仓：已超 6 万", "当前合计 %.2f 万，建议停止加仓。".format(training / 10_000.0))
+    }
+
+    val gold = tradable.filter {
+        it.subCategory.contains("黄金", ignoreCase = true) || it.name.contains("黄金", ignoreCase = true)
+    }.sumOf { it.currentValue }
+    if (gold / strategyAssets > HoldingRedlineDefaults.GOLD_RATIO + 1e-9) {
+        alerts += RiskAlert(RiskAlertLevel.WARNING, "黄金仓位过高", "已占策略盘 ${Math.round(gold / strategyAssets * 100)}%，超过 5% 红线。")
+    }
+
+    tradable.filter { it.assetType == com.finunity.data.local.entity.AssetType.STOCK && it.cost > 0.0 }.forEach {
+        val lossRatio = (it.cost - it.currentValue) / it.cost
+        when {
+            lossRatio >= HoldingRedlineDefaults.LOSS_STRICT_REVIEW_RATIO -> alerts += RiskAlert(RiskAlertLevel.WARNING, "${it.name}：亏损达 15%", "请立即复核投资逻辑、仓位与退出条件。")
+            lossRatio >= HoldingRedlineDefaults.LOSS_REVIEW_RATIO -> alerts += RiskAlert(RiskAlertLevel.WARNING, "${it.name}：亏损达 10%", "请复核基本面与原定持有理由。")
+        }
+    }
+    return alerts
+}
 
 /**
  * 风险体检：把方案红线集中判定，返回告警列表（纯函数，便于单测）。

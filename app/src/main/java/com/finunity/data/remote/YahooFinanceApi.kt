@@ -54,6 +54,8 @@ data class ChartData(
 data class StockMeta(
     val symbol: String?,
     val regularMarketPrice: Double?,
+    val regularMarketPreviousClose: Double?,  // 昨收（首选）
+    val chartPreviousClose: Double?,           // 昨收兜底：部分标的只返回这个
     val currency: String?
 )
 

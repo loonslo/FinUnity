@@ -34,6 +34,11 @@ data class AssetRecord(
     val currentPrice: Double,                 // 当前价格/净值
     val currency: String,                     // 币种：CNY, USD, HKD
     val subCategory: String = "",             // 子类/落点标签，如"标普500""纳指100""红利""训练仓""弹药""生存层"。空=未归落点
+    val industryTag: String = "",             // 行业/产业链标签，用于单一行业暴露红线
+    val purchaseRestricted: Boolean = false,  // QDII/基金等是否处于限购（手动维护）
+    val peRatio: Double? = null,              // 市盈率（手动输入）
+    val dividendYield: Double? = null,        // 股息率，小数表示（手动输入）
+    val premiumRate: Double? = null,          // 场内溢价率，小数表示（手动输入）
     val locked: Boolean = false,              // 锁定专款（生存层/嫁妆等），不计入可投策略盘、不参与再平衡建议
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

@@ -12,6 +12,7 @@ data class Price(
     @PrimaryKey
     val symbol: String,                // 股票代码或货币对，如 "AAPL", "USD/CNY"
     val price: Double,                // 当前价格
+    val previousClose: Double = 0.0,   // 昨收价，0 表示未知（用于计算今日涨跌）
     val currency: String,              // 价格货币
     val updatedAt: Long = System.currentTimeMillis(),
     val isFallback: Boolean = false     // 是否是过期缓存回退（而非实时数据）

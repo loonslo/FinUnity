@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -65,25 +65,18 @@ Four risk dimensions for asset allocation:
 
 UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INSURANCE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1"`.
 
-## Database Schema (Room, version 15)
+## Database Schema (Room, version 9)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
-- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, **subCategory, locked**, createdAt, updatedAt. `subCategory` is the 落点/子桶 tag (标普500/纳指100/红利/训练仓/弹药…); `locked` marks 专款 (生存层/嫁妆) excluded from the investable strategy pool & rebalance.
-- `allocation_targets` (new) — subCategory (PK), riskBucket, targetAmount, capAmount, stopNote, updatedAt. Sub-bucket (落点) level target/cap/stop, joined to asset_records by subCategory to produce the 落点表 (LandingPoint).
-- `prices` — symbol (PK), price, **previousClose** (昨收，用于今日盈亏), currency, updatedAt, isFallback. 12h staleness threshold.
+- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, createdAt, updatedAt
+- `prices` — symbol (PK), price, currency, updatedAt, isFallback. 12h staleness threshold.
 - `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
 - `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
-- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05), onboarded, amountsVisible, maxAggressiveRatio (永不满仓·风险仓位上限, default 0.70)
+- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table), v10→v11 (add maxAggressiveRatio to settings), v11→v12 (add industryTag to asset_records), v12→v13 (add purchaseRestricted to asset_records), v13→v14 (add peRatio/dividendYield/premiumRate to asset_records), v14→v15 (add previousClose to prices). Destructive fallback allowed from v1, v2 only.
-
-## Landing Points (落点表 · 子桶配置)
-
-The 落点 system sits *below* the four risk buckets, implementing the per-asset target/stop-condition table from the QDII rebalance plan. Assets carry a `subCategory` tag; `AllocationTarget` rows hold per-落点 `targetAmount`/`capAmount`/`stopNote`. `PortfolioCalculator.computeLandingPoints()` joins them into `LandingPoint` rows (current vs target, gap, progress, overCap, reachedTarget). `computeLockedValue()` sums `locked` records; `PortfolioSummary.strategyAssets = totalAssets - lockedAssets` is the investable pool. UI: `LandingPointScreen` (entry from PlanningScreen), edit form on AssetRecordScreen (subCategory + locked). Backup `BackupData` v3 includes `allocationTargets`.
-
-**Risk check (风险体检 · 永不满仓)**: `evaluateRiskAlerts()` (pure fn in PortfolioSummary.kt) produces `RiskAlert` rows — WARNING when 进取(AGGRESSIVE) ratio exceeds `settings.maxAggressiveRatio`, WARNING per over-cap landing point, INFO per reached-target point. Surfaced in a 风险体检 card atop PlanningScreen; the ratio cap is edited in TargetAllocationScreen.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings). Destructive fallback allowed from v1, v2 only.
 
 ## Key Design Decisions
 
@@ -116,3 +109,5 @@ Design system defined in `ui/theme/Theme.kt` (green primary `#166B45`, gray-base
 
 - **PriceSyncWorker**: PeriodicWorkRequest every 24h (requires network). Gets all Position symbols + AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
 - **SnapshotWorker**: PeriodicWorkRequest daily at 9 AM (no network required). Computes total assets/cost, saves AssetSnapshot, cleans up snapshots >2 years old.
+
+## Imported Claude Cowork project instructions

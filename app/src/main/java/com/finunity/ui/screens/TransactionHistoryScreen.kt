@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.model.displayName
+import com.finunity.ui.components.FinTopBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -27,34 +28,27 @@ fun TransactionHistoryScreen(
     transactions: List<Transaction>,
     accountName: String?,
     baseCurrency: String,
+    accountNames: Map<String, String> = emptyMap(),
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     var typeFilter by remember { mutableStateOf<TransactionType?>(null) }
-    val filteredTransactions = remember(transactions, typeFilter) {
-        if (typeFilter == null) transactions
-        else transactions.filter { it.type == typeFilter }
+    var accountFilter by remember { mutableStateOf<String?>(null) }
+    var assetFilter by remember { mutableStateOf<String?>(null) }
+    var timeFilter by remember { mutableStateOf(TxTimeFilter.ALL) }
+    val filteredTransactions = remember(transactions, typeFilter, accountFilter, assetFilter, timeFilter) {
+        val cutoff = timeFilter.cutoff(System.currentTimeMillis())
+        transactions.filter {
+            (typeFilter == null || it.type == typeFilter) &&
+                (accountFilter == null || it.accountId == accountFilter) &&
+                (assetFilter == null || it.symbol == assetFilter) &&
+                (cutoff == null || it.timestamp >= cutoff)
+        }
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar(accountName ?: "交易流水", onBack) },
         modifier = modifier
     ) { padding ->
         LazyColumn(
@@ -95,6 +89,31 @@ fun TransactionHistoryScreen(
                     }
                 }
             }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val accounts = transactions.map { it.accountId }.distinct()
+                    if (accounts.size > 1) {
+                        FilterRow(
+                            options = listOf(null to "全部账户") + accounts.map { it to (accountNames[it] ?: it.take(8)) },
+                            selected = accountFilter,
+                            onSelect = { accountFilter = it }
+                        )
+                    }
+                    val assets = transactions.mapNotNull { it.symbol }.distinct()
+                    if (assets.isNotEmpty()) {
+                        FilterRow(
+                            options = listOf(null to "全部资产") + assets.map { it to it },
+                            selected = assetFilter,
+                            onSelect = { assetFilter = it }
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TxTimeFilter.entries.forEach { range ->
+                            FilterChip(selected = timeFilter == range, onClick = { timeFilter = range }, label = { Text(range.label) })
+                        }
+                    }
+                }
+            }
 
             if (filteredTransactions.isEmpty()) {
                 item {
@@ -122,6 +141,25 @@ fun TransactionHistoryScreen(
             }
 
             item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+private enum class TxTimeFilter(val label: String, val days: Int?) {
+    ALL("全部时间", null), DAYS_30("30天", 30), DAYS_90("90天", 90), YEAR("1年", 365);
+    fun cutoff(now: Long): Long? = days?.let { now - it * 24L * 60L * 60L * 1000L }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun FilterRow(
+    options: List<Pair<String?, String>>,
+    selected: String?,
+    onSelect: (String?) -> Unit
+) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (value, label) ->
+            FilterChip(selected = selected == value, onClick = { onSelect(value) }, label = { Text(label) })
         }
     }
 }

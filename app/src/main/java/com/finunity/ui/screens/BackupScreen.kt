@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.repository.BackupRepository
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.components.FinTopBar
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,23 +115,7 @@ fun BackupScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("备份恢复", color = FinColors.TextPrimary) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = FinColors.TextSecondary
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = FinColors.PageBg
-                )
-            )
-        },
+        topBar = { FinTopBar("备份恢复", onBack) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { padding ->

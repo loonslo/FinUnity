@@ -122,4 +122,22 @@ class LandingPointTest {
         )
         assertEquals(60000.0, calculator(records).computeLockedValue(), 0.01)
     }
+
+    @Test
+    fun `策略盘风险配置排除锁定专款但总览仍包含`() = runBlocking {
+        val records = listOf(
+            record("标普500", 40000.0),
+            record("稳健债基", 60000.0, bucket = RiskBucket.CONSERVATIVE, type = AssetType.FUND),
+            record("生存层", 100000.0, bucket = RiskBucket.CASH, locked = true, type = AssetType.CASH)
+        )
+        val calc = calculator(records)
+
+        val overview = calc.computeRiskBucketSummaries(totalAssets = 200000.0)
+        val strategy = calc.computeRiskBucketSummaries(totalAssets = 100000.0, excludeLocked = true)
+
+        assertEquals(100000.0, overview.first { it.riskBucket == RiskBucket.CASH }.totalValue, 0.01)
+        assertEquals(0.0, strategy.first { it.riskBucket == RiskBucket.CASH }.totalValue, 0.01)
+        assertEquals(0.4, strategy.first { it.riskBucket == RiskBucket.AGGRESSIVE }.percentage, 0.0001)
+        assertEquals(0.6, strategy.first { it.riskBucket == RiskBucket.CONSERVATIVE }.percentage, 0.0001)
+    }
 }

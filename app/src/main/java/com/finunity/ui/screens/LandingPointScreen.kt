@@ -29,6 +29,7 @@ import com.finunity.ui.components.FinSoftButton
 import com.finunity.ui.components.FinTextField
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 /**
  * 落点跟踪：把"四象限之下"的具体落点（标普/纳指/红利/训练仓/弹药…）
@@ -53,18 +54,7 @@ fun LandingPointScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = { Text("落点跟踪", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = FinColors.PageBg)
-            )
-        },
+        topBar = { FinTopBar("落点跟踪", onBack) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showNew = true },

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.PriceHistory
+import com.finunity.ui.components.FinTopBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -48,23 +49,7 @@ fun PriceHistoryScreen(
     val maxPrice = priceHistory.maxOfOrNull { it.price } ?: 0.0
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar("$assetName · 价格历史", onBack) },
         modifier = modifier
     ) { padding ->
         if (priceHistory.isEmpty()) {

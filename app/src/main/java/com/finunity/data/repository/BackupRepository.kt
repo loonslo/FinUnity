@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
  * 备份数据结构
  */
 data class BackupData(
-    val version: Int = 3,  // v2: 增加 priceHistory, assetSnapshots；v3: 增加 allocationTargets
+    val version: Int = 6,  // v6: AssetRecord 增加手动估值/溢价字段
     val exportedAt: Long = System.currentTimeMillis(),
     val accounts: List<Account>,
     val assetRecords: List<AssetRecord>,
@@ -84,7 +84,12 @@ class BackupRepository(private val db: AppDatabase) {
 
                 // 按外键依赖顺序插入：账户 → 资产记录/持仓 → 交易 → 价格历史
                 backup.accounts.forEach { db.accountDao().insert(it) }
-                backup.assetRecords.forEach { db.assetRecordDao().insert(it) }
+                // Gson 读取旧版备份时，新增的非空 String 字段可能为 null，入库前统一归一。
+                backup.assetRecords.forEach {
+                    db.assetRecordDao().insert(
+                        it.copy(subCategory = it.subCategory.orEmpty(), industryTag = it.industryTag.orEmpty())
+                    )
+                }
                 backup.positions.forEach { db.positionDao().insert(it) }
                 backup.transactions.forEach { db.transactionDao().insert(it) }
                 backup.priceHistory.forEach { db.priceHistoryDao().insert(it) }

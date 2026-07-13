@@ -36,6 +36,7 @@ import com.finunity.data.local.entity.Transaction
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.components.FinTopBar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,13 +68,14 @@ fun AssetDetailScreen(
     )
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showTradeDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除资产") },
-            text = { Text("将删除「${summary.record.name}」及其交易流水与价格历史，且不可恢复。确定删除吗？") },
+            text = { Text("将删除「${summary.record.name}」，并移除流水 ${transactions.size} 条、价格历史 ${priceHistory.size} 条。此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = { showDeleteDialog = false; onDelete() }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
@@ -84,22 +86,24 @@ fun AssetDetailScreen(
             }
         )
     }
+    if (showTradeDialog) {
+        AlertDialog(
+            onDismissRequest = { showTradeDialog = false },
+            title = { Text("记一笔 ${summary.record.name}") },
+            text = { Text("选择本次操作") },
+            confirmButton = {
+                TextButton(onClick = { showTradeDialog = false; onBuy() }) { Text("买入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTradeDialog = false; onSell() }) { Text("卖出", color = FinColors.Loss) }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                actions = {
+            FinTopBar(summary.record.name, onBack, actions = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
@@ -122,8 +126,7 @@ fun AssetDetailScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                }
             )
         },
         bottomBar = {
@@ -136,16 +139,11 @@ fun AssetDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = onBuy,
-                            modifier = Modifier.weight(1f).height(52.dp),
+                            onClick = { showTradeDialog = true },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = FinColors.SoftGreen, contentColor = FinColors.Number)
-                        ) { Text("买入", color = FinColors.Number, fontWeight = FontWeight.SemiBold) }
-                        OutlinedButton(
-                            onClick = onSell,
-                            modifier = Modifier.weight(1f).height(52.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("卖出", color = FinColors.TextPrimary, fontWeight = FontWeight.SemiBold) }
+                        ) { Text("记一笔", color = FinColors.Number, fontWeight = FontWeight.SemiBold) }
                     }
                 }
             }

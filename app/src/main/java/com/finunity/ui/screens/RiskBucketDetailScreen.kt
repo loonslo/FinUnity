@@ -27,6 +27,7 @@ import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,23 +88,7 @@ fun RiskBucketDetailScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = FinColors.PageBg
-                )
-            )
-        },
+        topBar = { FinTopBar(riskBucketSummary.riskBucket.displayName(), onBack) },
         modifier = modifier
     ) { padding ->
         LazyColumn(

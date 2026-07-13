@@ -5,12 +5,12 @@
 ## 功能
 
 - **资产总览**：首页环形图展示四象限资产结构（稳健/进取/保命/防守）
-- **规划决策**：目标配置、再平衡提醒、月度复盘、大额支出模拟
+- **规划决策**：目标配置、专款隔离、落点跟踪、再平衡、风险红线、回撤阶梯和压力测试
 - **多账户管理**：支持券商、银行、基金、保险等 8 种账户类型
 - **多资产类型**：股票、ETF、基金、现金、定期、房产、车辆、保单
-- **自动同步**：从 Yahoo Finance 每日更新股票/ETF/基金价格
+- **自动同步**：从 Yahoo Finance 每日更新股票/ETF 价格；公募基金净值手动维护
 - **多币种支持**：CNY、USD、HKD 自动汇率换算
-- **数据备份**：JSON 导出/恢复，本地数据完全由你掌控
+- **数据备份**：JSON 导出/恢复，包含账户、资产、流水、快照、价格历史和落点目标
 - **月度复盘提醒**：每月通知提醒查看资产变化
 
 ## 标普四象限
@@ -36,7 +36,7 @@
 ```
 app/src/main/java/com/finunity/
 ├── data/
-│   ├── local/          # Room 数据库 (8 张表，版本 9)
+│   ├── local/          # Room 数据库（版本 14，显式迁移）
 │   ├── remote/         # Yahoo Finance API
 │   ├── repository/     # 数据中间层（含备份/恢复）
 │   └── model/          # 数据模型与计算器
@@ -52,10 +52,19 @@ app/src/main/java/com/finunity/
 
 ### Windows
 ```bash
-# 确保 JAVA_HOME 指向 JDK 17
-./gradlew assembleDebug      # 编译 Debug APK
-./gradlew testDebugUnitTest  # 运行单元测试
+# 先确认 JAVA_HOME 指向 JDK 17
+echo %JAVA_HOME%
+
+# PowerShell / Git Bash 可使用
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
+
+# cmd.exe 也可明确使用 Windows wrapper
+gradlew.bat assembleDebug
+gradlew.bat testDebugUnitTest
 ```
+
+若提示 `JAVA_HOME is not set`，请将其设为 JDK 17 安装目录（不是 `bin` 子目录），重新打开终端后再构建。
 
 ### macOS / Linux
 ```bash
@@ -66,7 +75,7 @@ app/src/main/java/com/finunity/
 ## 数据说明
 
 - 所有数据存储在本地 Room 数据库，不上传任何服务器
-- 股票/ETF/基金价格每日自动同步一次（Yahoo Finance）
+- 股票/ETF 价格每日自动同步一次（Yahoo Finance）；基金净值手动录入
 - 支持离线查看（使用缓存价格，12 小时过期回退）
 - 导出为 JSON 文件，可跨设备恢复
 - 非交易型资产（房产、车辆、保单）以手动估值记录

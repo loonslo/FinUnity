@@ -29,6 +29,7 @@ import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,23 +48,7 @@ fun AccountDetailScreen(
     val recordsForAccount = assetRecords.filter { it.record.accountId == account.id }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar(account.name, onBack) },
         containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
@@ -197,7 +182,7 @@ private fun AccountActionRow(
                 tint = FinColors.Number
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("记一笔", color = Color(0xFF111827))
+            Text("记一笔", color = FinColors.TextPrimary)
         }
         Box {
             Surface(
@@ -297,7 +282,7 @@ fun AccountInfoCard(
                     text = formatCurrency(assetValue, baseCurrency),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = if (isLiability) MaterialTheme.colorScheme.error else Color(0xFF111827)
+                    color = if (isLiability) MaterialTheme.colorScheme.error else FinColors.TextPrimary
                 )
             }
         }

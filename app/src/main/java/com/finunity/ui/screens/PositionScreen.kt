@@ -18,6 +18,7 @@ import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.ui.screens.formatCurrency
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.components.FinTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,18 +46,7 @@ fun PositionScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                actions = {
+            FinTopBar(if (position == null) "添加证券持仓" else position.symbol, onBack, actions = {
                     if (position != null) {
                         if (isEditing) {
                             // 保存编辑
@@ -101,10 +91,7 @@ fun PositionScreen(
                             }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         modifier = modifier

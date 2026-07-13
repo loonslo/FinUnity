@@ -7,7 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,10 +17,14 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.data.model.PortfolioSummary
+import com.finunity.data.model.ReviewCadence
+import com.finunity.data.model.buildReviewChecklist
 import com.finunity.data.model.displayName
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinPill
+import com.finunity.ui.components.FinTopBar
 
 /**
  * 月度复盘：回顾这段时间资产怎么变、是否偏离目标、要不要调整。
@@ -39,29 +43,22 @@ fun MonthlyReviewScreen(
     val target = parseTargetAllocation(summary?.targetAllocation ?: "")
     val threshold = summary?.rebalanceThreshold ?: 0.05
     val totalAssets = summary?.totalAssets ?: 0.0
+    val strategyAssets = summary?.strategyAssets ?: 0.0
+    var cadence by remember { mutableStateOf(ReviewCadence.MONTHLY) }
+    val manualChecks = remember { mutableStateMapOf<String, Boolean>() }
+    val checklist = remember(summary) { summary?.let(::buildReviewChecklist).orEmpty() }
 
     val order = listOf(RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH)
     val driftItems = order.mapNotNull { bucket ->
         val current = summary?.allocations?.get(bucket.name) ?: 0.0
         val tgt = target[bucket.name] ?: 0.0
         val drift = current - tgt
-        if (kotlin.math.abs(drift) > threshold) Triple(bucket, drift, kotlin.math.abs(drift) * totalAssets) else null
+        if (kotlin.math.abs(drift) > threshold) Triple(bucket, drift, kotlin.math.abs(drift) * strategyAssets) else null
     }
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = { Text("月度复盘", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = FinColors.PageBg)
-            )
-        },
+        topBar = { FinTopBar("月度复盘", onBack) },
         modifier = modifier
     ) { padding ->
         LazyColumn(
@@ -148,6 +145,45 @@ fun MonthlyReviewScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // 调整目标入口
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(), shape = FinShapes.xl,
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("复盘清单", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ReviewCadence.entries.forEach {
+                                FinPill(selected = cadence == it, onClick = { cadence = it }, text = it.label)
+                            }
+                        }
+                        checklist.filter { it.cadence == cadence }.forEach { row ->
+                            val checked = row.automaticPassed ?: (manualChecks[row.id] == true)
+                            Row(verticalAlignment = Alignment.Top) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = if (row.automaticPassed == null) {
+                                        { manualChecks[row.id] = it }
+                                    } else null
+                                )
+                                Column(Modifier.padding(top = 12.dp)) {
+                                    Text(row.text, style = MaterialTheme.typography.bodyMedium,
+                                        color = FinColors.TextPrimary)
+                                    if (row.detail.isNotBlank()) Text(row.detail,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (row.automaticPassed == false) FinColors.Loss else FinColors.TextSecondary)
+                                }
+                            }
+                        }
+                        Text("自动项由当前数据判定；手动勾选仅在本次复盘期间保留。",
+                            style = MaterialTheme.typography.bodySmall, color = FinColors.TextTertiary)
                     }
                 }
             }

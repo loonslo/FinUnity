@@ -53,6 +53,7 @@ import com.finunity.data.model.AccountSummary
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 enum class CashFlowMode {
     CASH_IN,
@@ -96,19 +97,7 @@ fun CashFlowScreen(
         (mode != CashFlowMode.TRANSFER || selectedTarget != null)
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("记一笔") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar("记一笔", onBack) },
         containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
@@ -158,6 +147,10 @@ fun CashFlowScreen(
                         }
                     )
                 }
+                if (accounts.any { it.account.id != accountId && it.account.currency != account?.currency }) {
+                    Text("跨币种转账暂不支持：需先确认成交汇率与手续费，当前仅开放同币种账户。",
+                        style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                }
             }
 
 
@@ -189,7 +182,7 @@ fun CashFlowScreen(
                 )
                 if (amount != null && amount >= 10000) {
                     Text(
-                        text = "约 ${String.format("%.2f", amount / 10000)} 万",
+                        text = "约 ${String.format("%.2f", amount / 10000)} 万 ${account?.currency ?: "CNY"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                     )

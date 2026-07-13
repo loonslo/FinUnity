@@ -30,6 +30,7 @@ import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinSoftButton
 import com.finunity.ui.components.FinTextField
+import com.finunity.ui.components.FinTopBar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -51,6 +52,11 @@ fun AssetRecordScreen(
     var currentPrice by remember { mutableStateOf(record?.currentPrice?.toString() ?: "") }
     var selectedCurrency by remember { mutableStateOf(record?.currency ?: account?.currency ?: "CNY") }
     var subCategory by remember { mutableStateOf(record?.subCategory ?: "") }
+    var industryTag by remember { mutableStateOf(record?.industryTag ?: "") }
+    var purchaseRestricted by remember { mutableStateOf(record?.purchaseRestricted ?: false) }
+    var peRatio by remember { mutableStateOf(record?.peRatio?.toString() ?: "") }
+    var dividendYield by remember { mutableStateOf(record?.dividendYield?.times(100)?.toString() ?: "") }
+    var premiumRate by remember { mutableStateOf(record?.premiumRate?.times(100)?.toString() ?: "") }
     var locked by remember { mutableStateOf(record?.locked ?: false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
 
@@ -69,11 +75,11 @@ fun AssetRecordScreen(
     }
 
     // 检测是否有未保存的修改
-    val hasUnsavedChanges = remember(name, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, locked) {
+    val hasUnsavedChanges = remember(name, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked) {
         if (record == null) {
             // 新建时只要有输入就有改动
             name.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank() ||
-            subCategory.isNotBlank() || locked
+            subCategory.isNotBlank() || industryTag.isNotBlank() || purchaseRestricted || peRatio.isNotBlank() || dividendYield.isNotBlank() || premiumRate.isNotBlank() || locked
         } else {
             // 编辑时对比原始值
             name != record.name ||
@@ -84,6 +90,11 @@ fun AssetRecordScreen(
             selectedAssetType != record.assetType ||
             selectedRiskBucket != record.riskBucket ||
             subCategory != record.subCategory ||
+            industryTag != record.industryTag ||
+            purchaseRestricted != record.purchaseRestricted ||
+            peRatio != (record.peRatio?.toString() ?: "") ||
+            dividendYield != (record.dividendYield?.times(100)?.toString() ?: "") ||
+            premiumRate != (record.premiumRate?.times(100)?.toString() ?: "") ||
             locked != record.locked
         }
     }
@@ -115,24 +126,9 @@ fun AssetRecordScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                // 删除入口统一在资产详情页，编辑资料页不再重复提供
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar(if (record == null) "添加资产" else "编辑资产", onBack = {
+            if (hasUnsavedChanges) showUnsavedDialog = true else onBack()
+        }) },
         modifier = modifier
     ) { padding ->
         Column(
@@ -340,6 +336,62 @@ fun AssetRecordScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                 )
+                if (selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    FinTextField(
+                        value = industryTag,
+                        onValueChange = { industryTag = it },
+                        label = "行业 / 产业链（选填）",
+                        placeholder = "如：互联网、半导体、医药"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "同标签持仓会合并计算行业集中度。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("手动估值与溢价（选填）", style = MaterialTheme.typography.labelLarge)
+                    Text("数据不会自动抓取，请按基金公告或交易页定期更新。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                    FinTextField(
+                        value = peRatio,
+                        onValueChange = { peRatio = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = "PE（倍）",
+                        placeholder = "如：12",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                    FinTextField(
+                        value = dividendYield,
+                        onValueChange = { dividendYield = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = "股息率（%）",
+                        placeholder = "如：4.5",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                    FinTextField(
+                        value = premiumRate,
+                        onValueChange = { premiumRate = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = "场内溢价率（%）",
+                        placeholder = "如：1.2",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("当前限购", style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium)
+                            Text("QDII 暂停申购或限额时打开，规划页会提醒暂停加仓。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                        }
+                        Switch(checked = purchaseRestricted, onCheckedChange = { purchaseRestricted = it })
+                    }
+                }
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -490,6 +542,11 @@ fun AssetRecordScreen(
                         currentPrice = price,
                         currency = selectedCurrency,
                         subCategory = subCategory.trim(),
+                        industryTag = industryTag.trim(),
+                        purchaseRestricted = purchaseRestricted,
+                        peRatio = peRatio.toDoubleOrNull(),
+                        dividendYield = dividendYield.toDoubleOrNull()?.div(100.0),
+                        premiumRate = premiumRate.toDoubleOrNull()?.div(100.0),
                         locked = locked,
                         createdAt = record?.createdAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()

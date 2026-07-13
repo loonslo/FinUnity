@@ -108,6 +108,8 @@ class PriceRepository(
                 val price = Price(
                     symbol = symbol,
                     price = marketPrice,
+                    previousClose = result.meta.regularMarketPreviousClose
+                        ?: result.meta.chartPreviousClose ?: 0.0,
                     currency = result.meta.currency ?: "USD",
                     updatedAt = System.currentTimeMillis(),
                     isFallback = false
@@ -215,6 +217,8 @@ class PriceRepository(
                         val price = Price(
                             symbol = symbol,
                             price = marketPrice,
+                            previousClose = result.meta.regularMarketPreviousClose
+                                ?: result.meta.chartPreviousClose ?: 0.0,
                             currency = result.meta.currency ?: "USD",
                             updatedAt = System.currentTimeMillis(),
                             isFallback = false

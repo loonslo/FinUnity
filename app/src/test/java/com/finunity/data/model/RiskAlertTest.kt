@@ -74,4 +74,26 @@ class RiskAlertTest {
         assertEquals(3, alerts.size)
         assertEquals(2, alerts.count { it.level == RiskAlertLevel.WARNING })
     }
+
+    @Test
+    fun `标的行业训练仓黄金与亏损红线可同时触发`() {
+        val rows = listOf(
+            HoldingRedlineInput("A股", 120000.0, 150000.0, com.finunity.data.local.entity.AssetType.STOCK, "训练仓", "半导体"),
+            HoldingRedlineInput("芯片ETF", 100000.0, 90000.0, com.finunity.data.local.entity.AssetType.ETF, "训练仓", "半导体"),
+            HoldingRedlineInput("黄金ETF", 60000.0, 60000.0, com.finunity.data.local.entity.AssetType.ETF, "黄金", "")
+        )
+        val alerts = evaluateHoldingRedlines(rows, strategyAssets = 1_000_000.0)
+
+        assertTrue(alerts.any { it.title.contains("单只持仓") })
+        assertTrue(alerts.any { it.title.contains("半导体") })
+        assertTrue(alerts.any { it.title.contains("训练仓") })
+        assertTrue(alerts.any { it.title.contains("黄金") })
+        assertTrue(alerts.any { it.title.contains("亏损达 15%") })
+    }
+
+    @Test
+    fun `策略盘为零时不评估标的红线`() {
+        val rows = listOf(HoldingRedlineInput("A", 1.0, 1.0, com.finunity.data.local.entity.AssetType.STOCK))
+        assertTrue(evaluateHoldingRedlines(rows, 0.0).isEmpty())
+    }
 }

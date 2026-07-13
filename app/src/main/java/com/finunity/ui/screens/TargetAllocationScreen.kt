@@ -22,6 +22,7 @@ import com.finunity.data.local.entity.Settings
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 /**
  * 标普四象限目标配置模板。
@@ -81,18 +82,7 @@ fun TargetAllocationScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = { Text("目标配置", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = FinColors.PageBg)
-            )
-        },
+        topBar = { FinTopBar("目标配置", onBack) },
         modifier = modifier
     ) { padding ->
         Column(
@@ -115,6 +105,8 @@ fun TargetAllocationScreen(
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("选择一个模板", style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+                    Text("保存后会影响规划页偏离判定、再平衡建议和月度复盘金额。",
+                        style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
                     ALLOCATION_TEMPLATES.forEach { t ->
                         TemplateRow(
                             template = t,

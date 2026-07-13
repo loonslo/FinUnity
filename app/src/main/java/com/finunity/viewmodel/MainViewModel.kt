@@ -8,17 +8,22 @@ import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
+import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Settings
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.HoldingSummary
+import com.finunity.data.model.HoldingRedlineInput
 import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.PositionSummary
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.PortfolioCalculator
 import com.finunity.data.model.RiskBucketSummary
+import com.finunity.data.model.evaluateHoldingRedlines
+import com.finunity.data.model.evaluateDrawdownLadder
+import com.finunity.data.model.evaluateSignalRules
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.local.entity.PriceHistory
@@ -78,13 +83,16 @@ class MainViewModel(
                 _settings
             ) { accounts, positions, assetRecords, allocationTargets, settings ->
                 PortfolioInputs(accounts, positions, assetRecords, allocationTargets, settings)
+            }.combine(database.assetSnapshotDao().getAllSnapshots()) { inputs, snapshots ->
+                inputs.copy(snapshots = snapshots)
             }.collect { inputs ->
                 calculatePortfolio(
                     accounts = inputs.accounts,
                     positions = inputs.positions,
                     assetRecords = inputs.assetRecords,
                     allocationTargets = inputs.allocationTargets,
-                    settings = inputs.settings
+                    settings = inputs.settings,
+                    snapshots = inputs.snapshots
                 )
             }
         }
@@ -95,7 +103,8 @@ class MainViewModel(
         positions: List<Position>,
         assetRecords: List<AssetRecord>,
         allocationTargets: List<AllocationTarget>,
-        settings: Settings
+        settings: Settings,
+        snapshots: List<AssetSnapshot>
     ) {
         _isLoading.value = true
         _error.value = null
@@ -113,6 +122,7 @@ class MainViewModel(
             val totalAssets = calculator.computeTotalAssets()
             val totalStockValue = calculator.computeStockValue()
             val totalCash = totalAssets - totalStockValue
+            val todayChange = calculator.computeTodayChange()
             val stockRatio = if (totalAssets > 0) totalStockValue / totalAssets else 0.0
 
             // 使用 PortfolioCalculator 统一计算
@@ -120,12 +130,19 @@ class MainViewModel(
             val assetRecordSummaries = calculator.computeAssetRecordSummaries()
             val holdingSummaries = calculator.computeHoldingSummaries()
             val positionSummaries = calculator.computePositionSummaries()
+            // 总览明细仍展示锁定专款；偏离与再平衡只使用可投策略盘。
             val riskSummaries = calculator.computeRiskBucketSummaries(totalAssets)
+            val lockedAssets = calculator.computeLockedValue()
+            val strategyAssets = (totalAssets - lockedAssets).coerceAtLeast(0.0)
+            val strategyRiskSummaries = calculator.computeRiskBucketSummaries(
+                totalAssets = strategyAssets,
+                excludeLocked = true
+            )
 
             val targetAllocationMap = parseTargetAllocation(settings.targetAllocation)
-            val totalRiskBucketValue = riskSummaries.sumOf { it.totalValue }
-            val currentAllocationMap = if (totalRiskBucketValue > 0) {
-                riskSummaries.associate { it.riskBucket.name to it.percentage }
+            val totalStrategyBucketValue = strategyRiskSummaries.sumOf { it.totalValue }
+            val currentAllocationMap = if (strategyAssets > 0 && totalStrategyBucketValue > 0) {
+                strategyRiskSummaries.associate { it.riskBucket.name to it.percentage }
             } else {
                 RiskBucket.entries.associate { it.name to 0.0 }
             }
@@ -136,7 +153,28 @@ class MainViewModel(
             )
 
             val landingPoints = calculator.computeLandingPoints(allocationTargets)
-            val lockedAssets = calculator.computeLockedValue()
+            val holdingRedlineAlerts = evaluateHoldingRedlines(
+                holdings = assetRecordSummaries.filterNot { it.record.locked }.map {
+                    HoldingRedlineInput(
+                        name = it.record.name,
+                        currentValue = it.currentValue,
+                        cost = it.costInBaseCurrency,
+                        assetType = it.record.assetType,
+                        subCategory = it.record.subCategory,
+                        industryTag = it.record.industryTag
+                    )
+                },
+                strategyAssets = strategyAssets
+            )
+            val availableAmmo = assetRecordSummaries
+                .filter { !it.record.locked && it.record.subCategory.trim() == "弹药" }
+                .sumOf { it.currentValue }
+            val drawdownAdvice = evaluateDrawdownLadder(
+                currentAssets = totalAssets,
+                historicalTotals = snapshots.map { it.totalAssets },
+                availableAmmo = availableAmmo
+            )
+            val signalAlerts = evaluateSignalRules(assetRecords).alerts
 
             _portfolioSummary.value = PortfolioSummary(
                 totalAssets = totalAssets,
@@ -155,8 +193,12 @@ class MainViewModel(
                 holdings = holdingSummaries.sortedByDescending { it.currentValue },
                 positions = positionSummaries,
                 landingPoints = landingPoints,
+                holdingRedlineAlerts = holdingRedlineAlerts,
+                signalAlerts = signalAlerts,
+                drawdownAdvice = drawdownAdvice,
                 lockedAssets = lockedAssets,
                 maxAggressiveRatio = settings.maxAggressiveRatio,
+                todayChange = todayChange,
                 lastUpdated = System.currentTimeMillis()
             )
         } catch (e: Exception) {
@@ -509,7 +551,14 @@ class MainViewModel(
      * 卖出资产记录（产生真实的卖出流水）
      * 平均成本法：按比例减少股数和成本
      */
-    fun sellAssetRecord(recordId: String, sellQuantity: Double? = null) {
+    fun sellAssetRecord(
+        recordId: String,
+        sellQuantity: Double? = null,
+        sellPrice: Double? = null,
+        fee: Double = 0.0,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String? = null
+    ) {
         viewModelScope.launch {
             val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
 
@@ -525,21 +574,43 @@ class MainViewModel(
             if (quantityToSell <= 0) return@launch
 
             if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                val sellAmount = quantityToSell * record.currentPrice
+            val actualPrice = sellPrice?.takeIf { it > 0.0 } ?: record.currentPrice
+            val sellAmount = quantityToSell * actualPrice
+            val safeFee = fee.coerceAtLeast(0.0).coerceAtMost(sellAmount)
                 // 记录卖出流水
                 val transaction = Transaction(
                     accountId = record.accountId,
                     symbol = record.name,
                     type = TransactionType.SELL,
                     shares = quantityToSell,
-                    price = record.currentPrice,
+                    price = actualPrice,
                     amount = sellAmount,
                     currency = record.currency,
-                    note = "卖出 ${record.name} · ${String.format("%.2f", sellAmount)} ${record.currency}",
+                    timestamp = timestamp,
+                    note = buildString {
+                        append("卖出 ${record.name} · ${String.format("%.2f", sellAmount)} ${record.currency}")
+                        if (!note.isNullOrBlank()) append("（${note.trim()}）")
+                    },
                     recordId = record.id  // 精确追溯
                 )
                 database.transactionDao().insert(transaction)
-                adjustCashAsset(record.accountId, sellAmount, record.currency)
+                if (safeFee > 0.0) {
+                    database.transactionDao().insert(
+                        Transaction(
+                            accountId = record.accountId,
+                            symbol = record.name,
+                            type = TransactionType.FEE,
+                            shares = null,
+                            price = null,
+                            amount = safeFee,
+                            currency = record.currency,
+                            timestamp = timestamp,
+                            note = "卖出 ${record.name} 费用 · ${String.format("%.2f", safeFee)} ${record.currency}",
+                            recordId = record.id
+                        )
+                    )
+                }
+                adjustCashAsset(record.accountId, sellAmount - safeFee, record.currency)
             }
 
             // 删除或部分删除记录
@@ -690,9 +761,10 @@ class MainViewModel(
             // 重新读取更新后的 asset records（价格已回写，需重新获取以反映最新价格）
             val updatedAssetRecords = database.assetRecordDao().getAllRecords().first()
             val allocationTargets = database.allocationTargetDao().getAllTargets().first()
+            val snapshots = database.assetSnapshotDao().getAllSnapshots().first()
 
             // 重新计算（allPositions 和 updatedAssetRecords 已在前面获取）
-            calculatePortfolio(accounts, allPositions, updatedAssetRecords, allocationTargets, settings)
+            calculatePortfolio(accounts, allPositions, updatedAssetRecords, allocationTargets, settings, snapshots)
 
             // 如果有部分失败但整体没抛异常，仍提示用户
             if (failureMessages.isNotEmpty()) {
@@ -787,7 +859,8 @@ class MainViewModel(
         val positions: List<Position>,
         val assetRecords: List<AssetRecord>,
         val allocationTargets: List<AllocationTarget>,
-        val settings: Settings
+        val settings: Settings,
+        val snapshots: List<AssetSnapshot> = emptyList()
     )
 }
 

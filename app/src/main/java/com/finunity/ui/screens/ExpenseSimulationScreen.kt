@@ -24,6 +24,7 @@ import com.finunity.data.model.displayName
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 private enum class FundingSource(val label: String, val order: List<RiskBucket>) {
     CASH_FIRST("活钱优先", listOf(RiskBucket.CASH, RiskBucket.CONSERVATIVE, RiskBucket.AGGRESSIVE)),
@@ -72,18 +73,7 @@ fun ExpenseSimulationScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = { Text("大额支出模拟", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = FinColors.PageBg)
-            )
-        },
+        topBar = { FinTopBar("大额支出模拟", onBack) },
         modifier = modifier
     ) { padding ->
         LazyColumn(

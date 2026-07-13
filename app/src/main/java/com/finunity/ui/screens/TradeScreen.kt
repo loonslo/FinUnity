@@ -18,6 +18,8 @@ import com.finunity.ui.components.FinTextField
 import com.finunity.ui.components.FinTopBar
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import java.text.SimpleDateFormat
+import java.util.*
 
 /**
  * 买入/卖出（调仓）独立页面，替代底部弹层。
@@ -30,7 +32,7 @@ fun TradeScreen(
     isBuy: Boolean,
     onBack: () -> Unit,
     onConfirmBuy: (qty: Double, price: Double) -> Unit,
-    onConfirmSell: (qty: Double) -> Unit,
+    onConfirmSell: (qty: Double, price: Double, fee: Double, timestamp: Long, note: String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val record = summary.record
@@ -39,19 +41,29 @@ fun TradeScreen(
 
     var qtyText by remember { mutableStateOf("") }
     var priceText by remember { mutableStateOf(if (record.currentPrice > 0) String.format("%.2f", record.currentPrice) else "") }
+    var feeText by remember { mutableStateOf("") }
+    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply { isLenient = false } }
+    var dateText by remember { mutableStateOf(dateFormat.format(Date())) }
+    var noteText by remember { mutableStateOf("") }
 
     val qty = qtyText.toDoubleOrNull() ?: 0.0
     val buyPrice = priceText.toDoubleOrNull() ?: 0.0
+    val tradePrice = priceText.toDoubleOrNull() ?: 0.0
+    val fee = feeText.toDoubleOrNull() ?: 0.0
+    val tradeTimestamp = remember(dateText) { runCatching { dateFormat.parse(dateText)?.time }.getOrNull() }
 
     val sellQty = qtyText.toDoubleOrNull() ?: record.quantity   // 卖出留空=全部
     val sellError = when {
         !isBuy && qtyText.isNotBlank() && qtyText.toDoubleOrNull() == null -> "请输入有效数量"
         !isBuy && sellQty <= 0 -> "卖出数量必须大于 0"
         !isBuy && sellQty > record.quantity -> "不能超过持有数量 $holdingLabel"
+        !isBuy && tradePrice <= 0 -> "请填写实际成交价"
+        !isBuy && fee < 0 -> "费用不能为负数"
+        !isBuy && tradeTimestamp == null -> "日期格式应为 yyyy-MM-dd"
         else -> null
     }
     val valid = if (isBuy) qty > 0 && buyPrice > 0 else sellError == null
-    val previewAmount = if (isBuy) qty * buyPrice else sellQty * record.currentPrice
+    val previewAmount = if (isBuy) qty * buyPrice else (sellQty * tradePrice - fee).coerceAtLeast(0.0)
 
     Scaffold(
         containerColor = FinColors.PageBg,
@@ -59,7 +71,10 @@ fun TradeScreen(
         bottomBar = {
             Surface(color = FinColors.PageBg) {
                 Button(
-                    onClick = { if (isBuy) onConfirmBuy(qty, buyPrice) else onConfirmSell(sellQty) },
+                    onClick = {
+                        if (isBuy) onConfirmBuy(qty, buyPrice)
+                        else onConfirmSell(sellQty, tradePrice, fee, tradeTimestamp!!, noteText.trim().ifBlank { null })
+                    },
                     enabled = valid,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -123,13 +138,43 @@ fun TradeScreen(
                         isError = sellError != null,
                         supportingText = sellError
                     )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    FinTextField(
+                        value = priceText,
+                        onValueChange = { priceText = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = "实际成交价",
+                        placeholder = "0.00",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    FinTextField(
+                        value = feeText,
+                        onValueChange = { feeText = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = "费用（选填）",
+                        placeholder = "0.00",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    FinTextField(
+                        value = dateText,
+                        onValueChange = { dateText = it.filter { c -> c.isDigit() || c == '-' }.take(10) },
+                        label = "成交日期",
+                        placeholder = "yyyy-MM-dd"
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    FinTextField(
+                        value = noteText,
+                        onValueChange = { noteText = it },
+                        label = "备注（选填）",
+                        placeholder = "如：按计划减仓"
+                    )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(if (isBuy) "本次买入金额" else "预计金额", style = MaterialTheme.typography.bodyMedium, color = FinColors.TextSecondary)
+                    Text(if (isBuy) "本次买入金额" else "预计净到账", style = MaterialTheme.typography.bodyMedium, color = FinColors.TextSecondary)
                     Text(
                         text = if (valid) "${String.format("%.2f", previewAmount)} $currency" else "—",
                         style = MaterialTheme.typography.titleMedium,

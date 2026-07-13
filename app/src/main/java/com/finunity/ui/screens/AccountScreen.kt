@@ -1,5 +1,6 @@
 package com.finunity.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,6 +36,7 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountAssetRules
 import com.finunity.ui.components.FinTextField
+import com.finunity.ui.components.FinTopBar
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 
@@ -43,6 +45,9 @@ import com.finunity.ui.theme.FinShapes
 fun AccountScreen(
     account: Account?,
     allowDelete: Boolean = false,
+    deleteAssetCount: Int = 0,
+    deleteTransactionCount: Int = 0,
+    deletePriceHistoryCount: Int = 0,
     onSave: (Account) -> Unit,
     onDelete: (String) -> Unit,
     onBack: () -> Unit,
@@ -54,6 +59,7 @@ fun AccountScreen(
     val selectedCurrency = account?.currency ?: "CNY"
     var balance by remember { mutableStateOf(account?.balance?.toString() ?: "") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showUnsavedDialog by remember { mutableStateOf(false) }
 
     val accountTypes = listOf(
         AccountType.BANK,
@@ -66,6 +72,23 @@ fun AccountScreen(
         AccountType.OTHER
     )
     val isEditing = account != null
+    val hasUnsavedChanges = name != (account?.name ?: "") ||
+        selectedType != (account?.type ?: AccountType.BANK) ||
+        balance != (account?.balance?.toString() ?: "")
+
+    BackHandler(enabled = hasUnsavedChanges) { showUnsavedDialog = true }
+
+    if (showUnsavedDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnsavedDialog = false },
+            title = { Text("未保存的修改") },
+            text = { Text("返回将丢失当前输入，确定放弃吗？") },
+            confirmButton = { TextButton(onClick = { showUnsavedDialog = false; onBack() }) {
+                Text("放弃修改", color = MaterialTheme.colorScheme.error)
+            } },
+            dismissButton = { TextButton(onClick = { showUnsavedDialog = false }) { Text("继续编辑") } }
+        )
+    }
 
     // 删除确认对话框
     if (showDeleteConfirmDialog) {
@@ -77,7 +100,7 @@ fun AccountScreen(
                     Text("确定要删除账户 \"${account?.name}\" 吗？")
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "注意：删除账户将同时删除该账户下的所有持仓、价格历史和交易流水",
+                        text = "将同时删除：资产记录 $deleteAssetCount 条 · 流水 $deleteTransactionCount 条 · 价格历史 $deletePriceHistoryCount 条",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -104,30 +127,9 @@ fun AccountScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = if (isEditing) "编辑账户" else "添加账户",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = FinColors.TextPrimary
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = FinColors.PageBg
-                )
-            )
-        },
+        topBar = { FinTopBar(if (isEditing) "编辑账户" else "添加账户", onBack = {
+            if (hasUnsavedChanges) showUnsavedDialog = true else onBack()
+        }) },
         bottomBar = {
             AccountEditBottomBar(
                 enabled = name.isNotBlank(),

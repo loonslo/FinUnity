@@ -148,6 +148,44 @@ object Migration10To11 {
     }
 }
 
+/** Database migration from version 11 to 12. Adds industry tag for holding redlines. */
+object Migration11To12 {
+    val migration: Migration = object : Migration(11, 12) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN industryTag TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
+/** Database migration from version 12 to 13. Adds manual QDII purchase restriction flag. */
+object Migration12To13 {
+    val migration: Migration = object : Migration(12, 13) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN purchaseRestricted INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
+/** Database migration from version 13 to 14. Adds manual valuation and premium fields. */
+object Migration13To14 {
+    val migration: Migration = object : Migration(13, 14) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN peRatio REAL")
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN dividendYield REAL")
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN premiumRate REAL")
+        }
+    }
+}
+
+/** Database migration from version 14 to 15. Adds previousClose to prices for today's gain. */
+object Migration14To15 {
+    val migration: Migration = object : Migration(14, 15) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE prices ADD COLUMN previousClose REAL NOT NULL DEFAULT 0")
+        }
+    }
+}
+
 /**
  * Provider for all database migrations.
  */
@@ -160,6 +198,10 @@ object DatabaseMigrations {
         Migration7To8.migration,
         Migration8To9.migration,
         Migration9To10.migration,
-        Migration10To11.migration
+        Migration10To11.migration,
+        Migration11To12.migration,
+        Migration12To13.migration,
+        Migration13To14.migration,
+        Migration14To15.migration
     )
 }

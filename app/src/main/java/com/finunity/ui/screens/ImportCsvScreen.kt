@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.repository.CsvImportRepository
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.components.FinTopBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -149,30 +150,12 @@ fun ImportCsvScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (selectedImportType != null) {
-                            selectedImportType = null
-                            importResult = null
-                        } else {
-                            onBack()
-                        }
-                    }) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar("导入 CSV", onBack = {
+            if (selectedImportType != null) {
+                selectedImportType = null
+                importResult = null
+            } else onBack()
+        }) },
         modifier = modifier
     ) { padding ->
         Column(

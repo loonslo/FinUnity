@@ -19,11 +19,13 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.data.model.PortfolioSummary
+import com.finunity.data.model.DrawdownAdvice
 import com.finunity.data.model.RiskAlert
 import com.finunity.data.model.RiskAlertLevel
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.components.FinTopBar
 
 /**
  * 规划页：回答"资产配置是否偏离目标"，给出调整建议，并提供目标配置与复盘入口。
@@ -39,12 +41,13 @@ fun PlanningScreen(
     onOpenHistory: () -> Unit = {},
     onSimulateExpense: () -> Unit = {},
     onOpenLandingPoints: () -> Unit = {},
+    onOpenStressTest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val summary = portfolioSummary
     val target = parseTargetAllocation(summary?.targetAllocation ?: "")
     val threshold = summary?.rebalanceThreshold ?: 0.05
-    val totalAssets = summary?.totalAssets ?: 0.0
+    val strategyAssets = summary?.strategyAssets ?: 0.0
     val baseCurrency = summary?.baseCurrency ?: "CNY"
 
     // 四象限固定展示顺序
@@ -57,18 +60,7 @@ fun PlanningScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = {
-            TopAppBar(
-                title = { Text("资产规划", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = FinColors.PageBg)
-            )
-        },
+        topBar = { FinTopBar("资产规划", onBack) },
         modifier = modifier
     ) { padding ->
         LazyColumn(
@@ -87,6 +79,10 @@ fun PlanningScreen(
                     maxAggressiveRatio = summary?.maxAggressiveRatio ?: 0.70,
                     alerts = summary?.riskAlerts ?: emptyList()
                 )
+            }
+
+            item {
+                DrawdownCard(summary?.drawdownAdvice, baseCurrency)
             }
 
             // 状态摘要
@@ -146,7 +142,7 @@ fun PlanningScreen(
                                 target = tgt,
                                 threshold = threshold,
                                 color = bucketColor(bucket),
-                                amount = kotlin.math.abs(current - tgt) * totalAssets,
+                                amount = kotlin.math.abs(current - tgt) * strategyAssets,
                                 baseCurrency = baseCurrency
                             )
                         }
@@ -189,7 +185,51 @@ fun PlanningScreen(
                 )
             }
 
+            item {
+                EntryRowCard(
+                    title = "压力测试",
+                    subtitle = "用历史极端情景，看组合浮亏是否超过承受上限",
+                    onClick = onOpenStressTest
+                )
+            }
+
             item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun DrawdownCard(advice: DrawdownAdvice?, baseCurrency: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = FinShapes.xl,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("回撤加仓阶梯", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+            if (advice == null) {
+                Text("至少积累 2 天资产快照后，才会根据历史总资产高点给出阶梯建议。",
+                    style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+            } else {
+                Text("自高点回撤 ${String.format("%.1f", advice.drawdownRatio * 100)}%",
+                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                    color = if (advice.triggered) FinColors.Cash else FinColors.Number)
+                Text("历史高点 ${formatCurrency(advice.peakAssets, baseCurrency)} · ${advice.sampleCount} 个快照样本",
+                    style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                if (advice.triggered) {
+                    Text("当前触发 -${advice.levelPercent}% 档：${advice.fundingSource}，定投 ${String.format("%.1f", advice.recurringMultiplier)} 倍。",
+                        style = MaterialTheme.typography.bodyMedium, color = FinColors.TextPrimary)
+                    if (advice.recommendedAmmoAmount > 0.0) {
+                        Text("本档可分批使用弹药 ${formatCurrency(advice.recommendedAmmoAmount, baseCurrency)}，优先用于核心宽基。",
+                            style = MaterialTheme.typography.bodySmall, color = FinColors.Accent)
+                    }
+                } else {
+                    Text("未到 -5% 触发线，保持常规定投，弹药继续留存。",
+                        style = MaterialTheme.typography.bodySmall, color = FinColors.Profit)
+                }
+            }
         }
     }
 }

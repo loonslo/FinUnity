@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.components.FinTopBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -38,23 +39,7 @@ fun HistoryScreen(
     val fullDateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
+        topBar = { FinTopBar("资产历史", onBack) },
         bottomBar = bottomBar,
         modifier = modifier
     ) { padding ->

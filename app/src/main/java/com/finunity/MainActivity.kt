@@ -38,6 +38,7 @@ import com.finunity.ui.screens.AccountScreen
 import com.finunity.ui.screens.AccountAssetsByAccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
 import com.finunity.ui.screens.AccountHubScreen
+import com.finunity.ui.screens.AmountVisibility
 import com.finunity.ui.screens.AssetRecordScreen
 import com.finunity.ui.screens.AssetDetailScreen
 import com.finunity.ui.screens.CashFlowScreen
@@ -116,6 +117,7 @@ sealed class Screen {
     data object Planning : Screen()
     data object MonthlyReview : Screen()
     data object ExpenseSimulation : Screen()
+    data object StressTest : Screen()
     data object LandingPoints : Screen()
     data object TargetAllocation : Screen()
     data object ImportCsv : Screen()
@@ -158,6 +160,8 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
     val portfolioSummary by viewModel.portfolioSummary.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    AmountVisibility.visible = settings.amountsVisible
 
     val initialScreen = remember(openScreen) {
         if (openScreen == "review") Screen.MonthlyReview else Screen.Main
@@ -172,6 +176,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
     // 历史数据
     val snapshots by historyRepository.getRecentSnapshots(30).collectAsState(initial = emptyList())
     val allPriceHistory by database.priceHistoryDao().getAllHistory().collectAsState(initial = emptyList())
+    val allTransactions by database.transactionDao().getAllTransactions().collectAsState(initial = emptyList())
     var monthlyChange by remember { mutableStateOf<MonthlyChange?>(null) }
     val lastPriceUpdated = remember(allPriceHistory) {
         allPriceHistory.maxOfOrNull { it.timestamp }
@@ -257,7 +262,8 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                     isLoading = isLoading,
                     error = error,
                     lastPriceUpdated = lastPriceUpdated,
-                    onboarded = viewModel.settings.value.onboarded,
+                    monthlyChange = monthlyChange,
+                    onboarded = settings.onboarded,
                     onStartAddFlow = { startAddFlow() },
                     onEditAccount = { account ->
                         navigateTo(Screen.AccountDetail(account.id))
@@ -286,7 +292,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
 
         is Screen.Settings -> {
             SettingsScreen(
-                settings = viewModel.settings.value,
+                settings = settings,
                 onSave = { newSettings ->
                     viewModel.updateSettings(newSettings)
                     showMessage("设置已保存")
@@ -304,7 +310,8 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 onReview = { navigateTo(Screen.MonthlyReview) },
                 onOpenHistory = { navigateTo(Screen.History) },
                 onSimulateExpense = { navigateTo(Screen.ExpenseSimulation) },
-                onOpenLandingPoints = { navigateTo(Screen.LandingPoints) }
+                onOpenLandingPoints = { navigateTo(Screen.LandingPoints) },
+                onOpenStressTest = { navigateTo(Screen.StressTest) }
             )
         }
 
@@ -330,6 +337,13 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
             )
         }
 
+        is Screen.StressTest -> {
+            com.finunity.ui.screens.StressTestScreen(
+                portfolioSummary = portfolioSummary,
+                onBack = { navigateBack() }
+            )
+        }
+
         is Screen.MonthlyReview -> {
             com.finunity.ui.screens.MonthlyReviewScreen(
                 portfolioSummary = portfolioSummary,
@@ -341,7 +355,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
 
         is Screen.TargetAllocation -> {
             com.finunity.ui.screens.TargetAllocationScreen(
-                settings = viewModel.settings.value,
+                settings = settings,
                 onSave = { newSettings ->
                     viewModel.updateSettings(newSettings)
                     showMessage("目标配置已保存")
@@ -359,7 +373,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
         }
 
         is Screen.AccountHub -> {
-            val amountsVisible = viewModel.settings.value.amountsVisible
+            val amountsVisible = settings.amountsVisible
             AccountHubScreen(
                 accounts = portfolioSummary?.accounts ?: emptyList(),
                 assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
@@ -394,9 +408,14 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
         }
 
         is Screen.AddAccount -> {
+            val deleteRecords = portfolioSummary?.assetRecords.orEmpty().filter { it.record.accountId == screen.account?.id }
+            val deleteRecordIds = deleteRecords.map { it.record.id }.toSet()
             AccountScreen(
                 account = screen.account,
                 allowDelete = screen.allowDelete,
+                deleteAssetCount = deleteRecords.size,
+                deleteTransactionCount = allTransactions.count { it.accountId == screen.account?.id },
+                deletePriceHistoryCount = allPriceHistory.count { it.recordId in deleteRecordIds },
                 onSave = { account ->
                     if (screen.account == null) {
                         viewModel.addAccount(account)
@@ -548,6 +567,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 transactions = transactions,
                 accountName = accountSummary?.account?.name,
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                accountNames = portfolioSummary?.accounts.orEmpty().associate { it.account.id to it.account.name },
                 onBack = { navigateBack() }
             )
         }
@@ -558,6 +578,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 transactions = transactions,
                 accountName = "交易流水",
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                accountNames = portfolioSummary?.accounts.orEmpty().associate { it.account.id to it.account.name },
                 onBack = { navigateBack() }
             )
         }
@@ -615,8 +636,8 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                         showMessage("买入已记录")
                         navigateBack()
                     },
-                    onConfirmSell = { qty ->
-                        viewModel.sellAssetRecord(screen.recordId, qty)
+                    onConfirmSell = { qty, price, fee, timestamp, note ->
+                        viewModel.sellAssetRecord(screen.recordId, qty, price, fee, timestamp, note)
                         showMessage("卖出已记录")
                         navigateBack()
                     }
@@ -632,6 +653,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 transactions = transactions,
                 accountName = screen.assetName,
                 baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                accountNames = portfolioSummary?.accounts.orEmpty().associate { it.account.id to it.account.name },
                 onBack = { navigateBack() }
             )
         }
