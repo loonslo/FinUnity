@@ -16,7 +16,11 @@ data class Account(
     val type: AccountType,              // BROKER, BANK, CASH_MANAGEMENT, OTHER
     val currency: String,                // CNY, USD, HKD
     val balance: Double,                // 仅负债账户使用；普通账户金额由 AssetRecord 表达
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val sourceType: AccountSourceType = AccountSourceType.MANUAL,
+    val externalSourceId: String = "",
+    val lastSyncedAt: Long? = null,
+    val syncState: SyncState = SyncState.NOT_APPLICABLE
 )
 
 enum class AccountType {

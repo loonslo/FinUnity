@@ -3,13 +3,13 @@ package com.finunity.data.repository
 import android.content.Context
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
+import com.finunity.data.local.entity.AccountSourceType
 import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
-import com.finunity.data.local.entity.PriceHistory
-import com.finunity.data.local.entity.Position
+import com.finunity.data.local.entity.HoldingSourceType
 import com.finunity.data.local.entity.RiskBucket
-import com.finunity.data.local.entity.Transaction
+import com.finunity.data.local.entity.TransactionOrigin
 import com.finunity.data.local.entity.TransactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -109,6 +109,7 @@ private fun parseRiskBucket(value: String, assetType: AssetType): RiskBucket? = 
 }
 
 class CsvImportRepository(private val database: AppDatabase) {
+    private val holdingLedger = HoldingLedgerRepository(database)
 
     /**
      * 从 CSV 导入账户
@@ -161,7 +162,9 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     name = name,
                                     type = type,
                                     currency = currency,
-                                    balance = balance
+                                    balance = balance,
+                                    sourceType = AccountSourceType.CSV,
+                                    externalSourceId = "CSV:$name:$currency"
                                 )
 
                                 // 检查是否已存在同名账户（防止重复导入）
@@ -244,40 +247,31 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accounts = database.accountDao().getAllAccounts().first()
                                 val accountId = accounts.firstOrNull { it.name == accountName }?.id
                                 if (accountId != null) {
-                                    // 检查是否已存在同名持仓（防止重复导入）
-                                    val existingPositions = database.positionDao().getAllPositions().first()
-                                    val isDuplicate = existingPositions.any {
-                                        it.accountId == accountId && it.symbol == symbol &&
-                                            kotlin.math.abs(it.shares - shares) < 0.0001
-                                    }
-                                    if (isDuplicate) {
-                                        errors.add("行 ${index + 2}: 持仓 '$symbol' 在账户 '$accountName' 中已存在，跳过重复导入")
-                                        return@forEachIndexed
-                                    }
-
-                                    val position = Position(
-                                        accountId = accountId,
-                                        symbol = symbol,
-                                        shares = shares,
-                                        totalCost = totalCost,
-                                        currency = currency
+                                    val result = holdingLedger.upsertSnapshot(
+                                        HoldingSnapshotCommand(
+                                            record = AssetRecord(
+                                                accountId = accountId,
+                                                assetType = AssetType.STOCK,
+                                                riskBucket = RiskBucket.AGGRESSIVE,
+                                                name = symbol,
+                                                securityCode = symbol,
+                                                quantity = shares,
+                                                cost = totalCost,
+                                                currentPrice = totalCost / shares,
+                                                currency = currency
+                                            ),
+                                            sourceType = HoldingSourceType.CSV,
+                                            sourceAccountId = accountId,
+                                            sourceRecordId = "$fileName:${index + 2}",
+                                            importBatchId = fileName,
+                                            sourceFingerprint = "CSV:$accountId:STOCK:$symbol"
+                                        )
                                     )
-                                    database.positionDao().insert(position)
-
-                                    // 补录初始 BUY 流水
-                                    val averageCost = if (shares > 0) totalCost / shares else 0.0
-                                    val buyTransaction = Transaction(
-                                        accountId = accountId,
-                                        symbol = symbol,
-                                        type = TransactionType.BUY,
-                                        shares = shares,
-                                        price = averageCost,
-                                        amount = totalCost,
-                                        currency = currency,
-                                        note = "CSV 导入初始化"
-                                    )
-                                    database.transactionDao().insert(buyTransaction)
-                                    positionsImported++
+                                    if (result is LedgerResult.Error) {
+                                        errors.add("行 ${index + 2}: ${result.message}")
+                                    } else {
+                                        positionsImported++
+                                    }
                                 } else {
                                     errors.add("行 ${index + 2}: 找不到账户 '$accountName'")
                                 }
@@ -370,55 +364,32 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accounts = database.accountDao().getAllAccounts().first()
                                 val accountId = accounts.firstOrNull { it.name == accountName }?.id
                                 if (accountId != null) {
-                                    // 检查是否已存在同名资产记录（防止重复导入）
-                                    val existingRecords = database.assetRecordDao().getRecordsByAccount(accountId).first()
-                                    val isDuplicate = existingRecords.any {
-                                        it.name == name && it.assetType == assetType &&
-                                            kotlin.math.abs(it.quantity - quantity) < 0.0001
-                                    }
-                                    if (isDuplicate) {
-                                        errors.add("行 ${index + 2}: 资产 '$name' 已存在，跳过重复导入")
-                                        return@forEachIndexed
-                                    }
-
-                                    val record = AssetRecord(
-                                        accountId = accountId,
-                                        assetType = assetType,
-                                        riskBucket = riskBucket,
-                                        name = name,
-                                        quantity = quantity,
-                                        cost = cost,
-                                        currentPrice = currentPrice,
-                                        currency = currency
+                                    val code = if (assetType == AssetType.CASH) "" else name
+                                    val result = holdingLedger.upsertSnapshot(
+                                        HoldingSnapshotCommand(
+                                            record = AssetRecord(
+                                                accountId = accountId,
+                                                assetType = assetType,
+                                                riskBucket = riskBucket,
+                                                name = name,
+                                                securityCode = code,
+                                                quantity = quantity,
+                                                cost = cost,
+                                                currentPrice = currentPrice,
+                                                currency = currency
+                                            ),
+                                            sourceType = HoldingSourceType.CSV,
+                                            sourceAccountId = accountId,
+                                            sourceRecordId = "$fileName:${index + 2}",
+                                            importBatchId = fileName,
+                                            sourceFingerprint = "CSV:$accountId:${assetType.name}:$code"
+                                        )
                                     )
-                                    database.assetRecordDao().insert(record)
-
-                                    if (isTradable) {
-                                        val averageCost = cost / quantity
-
-                                        // 补录初始 BUY 流水，与 MainViewModel.addAssetRecord 保持一致
-                                        val buyTransaction = Transaction(
-                                            accountId = accountId,
-                                            symbol = name,
-                                            type = TransactionType.BUY,
-                                            shares = quantity,
-                                            price = averageCost,
-                                            amount = cost,
-                                            currency = currency,
-                                            note = "CSV 导入初始化",
-                                            recordId = record.id
-                                        )
-                                        database.transactionDao().insert(buyTransaction)
-
-                                        // 补录初始价格历史：price/cost 都是单位价格口径
-                                        val priceHistory = PriceHistory(
-                                            recordId = record.id,
-                                            price = currentPrice,
-                                            cost = averageCost
-                                        )
-                                        database.priceHistoryDao().insert(priceHistory)
+                                    if (result is LedgerResult.Error) {
+                                        errors.add("行 ${index + 2}: ${result.message}")
+                                    } else {
+                                        recordsImported++
                                     }
-                                    recordsImported++
                                 } else {
                                     errors.add("行 ${index + 2}: 找不到账户 '$accountName'")
                                 }
@@ -493,31 +464,52 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 val accounts = database.accountDao().getAllAccounts().first()
                                 val accountId = accounts.firstOrNull { it.name == accountName }?.id
                                 if (accountId != null) {
-                                    // 检查是否已存在相同的交易流水（防止重复导入）
-                                    val existingTransactions = database.transactionDao().getTransactionsByAccount(accountId).first()
-                                    val isDuplicate = existingTransactions.any {
-                                        it.symbol == symbol && it.type == type &&
-                                            it.shares != null && shares != null && kotlin.math.abs(it.shares - shares) < 0.0001 &&
-                                            it.price != null && price != null && kotlin.math.abs(it.price - price) < 0.0001 &&
-                                            kotlin.math.abs(it.amount - amount) < 0.0001
+                                    val fingerprint = "CSV_TX:$fileName:${index + 2}"
+                                    val result = when (type) {
+                                        TransactionType.BUY, TransactionType.SELL -> {
+                                            if (symbol.isNullOrBlank() || shares == null || shares <= 0 || price == null || price <= 0) {
+                                                LedgerResult.Error("买卖流水需要证券编码、数量和成交价")
+                                            } else if (kotlin.math.abs(shares * price - amount) > 0.01) {
+                                                LedgerResult.Error("成交金额必须等于数量 × 成交价")
+                                            } else {
+                                                val existing = database.assetRecordDao().getRecordsByAccount(accountId).first()
+                                                    .firstOrNull { it.securityCode.equals(symbol, ignoreCase = true) || it.name.equals(symbol, ignoreCase = true) }
+                                                holdingLedger.recordTrade(
+                                                    HoldingTradeCommand(
+                                                        accountId = accountId,
+                                                        securityCode = symbol,
+                                                        name = existing?.name ?: symbol,
+                                                        assetType = existing?.assetType ?: AssetType.ETF,
+                                                        riskBucket = existing?.riskBucket ?: RiskBucket.AGGRESSIVE,
+                                                        isBuy = type == TransactionType.BUY,
+                                                        quantity = shares,
+                                                        price = price,
+                                                        note = note ?: "CSV 导入交易",
+                                                        origin = TransactionOrigin.CSV_IMPORT,
+                                                        sourceFingerprint = fingerprint
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        TransactionType.DEPOSIT,
+                                        TransactionType.WITHDRAW,
+                                        TransactionType.DIVIDEND,
+                                        TransactionType.FEE,
+                                        TransactionType.TRANSFER_IN,
+                                        TransactionType.TRANSFER_OUT -> holdingLedger.recordCashMovement(
+                                            accountId = accountId,
+                                            amount = amount,
+                                            type = type,
+                                            note = note ?: "CSV 导入${type.name}",
+                                            origin = TransactionOrigin.CSV_IMPORT,
+                                            sourceFingerprint = fingerprint
+                                        )
                                     }
-                                    if (isDuplicate) {
-                                        errors.add("行 ${index + 2}: 交易流水已存在，跳过重复导入")
-                                        return@forEachIndexed
+                                    if (result is LedgerResult.Error) {
+                                        errors.add("行 ${index + 2}: ${result.message}")
+                                    } else {
+                                        transactionsImported++
                                     }
-
-                                    val transaction = Transaction(
-                                        accountId = accountId,
-                                        symbol = symbol,
-                                        type = type,
-                                        shares = shares,
-                                        price = price,
-                                        amount = amount,
-                                        currency = currency,
-                                        note = note
-                                    )
-                                    database.transactionDao().insert(transaction)
-                                    transactionsImported++
                                 } else {
                                     errors.add("行 ${index + 2}: 找不到账户 '$accountName'")
                                 }

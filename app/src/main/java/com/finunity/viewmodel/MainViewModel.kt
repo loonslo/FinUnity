@@ -3,14 +3,13 @@ package com.finunity.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import androidx.room.withTransaction
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
-import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.HoldingSourceType
 import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Settings
@@ -25,28 +24,24 @@ import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.evaluateHoldingRedlines
 import com.finunity.data.model.evaluateDrawdownLadder
 import com.finunity.data.model.evaluateSignalRules
-import com.finunity.data.model.normalizeSecurityCode
-import com.finunity.data.model.HoldingCostState
-import com.finunity.data.model.HoldingTradeCalculation
-import com.finunity.data.model.calculateHoldingTrade
-import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
-import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.data.local.entity.calculateRebalanceRecommendations
 import com.finunity.data.repository.PriceRepository
 import com.finunity.data.repository.RefreshResult
+import com.finunity.data.repository.HoldingLedgerRepository
+import com.finunity.data.repository.HoldingSnapshotCommand
+import com.finunity.data.repository.HoldingTradeCommand
+import com.finunity.data.repository.LedgerResult
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.*
 
 class MainViewModel(
     private val database: AppDatabase,
     private val priceRepository: PriceRepository
 ) : ViewModel() {
+
+    private val holdingLedger = HoldingLedgerRepository(database)
 
     private val _portfolioSummary = MutableStateFlow<PortfolioSummary?>(null)
     val portfolioSummary: StateFlow<PortfolioSummary?> = _portfolioSummary.asStateFlow()
@@ -118,7 +113,9 @@ class MainViewModel(
 
         try {
             val baseCurrency = settings.baseCurrency
-            val calculator = PortfolioCalculator(accounts, positions, assetRecords, priceRepository, baseCurrency)
+            // v17 起 Position 仅作为遗留表保留，所有活跃持仓统一由 AssetRecord 承载。
+            val activePositions = emptyList<Position>()
+            val calculator = PortfolioCalculator(accounts, activePositions, assetRecords, priceRepository, baseCurrency)
 
             // 验证一致性（汇率失败会导致 NaN）
             val consistency = calculator.verifyConsistency()
@@ -241,66 +238,86 @@ class MainViewModel(
         }
     }
 
+    private fun reportLedgerResult(result: LedgerResult) {
+        if (result is LedgerResult.Error) _error.value = result.message
+    }
+
     fun addPosition(position: Position) {
         viewModelScope.launch {
-            database.positionDao().insert(position)
-            // 记录买入交易流水
-            val transaction = Transaction(
-                accountId = position.accountId,
-                symbol = position.symbol,
-                type = TransactionType.BUY,
-                shares = position.shares,
-                price = position.averageCost,
-                amount = position.totalCost,
-                currency = position.currency,
-                note = "买入 ${position.symbol} · ${String.format("%.2f", position.totalCost)} ${position.currency}"
+            reportLedgerResult(
+                holdingLedger.upsertSnapshot(
+                    HoldingSnapshotCommand(
+                        record = AssetRecord(
+                            id = position.id,
+                            accountId = position.accountId,
+                            assetType = AssetType.STOCK,
+                            riskBucket = RiskBucket.AGGRESSIVE,
+                            name = position.symbol,
+                            securityCode = position.symbol,
+                            quantity = position.shares,
+                            cost = position.totalCost,
+                            currentPrice = position.averageCost,
+                            currency = position.currency
+                        ),
+                        sourceType = HoldingSourceType.MANUAL,
+                        sourceAccountId = position.accountId
+                    )
+                )
             )
-            database.transactionDao().insert(transaction)
         }
     }
 
     fun updatePosition(position: Position) {
         viewModelScope.launch {
-            database.positionDao().update(position)
+            val existing = database.assetRecordDao().getRecordById(position.id)
+            if (existing == null) {
+                _error.value = "持仓不存在"
+                return@launch
+            }
+            reportLedgerResult(
+                holdingLedger.upsertSnapshot(
+                    HoldingSnapshotCommand(
+                        record = existing.copy(
+                            name = position.symbol,
+                            securityCode = position.symbol,
+                            quantity = position.shares,
+                            cost = position.totalCost,
+                            currentPrice = position.averageCost,
+                            currency = position.currency
+                        ),
+                        sourceType = existing.sourceType,
+                        sourceAccountId = existing.sourceAccountId,
+                        sourceRecordId = existing.sourceRecordId,
+                        importBatchId = existing.importBatchId,
+                        sourceFingerprint = existing.sourceFingerprint,
+                        syncedAt = existing.syncedAt
+                    )
+                )
+            )
         }
     }
 
     fun deletePosition(positionId: String) {
         viewModelScope.launch {
-            database.positionDao().deleteById(positionId)
+            database.assetRecordDao().deleteById(positionId)
         }
     }
 
     fun addAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
-            // 直接声明持仓，不扣现金（录入=声明已有资产，非"用现金买入"）
-            database.assetRecordDao().insert(record)
-
-            // 为非现金资产记录买入流水和初始价格历史
-            if (record.assetType != AssetType.CASH) {
-                val transaction = Transaction(
-                    accountId = record.accountId,
-                    symbol = record.securityCode.ifBlank { record.name },
-                    type = TransactionType.BUY,
-                    shares = record.quantity,
-                    price = record.averageCost,
-                    amount = record.cost,
-                    currency = record.currency,
-                    note = "录入 ${record.name} · ${String.format("%.2f", record.cost)} ${record.currency}",
-                    recordId = record.id
+            reportLedgerResult(
+                holdingLedger.upsertSnapshot(
+                    HoldingSnapshotCommand(
+                        record = record,
+                        sourceType = record.sourceType,
+                        sourceAccountId = record.sourceAccountId,
+                        sourceRecordId = record.sourceRecordId,
+                        importBatchId = record.importBatchId,
+                        sourceFingerprint = record.sourceFingerprint,
+                        syncedAt = record.syncedAt
+                    )
                 )
-                database.transactionDao().insert(transaction)
-            }
-
-            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                // 写入初始价格历史，记录买入成本作为基准点
-                val priceHistory = PriceHistory(
-                    recordId = record.id,
-                    price = record.currentPrice,
-                    cost = record.averageCost  // 单位成本作为基准
-                )
-                database.priceHistoryDao().insert(priceHistory)
-            }
+            )
         }
     }
 
@@ -310,39 +327,19 @@ class MainViewModel(
      */
     fun buyMoreAssetRecord(recordId: String, addQuantity: Double, buyPrice: Double) {
         viewModelScope.launch {
-            if (addQuantity <= 0 || buyPrice <= 0) {
-                _error.value = "请输入有效的买入数量和单价"
-                return@launch
-            }
             val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
-            val addCost = addQuantity * buyPrice
-            val updated = record.copy(
-                quantity = record.quantity + addQuantity,
-                cost = record.cost + addCost,
-                // 手动资产以最新一次买入价作为最新价，体现到概览/盈亏/价格曲线
-                currentPrice = buyPrice,
-                updatedAt = System.currentTimeMillis()
-            )
-            database.assetRecordDao().update(updated)
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = record.accountId,
-                    symbol = record.securityCode.ifBlank { record.name },
-                    type = TransactionType.BUY,
-                    shares = addQuantity,
-                    price = buyPrice,
-                    amount = addCost,
-                    currency = record.currency,
-                    note = "买入 ${record.name} · ${String.format("%.2f", addCost)} ${record.currency}",
-                    recordId = record.id
-                )
-            )
-            // 记录本次买入价到价格曲线（price=买入价，cost=最新均价）
-            database.priceHistoryDao().insert(
-                PriceHistory(
-                    recordId = record.id,
-                    price = buyPrice,
-                    cost = updated.averageCost
+            reportLedgerResult(
+                holdingLedger.recordTrade(
+                    HoldingTradeCommand(
+                        accountId = record.accountId,
+                        securityCode = record.securityCode.ifBlank { record.name },
+                        name = record.name,
+                        assetType = record.assetType,
+                        riskBucket = record.riskBucket,
+                        isBuy = true,
+                        quantity = addQuantity,
+                        price = buyPrice
+                    )
                 )
             )
         }
@@ -364,148 +361,45 @@ class MainViewModel(
         price: Double,
         riskBucket: RiskBucket,
         timestamp: Long = System.currentTimeMillis()
-    ): String? = withContext(Dispatchers.IO) {
-        val code = securityCode.trim()
-        val displayName = name.trim()
-        if (accountId.isBlank()) return@withContext "请选择成交账户"
-        if (code.isBlank()) return@withContext "请填写证券编码"
-        if (displayName.isBlank()) return@withContext "请填写持仓名称"
-        if (quantity <= 0.0 || price <= 0.0) return@withContext "数量和成交价必须大于 0"
-
-        val account = database.accountDao().getAccountById(accountId)
-            ?: return@withContext "成交账户不存在"
-        val normalizedCode = normalizeSecurityCode(code)
-
-        database.withTransaction {
-            val existing = database.assetRecordDao().getAllRecords().firstOrNull {
-                it.accountId == accountId &&
-                    normalizeSecurityCode(it.securityCode.ifBlank { it.name }) == normalizedCode
-            }
-
-            val calculation = calculateHoldingTrade(
-                existing = existing?.let { HoldingCostState(it.quantity, it.cost) },
+    ): String? = when (
+        val result = holdingLedger.recordTrade(
+            HoldingTradeCommand(
+                accountId = accountId,
+                securityCode = securityCode,
+                name = name,
+                assetType = AssetType.ETF,
+                riskBucket = riskBucket,
                 isBuy = isBuy,
                 quantity = quantity,
-                price = price
+                price = price,
+                timestamp = timestamp
             )
-            if (calculation is HoldingTradeCalculation.Error) {
-                return@withTransaction when {
-                    !isBuy && existing == null -> "该账户没有编码 $code 的可卖持仓"
-                    !isBuy && existing != null && quantity > existing.quantity -> "超出可卖数量（当前 ${formatQuantity(existing.quantity)}）"
-                    else -> calculation.message
-                }
-            }
-            val nextState = (calculation as HoldingTradeCalculation.Success).state
-
-            val record = if (isBuy) {
-                if (existing == null) {
-                    AssetRecord(
-                        accountId = accountId,
-                        assetType = AssetType.ETF,
-                        riskBucket = riskBucket,
-                        name = displayName,
-                        securityCode = code,
-                        quantity = nextState!!.quantity,
-                        cost = nextState.totalCost,
-                        currentPrice = price,
-                        currency = account.currency
-                    ).also { database.assetRecordDao().insert(it) }
-                } else {
-                    existing.copy(
-                        name = displayName,
-                        securityCode = code,
-                        quantity = nextState!!.quantity,
-                        cost = nextState.totalCost,
-                        currentPrice = price,
-                        updatedAt = System.currentTimeMillis()
-                    ).also { database.assetRecordDao().update(it) }
-                }
-            } else {
-                val recordToSell = existing ?: return@withTransaction "该账户没有编码 $code 的可卖持仓"
-                if (nextState == null) {
-                    database.assetRecordDao().deleteById(recordToSell.id)
-                } else {
-                    database.assetRecordDao().update(
-                        recordToSell.copy(
-                            quantity = nextState.quantity,
-                            cost = nextState.totalCost,
-                            currentPrice = price,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
-                }
-                recordToSell
-            }
-
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = accountId,
-                    symbol = code,
-                    type = if (isBuy) TransactionType.BUY else TransactionType.SELL,
-                    shares = quantity,
-                    price = price,
-                    amount = quantity * price,
-                    currency = account.currency,
-                    timestamp = timestamp,
-                    note = "${if (isBuy) "买入" else "卖出"} $displayName · $code",
-                    recordId = record.id
-                )
-            )
-            null
-        }
+        )
+    ) {
+        is LedgerResult.Error -> result.message
+        is LedgerResult.Success -> null
     }
-
-    private fun formatQuantity(quantity: Double): String =
-        String.format(Locale.US, "%.4f", quantity).trimEnd('0').trimEnd('.')
 
     fun updateAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
             val existing = database.assetRecordDao().getRecordById(record.id)
-            if (existing != null) {
-                val existingIsCash = existing.assetType == AssetType.CASH
-                val nextIsCash = record.assetType == AssetType.CASH
-                if (!nextIsCash) {
-                    val cashDelta = when {
-                        existingIsCash -> -record.cost
-                        existing.currency != record.currency -> {
-                            _error.value = "暂不支持修改持仓币种后自动调整现金"
-                            return@launch
-                        }
-                        else -> existing.cost - record.cost
-                    }
-                    if (kotlin.math.abs(cashDelta) >= 0.01) {
-                        val success = adjustCashAsset(record.accountId, cashDelta, record.currency)
-                        if (!success) return@launch
-                        val transactionType = if (cashDelta < 0) TransactionType.BUY else TransactionType.SELL
-                        database.transactionDao().insert(
-                            Transaction(
-                                accountId = record.accountId,
-                                symbol = record.name,
-                                type = transactionType,
-                                shares = null,
-                                price = null,
-                                amount = kotlin.math.abs(cashDelta),
-                                currency = record.currency,
-                                note = if (cashDelta < 0) "追加买入 ${record.name} · ${String.format("%.2f", kotlin.math.abs(cashDelta))} ${record.currency}" else "调减 ${record.name} 成本 · ${String.format("%.2f", kotlin.math.abs(cashDelta))} ${record.currency}",
-                                recordId = record.id
-                            )
-                        )
-                    }
-                }
+            if (existing == null) {
+                _error.value = "资产记录不存在"
+                return@launch
             }
-
-            // 如果是股票/ETF/基金且价格有变化，保存价格历史
-            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                if (existing != null && existing.currentPrice != record.currentPrice) {
-                    val priceHistory = PriceHistory(
-                        recordId = record.id,
-                        price = record.currentPrice,
-                        cost = existing.averageCost  // 使用单位成本（平均成本），与 price 对应
+            reportLedgerResult(
+                holdingLedger.upsertSnapshot(
+                    HoldingSnapshotCommand(
+                        record = record,
+                        sourceType = existing.sourceType,
+                        sourceAccountId = existing.sourceAccountId,
+                        sourceRecordId = existing.sourceRecordId,
+                        importBatchId = existing.importBatchId,
+                        sourceFingerprint = existing.sourceFingerprint,
+                        syncedAt = existing.syncedAt
                     )
-                    database.priceHistoryDao().insert(priceHistory)
-                }
-            }
-            database.assetRecordDao().update(record)
+                )
+            )
         }
     }
 
@@ -538,18 +432,9 @@ class MainViewModel(
 
     fun recordCashIn(accountId: String, amount: Double, note: String? = null) {
         viewModelScope.launch {
-            adjustCashAsset(accountId, amount)
-            val account = database.accountDao().getAccountById(accountId) ?: return@launch
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = accountId,
-                    symbol = null,
-                    type = TransactionType.DEPOSIT,
-                    shares = null,
-                    price = null,
-                    amount = amount,
-                    currency = account.currency,
-                    note = note?.ifBlank { null } ?: "入金"
+            reportLedgerResult(
+                holdingLedger.recordCashMovement(
+                    accountId, amount, TransactionType.DEPOSIT, note?.ifBlank { null } ?: "入金"
                 )
             )
         }
@@ -557,19 +442,9 @@ class MainViewModel(
 
     fun recordCashOut(accountId: String, amount: Double, note: String? = null) {
         viewModelScope.launch {
-            val account = database.accountDao().getAccountById(accountId) ?: return@launch
-            val success = adjustCashAsset(accountId, -amount)
-            if (!success) return@launch
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = accountId,
-                    symbol = null,
-                    type = TransactionType.WITHDRAW,
-                    shares = null,
-                    price = null,
-                    amount = amount,
-                    currency = account.currency,
-                    note = note?.ifBlank { null } ?: "出金"
+            reportLedgerResult(
+                holdingLedger.recordCashMovement(
+                    accountId, amount, TransactionType.WITHDRAW, note?.ifBlank { null } ?: "出金"
                 )
             )
         }
@@ -577,93 +452,10 @@ class MainViewModel(
 
     fun transferCash(fromAccountId: String, toAccountId: String, amount: Double, note: String? = null) {
         viewModelScope.launch {
-            val fromAccount = database.accountDao().getAccountById(fromAccountId) ?: return@launch
-            val toAccount = database.accountDao().getAccountById(toAccountId) ?: return@launch
-            if (fromAccount.currency != toAccount.currency) {
-                _error.value = "暂不支持不同币种账户转账"
-                return@launch
-            }
-            val success = adjustCashAsset(fromAccountId, -amount)
-            if (!success) return@launch
-            adjustCashAsset(toAccountId, amount)
-            val userNote = note?.ifBlank { null }
-            val outNote = buildString {
-                append("转出至 ${toAccount.name} · ${String.format("%.2f", amount)} ${fromAccount.currency}")
-                if (userNote != null) append("（$userNote）")
-            }
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = fromAccountId,
-                    symbol = null,
-                    type = TransactionType.TRANSFER_OUT,
-                    shares = null,
-                    price = null,
-                    amount = amount,
-                    currency = fromAccount.currency,
-                    note = outNote
-                )
-            )
-            database.transactionDao().insert(
-                Transaction(
-                    accountId = toAccountId,
-                    symbol = null,
-                    type = TransactionType.TRANSFER_IN,
-                    shares = null,
-                    price = null,
-                    amount = amount,
-                    currency = toAccount.currency,
-                    note = buildString {
-                        append("来自 ${fromAccount.name} 转入 · ${String.format("%.2f", amount)} ${toAccount.currency}")
-                        if (userNote != null) append("（$userNote）")
-                    }
-                )
+            reportLedgerResult(
+                holdingLedger.transferCash(fromAccountId, toAccountId, amount, note?.ifBlank { null })
             )
         }
-    }
-
-    private suspend fun adjustCashAsset(accountId: String, delta: Double, currency: String? = null): Boolean {
-        val account = database.accountDao().getAccountById(accountId) ?: return false
-        val cashCurrency = currency ?: account.currency
-        val records = database.assetRecordDao().getAllRecords().first()
-        val existing = records.firstOrNull {
-            it.accountId == accountId &&
-                it.assetType == AssetType.CASH &&
-                it.currency == cashCurrency &&
-                it.name == "现金"
-        }
-        val currentAmount = existing?.currentValue ?: 0.0
-        val nextAmount = currentAmount + delta
-        if (nextAmount < -0.01) {
-            _error.value = "${account.name} ${cashCurrency} 现金余额不足，请先记一笔入金或调低买入金额"
-            return false
-        }
-        if (existing == null) {
-            if (nextAmount <= 0.0) return true
-            database.assetRecordDao().insert(
-                AssetRecord(
-                    accountId = accountId,
-                    assetType = AssetType.CASH,
-                    riskBucket = RiskBucket.CASH,
-                    name = "现金",
-                    quantity = nextAmount,
-                    cost = nextAmount,
-                    currentPrice = 1.0,
-                    currency = cashCurrency
-                )
-            )
-        } else if (nextAmount <= 0.01) {
-            database.assetRecordDao().deleteById(existing.id)
-        } else {
-            database.assetRecordDao().update(
-                existing.copy(
-                    quantity = nextAmount,
-                    cost = nextAmount,
-                    currentPrice = 1.0,
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
-        }
-        return true
     }
 
     /**
@@ -680,73 +472,25 @@ class MainViewModel(
     ) {
         viewModelScope.launch {
             val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
-
-            // 超额卖出返回错误
-            if (sellQuantity != null && sellQuantity > record.quantity) {
-                _error.value = "卖出数量 ${sellQuantity} 超过可用数量 ${record.quantity}"
-                return@launch
-            }
-
             val quantityToSell = sellQuantity ?: record.quantity
-
-            // 校验卖出数量
-            if (quantityToSell <= 0) return@launch
-
-            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
             val actualPrice = sellPrice?.takeIf { it > 0.0 } ?: record.currentPrice
-            val sellAmount = quantityToSell * actualPrice
-            val safeFee = fee.coerceAtLeast(0.0).coerceAtMost(sellAmount)
-                // 记录卖出流水
-                val transaction = Transaction(
-                    accountId = record.accountId,
-                    symbol = record.securityCode.ifBlank { record.name },
-                    type = TransactionType.SELL,
-                    shares = quantityToSell,
-                    price = actualPrice,
-                    amount = sellAmount,
-                    currency = record.currency,
-                    timestamp = timestamp,
-                    note = buildString {
-                        append("卖出 ${record.name} · ${String.format("%.2f", sellAmount)} ${record.currency}")
-                        if (!note.isNullOrBlank()) append("（${note.trim()}）")
-                    },
-                    recordId = record.id  // 精确追溯
-                )
-                database.transactionDao().insert(transaction)
-                if (safeFee > 0.0) {
-                    database.transactionDao().insert(
-                        Transaction(
-                            accountId = record.accountId,
-                            symbol = record.securityCode.ifBlank { record.name },
-                            type = TransactionType.FEE,
-                            shares = null,
-                            price = null,
-                            amount = safeFee,
-                            currency = record.currency,
-                            timestamp = timestamp,
-                            note = "卖出 ${record.name} 费用 · ${String.format("%.2f", safeFee)} ${record.currency}",
-                            recordId = record.id
-                        )
+            reportLedgerResult(
+                holdingLedger.recordTrade(
+                    HoldingTradeCommand(
+                        accountId = record.accountId,
+                        securityCode = record.securityCode.ifBlank { record.name },
+                        name = record.name,
+                        assetType = record.assetType,
+                        riskBucket = record.riskBucket,
+                        isBuy = false,
+                        quantity = quantityToSell,
+                        price = actualPrice,
+                        fee = fee,
+                        timestamp = timestamp,
+                        note = note?.takeIf { it.isNotBlank() }
                     )
-                }
-                adjustCashAsset(record.accountId, sellAmount - safeFee, record.currency)
-            }
-
-            // 删除或部分删除记录
-            val remainingQty = record.quantity - quantityToSell
-            if (remainingQty <= 0) {
-                database.assetRecordDao().deleteById(recordId)
-            } else {
-                // 按比例结转成本：remaining_cost = (remaining_qty / original_qty) * original_cost
-                val costPerUnit = record.cost / record.quantity
-                val remainingCost = remainingQty * costPerUnit
-                val updated = record.copy(
-                    quantity = remainingQty,
-                    cost = remainingCost,
-                    updatedAt = System.currentTimeMillis()
                 )
-                database.assetRecordDao().update(updated)
-            }
+            )
         }
     }
 
@@ -756,46 +500,27 @@ class MainViewModel(
      */
     fun sellPosition(positionId: String, sharesToSell: Double) {
         viewModelScope.launch {
-            if (sharesToSell <= 0) {
-                _error.value = "卖出数量必须大于 0"
-                return@launch
-            }
-            val position = database.positionDao().getPositionById(positionId)
-            if (position == null) {
+            val record = database.assetRecordDao().getRecordById(positionId)
+            if (record == null) {
                 _error.value = "持仓不存在"
                 return@launch
             }
-            if (sharesToSell > position.shares) {
-                _error.value = "卖出数量 ${sharesToSell} 超过持仓数量 ${position.shares}"
-                return@launch
-            }
-
-            val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-            val sellAmount = sharesToSell * currentPrice
-
-            // 记录卖出交易流水
-            val transaction = Transaction(
-                accountId = position.accountId,
-                symbol = position.symbol,
-                type = TransactionType.SELL,
-                shares = sharesToSell,
-                price = currentPrice,
-                amount = sellAmount,
-                currency = position.currency,
-                note = "卖出 ${position.symbol} · ${String.format("%.2f", sellAmount)} ${position.currency}"
+            val marketPrice = priceRepository.getPrice(record.securityCode.ifBlank { record.name })?.price
+                ?: record.currentPrice
+            reportLedgerResult(
+                holdingLedger.recordTrade(
+                    HoldingTradeCommand(
+                        accountId = record.accountId,
+                        securityCode = record.securityCode.ifBlank { record.name },
+                        name = record.name,
+                        assetType = record.assetType,
+                        riskBucket = record.riskBucket,
+                        isBuy = false,
+                        quantity = sharesToSell,
+                        price = marketPrice
+                    )
+                )
             )
-            database.transactionDao().insert(transaction)
-
-            // 更新持仓数量和成本
-            val newShares = position.shares - sharesToSell
-            val costPerShare = position.totalCost / position.shares
-            val newTotalCost = newShares * costPerShare
-            if (newShares <= 0) {
-                database.positionDao().deleteById(positionId)
-            } else {
-                val updated = position.copy(shares = newShares, totalCost = newTotalCost)
-                database.positionDao().update(updated)
-            }
         }
     }
 
@@ -824,28 +549,23 @@ class MainViewModel(
             // 获取所有账户涉及的非基准货币
             val accounts = database.accountDao().getAllAccounts().first()
             val allAssetRecords = database.assetRecordDao().getAllRecords().first()
-            val allPositions = database.positionDao().getAllPositions().first()
 
-            // 收集所有涉及的币种：账户币种 + 资产记录币种 + 持仓币种
+            // Position 仅保留为旧版本兼容表；价格和汇率都以 AssetRecord 为准。
             val currencies = (accounts.map { it.currency } +
-                    allAssetRecords.map { it.currency } +
-                    allPositions.map { it.currency })
+                    allAssetRecords.map { it.currency })
                 .distinct()
                 .filter { it != baseCurrency }
             val rates = currencies.associate { "${it}${baseCurrency}" to 1.0 }
 
-            // 获取旧 Position 的股票代码（使用 allPositions）
-            val positions = allPositions.map { it.symbol }.distinct()
-
-            // 优先使用显式证券编码；旧记录回退到名称，兼容历史数据。
-            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name)
+            // 基金也可使用显式代码刷新；不受 Yahoo 支持的代码会保留缓存价格并报告失败。
+            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name, AssetType.FUND.name)
             val assetRecordCodes = allAssetRecords
                 .filter { it.assetType.name in tradableTypes }
                 .map { record -> record.securityCode.ifBlank { record.name } }
                 .distinct()
 
             // 合并所有需要刷新的代码
-            val allSymbols = (positions + assetRecordCodes).distinct()
+            val allSymbols = assetRecordCodes
 
             // 批量刷新价格
             val result = priceRepository.refreshAllPrices(allSymbols, rates)
@@ -883,8 +603,7 @@ class MainViewModel(
             val allocationTargets = database.allocationTargetDao().getAllTargets().first()
             val snapshots = database.assetSnapshotDao().getAllSnapshots().first()
 
-            // 重新计算（allPositions 和 updatedAssetRecords 已在前面获取）
-            calculatePortfolio(accounts, allPositions, updatedAssetRecords, allocationTargets, settings, snapshots)
+            calculatePortfolio(accounts, emptyList(), updatedAssetRecords, allocationTargets, settings, snapshots)
 
             // 如果有部分失败但整体没抛异常，仍提示用户
             if (failureMessages.isNotEmpty()) {

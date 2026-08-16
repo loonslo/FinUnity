@@ -20,7 +20,7 @@ import java.util.UUID
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["accountId"]), Index(value = ["symbol"]), Index(value = ["recordId"])]
+    indices = [Index(value = ["accountId"]), Index(value = ["symbol"]), Index(value = ["recordId"]), Index(value = ["sourceFingerprint"])]
 )
 data class Transaction(
     @PrimaryKey
@@ -35,7 +35,10 @@ data class Transaction(
     val timestamp: Long = System.currentTimeMillis(),
     val note: String? = null,        // 备注
     val recordId: String? = null,    // 关联的资产记录 ID（可选，用于精确追溯）
-    val balanceAfter: Double? = null // 交易后余额（用于审计追溯，可为空表示未记录）
+    val balanceAfter: Double? = null, // 交易后余额（用于审计追溯，可为空表示未记录）
+    val origin: TransactionOrigin = TransactionOrigin.TRADE,
+    /** Stable external identifier used to make imported rows safe to retry. */
+    val sourceFingerprint: String = ""
 )
 
 enum class TransactionType {

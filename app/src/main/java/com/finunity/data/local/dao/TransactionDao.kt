@@ -19,6 +19,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE recordId = :recordId ORDER BY timestamp DESC")
     fun getTransactionsByRecordId(recordId: String): Flow<List<Transaction>>
 
+    @Query("SELECT * FROM transactions WHERE sourceFingerprint = :sourceFingerprint LIMIT 1")
+    suspend fun getBySourceFingerprint(sourceFingerprint: String): Transaction?
+
     /**
      * 计算交易流水推导余额。
      * 当前只作为审计核对，不参与总资产统计。

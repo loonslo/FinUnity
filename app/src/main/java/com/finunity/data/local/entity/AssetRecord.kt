@@ -42,7 +42,13 @@ data class AssetRecord(
     val premiumRate: Double? = null,          // 场内溢价率，小数表示（手动输入）
     val locked: Boolean = false,              // 锁定专款（生存层/嫁妆等），不计入可投策略盘、不参与再平衡建议
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val sourceType: HoldingSourceType = HoldingSourceType.MANUAL,
+    val sourceAccountId: String = "",
+    val sourceRecordId: String = "",
+    val importBatchId: String = "",
+    val sourceFingerprint: String = "",
+    val syncedAt: Long? = null
 ) {
     /**
      * 当前市值 = 数量 * 当前价格
