@@ -25,6 +25,8 @@ data class PortfolioSummary(
     val assetRecords: List<AssetRecordSummary>,
     val holdings: List<HoldingSummary>,
     val positions: List<PositionSummary>,
+    /** 所有 Position + AssetRecord 按证券编码合并后的统一持仓。 */
+    val mergedHoldings: List<MergedHoldingSummary> = emptyList(),
     val landingPoints: List<LandingPoint> = emptyList(), // 落点跟踪（子桶级目标 vs 现有）
     val holdingRedlineAlerts: List<RiskAlert> = emptyList(), // 标的/行业/训练仓/黄金/个股亏损红线
     val signalAlerts: List<RiskAlert> = emptyList(),

@@ -7,47 +7,45 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
-import com.finunity.data.local.entity.displayName
 import com.finunity.data.local.entity.Position
-import com.finunity.data.model.AccountSummary
-import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.repository.CsvImportRepository
 import com.finunity.data.repository.HistoryRepository
 import com.finunity.data.local.entity.AssetRecord
+import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.RiskBucket
 import com.finunity.ui.screens.AccountScreen
 import com.finunity.ui.screens.AccountAssetsByAccountScreen
 import com.finunity.ui.screens.AccountDetailScreen
-import com.finunity.ui.screens.AccountHubScreen
 import com.finunity.ui.screens.AmountVisibility
 import com.finunity.ui.screens.AssetRecordScreen
 import com.finunity.ui.screens.AssetDetailScreen
 import com.finunity.ui.screens.CashFlowScreen
 import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.MainScreen
-import com.finunity.ui.screens.formatCurrency
 import com.finunity.ui.screens.PositionScreen
 import com.finunity.ui.screens.PriceChangeScreen
 import com.finunity.ui.screens.PriceHistoryScreen
+import com.finunity.ui.screens.PrototypeAccountsScreen
+import com.finunity.ui.screens.PrototypeAddSourceScreen
+import com.finunity.ui.screens.PrototypeAllocationScreen
+import com.finunity.ui.screens.PrototypeBottomBar
+import com.finunity.ui.screens.PrototypeBucket
+import com.finunity.ui.screens.PrototypeHoldingsScreen
+import com.finunity.ui.screens.PrototypeFlowsScreen
+import com.finunity.ui.screens.PrototypeManualEntryScreen
+import com.finunity.ui.screens.PrototypeOcrImportScreen
+import com.finunity.ui.screens.PrototypeOverviewScreen
+import com.finunity.ui.screens.PrototypeTab
+import com.finunity.ui.screens.PrototypeTradeEntryScreen
 import com.finunity.ui.screens.SettingsScreen
 import com.finunity.ui.screens.RiskBucketDetailScreen
 import com.finunity.ui.screens.TransactionHistoryScreen
@@ -62,6 +60,8 @@ import com.finunity.worker.SnapshotWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.finunity.data.local.entity.parseTargetAllocation
+import com.finunity.data.model.normalizeSecurityCode
 
 class MainActivity : ComponentActivity() {
 
@@ -113,6 +113,13 @@ class MainActivity : ComponentActivity() {
 
 sealed class Screen {
     data object Main : Screen()
+    data object Holdings : Screen()
+    data object Flows : Screen()
+    data object Allocation : Screen()
+    data object AddSource : Screen()
+    data object OcrImport : Screen()
+    data object ManualImport : Screen()
+    data object TradeEntry : Screen()
     data object Settings : Screen()
     data object Planning : Screen()
     data object MonthlyReview : Screen()
@@ -145,9 +152,11 @@ sealed class Screen {
 }
 
 private enum class TopLevelTab {
-    Main,
-    Ledger,
-    Mine
+    Overview,
+    Holdings,
+    Flows,
+    Allocation,
+    Accounts
 }
 
 @Composable
@@ -168,7 +177,6 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
     }
     var currentScreen by remember { mutableStateOf<Screen>(initialScreen) }
     var navStack by remember { mutableStateOf(listOf<Screen>()) }
-    var showAccountPicker by remember { mutableStateOf(false) }
     var pendingNewAccount by remember { mutableStateOf<Account?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -215,40 +223,27 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
         }
     }
 
-    // 账户选择对话框
-    if (showAccountPicker) {
-        AccountPickerDialog(
-            accounts = portfolioSummary?.accounts ?: emptyList(),
-            baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-            onSelect = { accountId ->
-                showAccountPicker = false
-                currentScreen = Screen.AddAssetRecord(record = null, accountId = accountId)
-            },
-            onCreateAccount = {
-                showAccountPicker = false
-                currentScreen = Screen.AddAccount(continueToAsset = true)
-            },
-            onDismiss = { showAccountPicker = false }
-        )
-    }
-
     fun startAddFlow() {
-        val accounts = portfolioSummary?.accounts.orEmpty()
-        if (accounts.isEmpty()) {
-            navigateTo(Screen.AddAccount(null, continueToAsset = true))
-        } else {
-            showAccountPicker = true
-        }
+        // 原型要求所有新增数据先经过统一的三种接入方式入口。
+        navigateTo(Screen.AddSource)
     }
 
     val bottomBar: @Composable (TopLevelTab) -> Unit = { selected ->
-        FinUnityBottomBar(
-            selected = selected,
+        PrototypeBottomBar(
+            selected = when (selected) {
+                TopLevelTab.Overview -> PrototypeTab.Overview
+                TopLevelTab.Holdings -> PrototypeTab.Holdings
+                TopLevelTab.Flows -> PrototypeTab.Flows
+                TopLevelTab.Allocation -> PrototypeTab.Allocation
+                TopLevelTab.Accounts -> PrototypeTab.Accounts
+            },
             onSelect = { tab ->
                 switchTopLevel(when (tab) {
-                    TopLevelTab.Main -> Screen.Main
-                    TopLevelTab.Ledger -> Screen.AccountHub
-                    TopLevelTab.Mine -> Screen.AccountAssetsByAccount
+                    PrototypeTab.Overview -> Screen.Main
+                    PrototypeTab.Holdings -> Screen.Holdings
+                    PrototypeTab.Flows -> Screen.Flows
+                    PrototypeTab.Allocation -> Screen.Allocation
+                    PrototypeTab.Accounts -> Screen.AccountHub
                 })
             }
         )
@@ -257,24 +252,162 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
     Box(modifier = Modifier.fillMaxSize()) {
         when (val screen = currentScreen) {
             is Screen.Main -> {
-                MainScreen(
+                PrototypeOverviewScreen(
                     portfolioSummary = portfolioSummary,
                     isLoading = isLoading,
-                    error = error,
                     lastPriceUpdated = lastPriceUpdated,
-                    monthlyChange = monthlyChange,
-                    onboarded = settings.onboarded,
                     onStartAddFlow = { startAddFlow() },
-                    onEditAccount = { account ->
-                        navigateTo(Screen.AccountDetail(account.id))
-                    },
-                    onViewRiskBucketDetail = { bucketIndex ->
-                        navigateTo(Screen.RiskBucketDetail(bucketIndex))
-                    },
-                    onViewAccounts = { switchTopLevel(Screen.AccountHub) },
                     onRefreshPrices = { scope.launch { viewModel.refreshPrices() } },
-                    onOpenPlanning = { navigateTo(Screen.Planning) },
-                    bottomBar = { bottomBar(TopLevelTab.Main) }
+                    bottomBar = { bottomBar(TopLevelTab.Overview) }
+                )
+            }
+
+            is Screen.Holdings -> {
+                PrototypeHoldingsScreen(
+                    portfolioSummary = portfolioSummary,
+                    onOpenAsset = { key ->
+                        val asset = portfolioSummary?.assetRecords?.firstOrNull {
+                            normalizeSecurityCode(it.record.securityCode.ifBlank { it.record.name }) == key ||
+                                it.record.name.equals(key, ignoreCase = true)
+                        }
+                        if (asset != null) navigateTo(Screen.AssetDetail(asset.record.id))
+                    },
+                    bottomBar = { bottomBar(TopLevelTab.Holdings) }
+                )
+            }
+
+            is Screen.Flows -> {
+                PrototypeFlowsScreen(
+                    transactions = allTransactions,
+                    accounts = portfolioSummary?.accounts ?: emptyList(),
+                    baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+                    onRecordTrade = {
+                        if (portfolioSummary?.accounts.isNullOrEmpty()) {
+                            showMessage("请先添加成交账户")
+                            startAddFlow()
+                        } else {
+                            navigateTo(Screen.TradeEntry)
+                        }
+                    },
+                    bottomBar = { bottomBar(TopLevelTab.Flows) }
+                )
+            }
+
+            is Screen.Allocation -> {
+                PrototypeAllocationScreen(
+                    portfolioSummary = portfolioSummary,
+                    onSave = { values ->
+                        val old = parseTargetAllocation(settings.targetAllocation)
+                        val oldStable = (old["CONSERVATIVE"] ?: 0.0) + (old["INSURANCE"] ?: 0.0)
+                        val insuranceShare = if (oldStable > 0) (old["INSURANCE"] ?: 0.0) / oldStable else 0.0
+                        val stable = values[PrototypeBucket.BALANCED] ?: 0f
+                        val defensive = values[PrototypeBucket.DEFENSIVE] ?: 0f
+                        val aggressive = values[PrototypeBucket.AGGRESSIVE] ?: 0f
+                        val conservative = stable * (1f - insuranceShare.toFloat())
+                        val insurance = stable * insuranceShare.toFloat()
+                        viewModel.updateSettings(settings.copy(targetAllocation = "CASH:$defensive,CONSERVATIVE:$conservative,AGGRESSIVE:$aggressive,INSURANCE:$insurance"))
+                    },
+                    onSaved = { showMessage("目标配置已保存") },
+                    bottomBar = { bottomBar(TopLevelTab.Allocation) }
+                )
+            }
+
+            is Screen.AddSource -> {
+                PrototypeAddSourceScreen(
+                    accounts = portfolioSummary?.accounts ?: emptyList(),
+                    onBack = { navigateBack() },
+                    onBrokerConnect = { account ->
+                        viewModel.addAccount(account)
+                        showMessage("${account.name} 已接入")
+                        navigateBack()
+                    },
+                    onScreenshot = {
+                        if (portfolioSummary?.accounts.isNullOrEmpty()) {
+                            showMessage("请先创建一个归属账户")
+                            navigateTo(Screen.AddAccount(continueToAsset = true))
+                        } else {
+                            navigateTo(Screen.OcrImport)
+                        }
+                    },
+                    onManual = {
+                        if (portfolioSummary?.accounts.isNullOrEmpty()) {
+                            showMessage("请先创建一个归属账户")
+                            navigateTo(Screen.AddAccount(continueToAsset = true))
+                        } else {
+                            navigateTo(Screen.ManualImport)
+                        }
+                    }
+                )
+            }
+
+            is Screen.OcrImport -> {
+                PrototypeOcrImportScreen(
+                    accounts = portfolioSummary?.accounts ?: emptyList(),
+                    onBack = { navigateBack() },
+                    onImport = { accountId, rows ->
+                        rows.forEach { row ->
+                            val currentPrice = if (row.quantity > 0) row.marketValue / row.quantity else 0.0
+                            viewModel.addAssetRecord(
+                                AssetRecord(
+                                    accountId = accountId,
+                                    assetType = AssetType.ETF,
+                                    riskBucket = RiskBucket.AGGRESSIVE,
+                                    name = row.name,
+                                    securityCode = row.securityCode,
+                                    quantity = row.quantity,
+                                    cost = row.marketValue,
+                                    currentPrice = currentPrice,
+                                    currency = "CNY"
+                                )
+                            )
+                        }
+                        showMessage("已导入 ${rows.size} 项持仓")
+                        navigateBack()
+                    }
+                )
+            }
+
+            is Screen.ManualImport -> {
+                PrototypeManualEntryScreen(
+                    accounts = portfolioSummary?.accounts ?: emptyList(),
+                    onBack = { navigateBack() },
+                    onSave = { record ->
+                        viewModel.addAssetRecord(record)
+                        showMessage("持仓已加入汇总")
+                        navigateBack()
+                    }
+                )
+            }
+
+            is Screen.TradeEntry -> {
+                PrototypeTradeEntryScreen(
+                    accounts = portfolioSummary?.accounts ?: emptyList(),
+                    holdings = portfolioSummary?.mergedHoldings ?: emptyList(),
+                    onBack = { navigateBack() },
+                    onSave = { isBuy, accountId, name, securityCode, quantity, price, bucket, timestamp ->
+                        scope.launch {
+                            val errorMessage = viewModel.recordTradeBySecurityCode(
+                                accountId = accountId,
+                                securityCode = securityCode,
+                                name = name,
+                                isBuy = isBuy,
+                                quantity = quantity,
+                                price = price,
+                                riskBucket = when (bucket) {
+                                    PrototypeBucket.DEFENSIVE -> RiskBucket.CASH
+                                    PrototypeBucket.BALANCED -> RiskBucket.CONSERVATIVE
+                                    PrototypeBucket.AGGRESSIVE -> RiskBucket.AGGRESSIVE
+                                },
+                                timestamp = timestamp
+                            )
+                            if (errorMessage == null) {
+                                showMessage(if (isBuy) "买入流水已记录" else "卖出流水已记录")
+                                navigateBack()
+                            } else {
+                                showMessage(errorMessage)
+                            }
+                        }
+                    }
                 )
             }
 
@@ -286,7 +419,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 onViewAssetHistory = { recordId ->
                     navigateTo(Screen.AssetDetail(recordId))
                 },
-                bottomBar = { bottomBar(TopLevelTab.Ledger) }
+                bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
 
@@ -373,19 +506,11 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
         }
 
         is Screen.AccountHub -> {
-            val amountsVisible = settings.amountsVisible
-            AccountHubScreen(
-                accounts = portfolioSummary?.accounts ?: emptyList(),
-                assetRecords = portfolioSummary?.assetRecords ?: emptyList(),
-                holdings = portfolioSummary?.holdings ?: emptyList(),
-                baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
+            PrototypeAccountsScreen(
+                portfolioSummary = portfolioSummary,
                 onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
-                onAddAccount = { navigateTo(Screen.AddAccount(null, continueToAsset = false)) },
-                onOpenTransactions = { navigateTo(Screen.AllTransactions) },
-                onOpenPriceChanges = { navigateTo(Screen.PriceChanges) },
-                amountsVisible = amountsVisible,
-                onToggleAmounts = { viewModel.toggleAmountsVisible() },
-                bottomBar = { bottomBar(TopLevelTab.Ledger) }
+                onAddSource = { navigateTo(Screen.AddSource) },
+                bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
 
@@ -396,7 +521,7 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
                 onOpenSettings = { navigateTo(Screen.Settings) },
                 onOpenBackup = { navigateTo(Screen.Backup) },
-                bottomBar = { bottomBar(TopLevelTab.Mine) }
+                bottomBar = { bottomBar(TopLevelTab.Accounts) }
             )
         }
 
@@ -665,95 +790,4 @@ fun FinUnityApp(database: AppDatabase, openScreen: String? = null) {
                 .padding(16.dp)
         )
     }
-}
-
-@Composable
-private fun FinUnityBottomBar(
-    selected: TopLevelTab,
-    onSelect: (TopLevelTab) -> Unit
-) {
-    NavigationBar {
-        NavigationBarItem(
-            selected = selected == TopLevelTab.Main,
-            onClick = { onSelect(TopLevelTab.Main) },
-            icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
-            label = { Text("首页") }
-        )
-        NavigationBarItem(
-            selected = selected == TopLevelTab.Ledger,
-            onClick = { onSelect(TopLevelTab.Ledger) },
-            icon = { Icon(Icons.Default.DateRange, contentDescription = "账本") },
-            label = { Text("账本") }
-        )
-        NavigationBarItem(
-            selected = selected == TopLevelTab.Mine,
-            onClick = { onSelect(TopLevelTab.Mine) },
-            icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
-            label = { Text("我的") }
-        )
-    }
-}
-
-@Composable
-fun AccountPickerDialog(
-    accounts: List<AccountSummary>,
-    baseCurrency: String,
-    onSelect: (String) -> Unit,
-    onCreateAccount: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择账户") },
-        text = {
-            LazyColumn {
-                items(accounts) { summary ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clickable { onSelect(summary.account.id) },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = summary.account.name,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    text = "${summary.account.type.displayName()} · ${summary.account.currency}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                            Text(
-                                text = formatCurrency(summary.balanceInBaseCurrency, baseCurrency),
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onCreateAccount) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("新增账户")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-        shape = RoundedCornerShape(16.dp)
-    )
 }

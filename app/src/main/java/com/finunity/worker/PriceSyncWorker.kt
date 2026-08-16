@@ -30,10 +30,10 @@ class PriceSyncWorker(
             // 获取所有持仓的股票代码
             val symbols = database.positionDao().getAllSymbols()
 
-            // 获取股票/ETF/基金 AssetRecord 的名称作为代码
+            // 优先使用显式证券编码；旧记录回退到名称，兼容历史数据。
             val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name)
             val tradableRecords = database.assetRecordDao().getRecordsByTypes(tradableTypes)
-            val assetRecordCodes = tradableRecords.map { it.name }
+            val assetRecordCodes = tradableRecords.map { it.securityCode.ifBlank { it.name } }
 
             // 合并所有需要刷新的代码
             val allSymbols = (symbols + assetRecordCodes).distinct()
@@ -86,8 +86,8 @@ class PriceSyncWorker(
 
             for (record in tradableRecords) {
                 try {
-                    // 使用记录名称作为股票代码获取价格
-                    val price = priceRepository.getPrice(record.name)
+                    val securityCode = record.securityCode.ifBlank { record.name }
+                    val price = priceRepository.getPrice(securityCode)
                     if (price != null && price.price > 0) {
                         // 保存价格历史：cost 存储单位成本（平均成本），与 unit price 对应
                         val priceHistory = PriceHistory(

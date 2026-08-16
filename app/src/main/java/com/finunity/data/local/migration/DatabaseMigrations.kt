@@ -186,6 +186,16 @@ object Migration14To15 {
     }
 }
 
+/** Database migration from version 15 to 16. Adds an explicit security code for holding aggregation. */
+object Migration15To16 {
+    val migration: Migration = object : Migration(15, 16) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN securityCode TEXT NOT NULL DEFAULT ''")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_asset_records_securityCode ON asset_records(securityCode)")
+        }
+    }
+}
+
 /**
  * Provider for all database migrations.
  */
@@ -202,6 +212,7 @@ object DatabaseMigrations {
         Migration11To12.migration,
         Migration12To13.migration,
         Migration13To14.migration,
-        Migration14To15.migration
+        Migration14To15.migration,
+        Migration15To16.migration
     )
 }

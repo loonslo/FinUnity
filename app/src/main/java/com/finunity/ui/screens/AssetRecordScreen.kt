@@ -45,6 +45,7 @@ fun AssetRecordScreen(
         allowedAssetTypesFor(account?.type, record?.assetType)
     }
     var name by remember { mutableStateOf(record?.name ?: "") }
+    var securityCode by remember { mutableStateOf(record?.securityCode ?: "") }
     var selectedAssetType by remember { mutableStateOf(record?.assetType ?: allowedAssetTypes.firstOrNull() ?: AssetType.CASH) }
     var selectedRiskBucket by remember { mutableStateOf(record?.riskBucket ?: defaultRiskBucketFor(selectedAssetType, account?.type)) }
     var quantity by remember { mutableStateOf(record?.quantity?.toString() ?: "") }
@@ -75,14 +76,15 @@ fun AssetRecordScreen(
     }
 
     // 检测是否有未保存的修改
-    val hasUnsavedChanges = remember(name, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked) {
+    val hasUnsavedChanges = remember(name, securityCode, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked) {
         if (record == null) {
             // 新建时只要有输入就有改动
-            name.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank() ||
+            name.isNotBlank() || securityCode.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank() ||
             subCategory.isNotBlank() || industryTag.isNotBlank() || purchaseRestricted || peRatio.isNotBlank() || dividendYield.isNotBlank() || premiumRate.isNotBlank() || locked
         } else {
             // 编辑时对比原始值
             name != record.name ||
+            securityCode != record.securityCode ||
             quantity != record.quantity.toString() ||
             cost != record.cost.toString() ||
             currentPrice != record.currentPrice.toString() ||
@@ -202,6 +204,7 @@ fun AssetRecordScreen(
                             onClick = {
                                 if (selectedAssetType != type) {
                                     name = ""
+                                    securityCode = ""
                                     quantity = ""
                                     cost = ""
                                     currentPrice = ""
@@ -264,6 +267,13 @@ fun AssetRecordScreen(
                     onValueChange = { name = it },
                     label = getNameLabel(selectedAssetType),
                     placeholder = getNamePlaceholder(selectedAssetType)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                FinTextField(
+                    value = securityCode,
+                    onValueChange = { securityCode = it },
+                    label = "证券编码（用于同码合并，可选）",
+                    placeholder = "如 510300、AAPL、0700.HK"
                 )
                 if (selectedAssetType == AssetType.STOCK || selectedAssetType == AssetType.ETF) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -537,6 +547,7 @@ fun AssetRecordScreen(
                         assetType = selectedAssetType,
                         riskBucket = if (selectedAssetType == AssetType.CASH) RiskBucket.CASH else selectedRiskBucket,
                         name = if (selectedAssetType == AssetType.CASH) "现金" else name.trim(),
+                        securityCode = if (selectedAssetType == AssetType.CASH) "" else securityCode.trim(),
                         quantity = qty,
                         cost = c,
                         currentPrice = price,

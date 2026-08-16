@@ -3,6 +3,7 @@ package com.finunity.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountType
@@ -24,6 +25,10 @@ import com.finunity.data.model.RiskBucketSummary
 import com.finunity.data.model.evaluateHoldingRedlines
 import com.finunity.data.model.evaluateDrawdownLadder
 import com.finunity.data.model.evaluateSignalRules
+import com.finunity.data.model.normalizeSecurityCode
+import com.finunity.data.model.HoldingCostState
+import com.finunity.data.model.HoldingTradeCalculation
+import com.finunity.data.model.calculateHoldingTrade
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.local.entity.PriceHistory
@@ -33,6 +38,8 @@ import com.finunity.data.repository.PriceRepository
 import com.finunity.data.repository.RefreshResult
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -130,6 +137,7 @@ class MainViewModel(
             val assetRecordSummaries = calculator.computeAssetRecordSummaries()
             val holdingSummaries = calculator.computeHoldingSummaries()
             val positionSummaries = calculator.computePositionSummaries()
+            val mergedHoldingSummaries = calculator.computeMergedHoldingSummaries()
             // 总览明细仍展示锁定专款；偏离与再平衡只使用可投策略盘。
             val riskSummaries = calculator.computeRiskBucketSummaries(totalAssets)
             val lockedAssets = calculator.computeLockedValue()
@@ -192,6 +200,7 @@ class MainViewModel(
                 assetRecords = assetRecordSummaries.sortedByDescending { it.currentValue },
                 holdings = holdingSummaries.sortedByDescending { it.currentValue },
                 positions = positionSummaries,
+                mergedHoldings = mergedHoldingSummaries,
                 landingPoints = landingPoints,
                 holdingRedlineAlerts = holdingRedlineAlerts,
                 signalAlerts = signalAlerts,
@@ -271,7 +280,7 @@ class MainViewModel(
             if (record.assetType != AssetType.CASH) {
                 val transaction = Transaction(
                     accountId = record.accountId,
-                    symbol = record.name,
+                    symbol = record.securityCode.ifBlank { record.name },
                     type = TransactionType.BUY,
                     shares = record.quantity,
                     price = record.averageCost,
@@ -318,7 +327,7 @@ class MainViewModel(
             database.transactionDao().insert(
                 Transaction(
                     accountId = record.accountId,
-                    symbol = record.name,
+                    symbol = record.securityCode.ifBlank { record.name },
                     type = TransactionType.BUY,
                     shares = addQuantity,
                     price = buyPrice,
@@ -338,6 +347,116 @@ class MainViewModel(
             )
         }
     }
+
+    /**
+     * 原型「记一笔」的统一入口。
+     *
+     * 流水以证券编码定位账户内的原始持仓：买入时加权成本或新建记录，卖出时按平均成本
+     * 扣减并拦截超额卖出。不同账户的记录保留为独立来源，概览层再统一按编码合并。
+     * 返回非空文本表示校验失败，便于 UI 直接展示。
+     */
+    suspend fun recordTradeBySecurityCode(
+        accountId: String,
+        securityCode: String,
+        name: String,
+        isBuy: Boolean,
+        quantity: Double,
+        price: Double,
+        riskBucket: RiskBucket,
+        timestamp: Long = System.currentTimeMillis()
+    ): String? = withContext(Dispatchers.IO) {
+        val code = securityCode.trim()
+        val displayName = name.trim()
+        if (accountId.isBlank()) return@withContext "请选择成交账户"
+        if (code.isBlank()) return@withContext "请填写证券编码"
+        if (displayName.isBlank()) return@withContext "请填写持仓名称"
+        if (quantity <= 0.0 || price <= 0.0) return@withContext "数量和成交价必须大于 0"
+
+        val account = database.accountDao().getAccountById(accountId)
+            ?: return@withContext "成交账户不存在"
+        val normalizedCode = normalizeSecurityCode(code)
+
+        database.withTransaction {
+            val existing = database.assetRecordDao().getAllRecords().firstOrNull {
+                it.accountId == accountId &&
+                    normalizeSecurityCode(it.securityCode.ifBlank { it.name }) == normalizedCode
+            }
+
+            val calculation = calculateHoldingTrade(
+                existing = existing?.let { HoldingCostState(it.quantity, it.cost) },
+                isBuy = isBuy,
+                quantity = quantity,
+                price = price
+            )
+            if (calculation is HoldingTradeCalculation.Error) {
+                return@withTransaction when {
+                    !isBuy && existing == null -> "该账户没有编码 $code 的可卖持仓"
+                    !isBuy && existing != null && quantity > existing.quantity -> "超出可卖数量（当前 ${formatQuantity(existing.quantity)}）"
+                    else -> calculation.message
+                }
+            }
+            val nextState = (calculation as HoldingTradeCalculation.Success).state
+
+            val record = if (isBuy) {
+                if (existing == null) {
+                    AssetRecord(
+                        accountId = accountId,
+                        assetType = AssetType.ETF,
+                        riskBucket = riskBucket,
+                        name = displayName,
+                        securityCode = code,
+                        quantity = nextState!!.quantity,
+                        cost = nextState.totalCost,
+                        currentPrice = price,
+                        currency = account.currency
+                    ).also { database.assetRecordDao().insert(it) }
+                } else {
+                    existing.copy(
+                        name = displayName,
+                        securityCode = code,
+                        quantity = nextState!!.quantity,
+                        cost = nextState.totalCost,
+                        currentPrice = price,
+                        updatedAt = System.currentTimeMillis()
+                    ).also { database.assetRecordDao().update(it) }
+                }
+            } else {
+                val recordToSell = existing ?: return@withTransaction "该账户没有编码 $code 的可卖持仓"
+                if (nextState == null) {
+                    database.assetRecordDao().deleteById(recordToSell.id)
+                } else {
+                    database.assetRecordDao().update(
+                        recordToSell.copy(
+                            quantity = nextState.quantity,
+                            cost = nextState.totalCost,
+                            currentPrice = price,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                recordToSell
+            }
+
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = accountId,
+                    symbol = code,
+                    type = if (isBuy) TransactionType.BUY else TransactionType.SELL,
+                    shares = quantity,
+                    price = price,
+                    amount = quantity * price,
+                    currency = account.currency,
+                    timestamp = timestamp,
+                    note = "${if (isBuy) "买入" else "卖出"} $displayName · $code",
+                    recordId = record.id
+                )
+            )
+            null
+        }
+    }
+
+    private fun formatQuantity(quantity: Double): String =
+        String.format(Locale.US, "%.4f", quantity).trimEnd('0').trimEnd('.')
 
     fun updateAssetRecord(record: AssetRecord) {
         viewModelScope.launch {
@@ -580,7 +699,7 @@ class MainViewModel(
                 // 记录卖出流水
                 val transaction = Transaction(
                     accountId = record.accountId,
-                    symbol = record.name,
+                    symbol = record.securityCode.ifBlank { record.name },
                     type = TransactionType.SELL,
                     shares = quantityToSell,
                     price = actualPrice,
@@ -598,7 +717,7 @@ class MainViewModel(
                     database.transactionDao().insert(
                         Transaction(
                             accountId = record.accountId,
-                            symbol = record.name,
+                            symbol = record.securityCode.ifBlank { record.name },
                             type = TransactionType.FEE,
                             shares = null,
                             price = null,
@@ -718,11 +837,11 @@ class MainViewModel(
             // 获取旧 Position 的股票代码（使用 allPositions）
             val positions = allPositions.map { it.symbol }.distinct()
 
-            // 获取股票/ETF/基金 AssetRecord 的名称作为代码（使用已获取的 allAssetRecords）
+            // 优先使用显式证券编码；旧记录回退到名称，兼容历史数据。
             val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name)
             val assetRecordCodes = allAssetRecords
                 .filter { it.assetType.name in tradableTypes }
-                .map { it.name }
+                .map { record -> record.securityCode.ifBlank { record.name } }
                 .distinct()
 
             // 合并所有需要刷新的代码
@@ -745,8 +864,9 @@ class MainViewModel(
             for (code in assetRecordCodes) {
                 val price = priceRepository.getPrice(code)
                 if (price != null && price.price > 0) {
-                    val matchingRecords = allAssetRecords.filter {
-                        it.name == code && it.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+                    val matchingRecords = allAssetRecords.filter { record ->
+                        record.securityCode.ifBlank { record.name } == code &&
+                            record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
                     }
                     for (existing in matchingRecords) {
                         val updated = existing.copy(

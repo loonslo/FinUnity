@@ -159,6 +159,49 @@ class PortfolioCalculator(
     }
 
     /**
+     * 统一合并新旧两套持仓模型。
+     *
+     * 这里先把每条来源记录换算到本位币，再交给纯函数
+     * [mergeHoldingInputs] 按证券编码聚合，确保 UI、总览和后续调仓都能复用同一口径。
+     */
+    suspend fun computeMergedHoldingSummaries(): List<MergedHoldingSummary> = withContext(Dispatchers.IO) {
+        val inputs = mutableListOf<HoldingMergeInput>()
+
+        for (record in assetRecords) {
+            val rate = getRate(record.currency, baseCurrency) ?: 1.0
+            inputs += HoldingMergeInput(
+                codeOrName = record.securityCode.ifBlank { record.name },
+                displayName = record.name,
+                quantity = record.quantity,
+                costInBaseCurrency = record.cost * rate,
+                currentValueInBaseCurrency = record.currentValue * rate,
+                accountId = record.accountId,
+                accountName = accountNamesById[record.accountId] ?: "未命名账户",
+                currency = record.currency,
+                riskBucket = record.riskBucket
+            )
+        }
+
+        for (position in positions) {
+            val rate = getRate(position.currency, baseCurrency) ?: 1.0
+            val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
+            inputs += HoldingMergeInput(
+                codeOrName = position.symbol,
+                displayName = position.symbol,
+                quantity = position.shares,
+                costInBaseCurrency = position.totalCost * rate,
+                currentValueInBaseCurrency = position.shares * currentPrice * rate,
+                accountId = position.accountId,
+                accountName = accountNamesById[position.accountId] ?: "未命名账户",
+                currency = position.currency,
+                riskBucket = RiskBucket.AGGRESSIVE
+            )
+        }
+
+        mergeHoldingInputs(inputs)
+    }
+
+    /**
      * 计算持仓按股票代码汇总
      */
     suspend fun computePositionSummaries(): List<PositionSummary> = withContext(Dispatchers.IO) {
@@ -362,7 +405,7 @@ class PortfolioCalculator(
         // 新资产记录：现价取 record.currentPrice（与市值口径一致），昨收取价格缓存
         for (record in assetRecords) {
             if (record.assetType !in tradableTypes) continue
-            val prevClose = priceRepository.getPrice(record.name)?.previousClose ?: 0.0
+            val prevClose = priceRepository.getPrice(record.securityCode.ifBlank { record.name })?.previousClose ?: 0.0
             if (prevClose <= 0.0) continue
             val rate = getRate(record.currency, baseCurrency) ?: 1.0
             total += (record.currentPrice - prevClose) * record.quantity * rate
