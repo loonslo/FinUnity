@@ -458,7 +458,9 @@ class MainViewModel(
         price: Double,
         riskBucket: RiskBucket,
         timestamp: Long = System.currentTimeMillis(),
-        currency: String? = null
+        currency: String? = null,
+        fee: Double = 0.0,
+        note: String? = null
     ): String? = when (
         val result = holdingLedger.recordTrade(
             HoldingTradeCommand(
@@ -471,6 +473,8 @@ class MainViewModel(
                 quantity = quantity,
                 price = price,
                 currency = currency,
+                fee = fee,
+                note = note?.takeIf { it.isNotBlank() },
                 timestamp = timestamp
             )
         )

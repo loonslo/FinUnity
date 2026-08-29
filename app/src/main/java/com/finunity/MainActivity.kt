@@ -287,10 +287,8 @@ private val screenListSaver = listSaver<List<Screen>, String>(
 
 private enum class TopLevelTab {
     Overview,
-    Holdings,
-    Flows,
-    Allocation,
-    Accounts
+    Assets,
+    Mine
 }
 
 @Composable
@@ -381,11 +379,11 @@ fun FinUnityApp(
     }
 
     fun startAddFlow() {
-        // 高频的手动新增不再经过“选择导入方式”中转页。
+        // 所有新增、交易和资金事件统一从“添加记录”入口开始。
         if (portfolioSummary?.accounts.isNullOrEmpty()) {
             navigateTo(Screen.AddAccount(continueToAsset = true))
         } else {
-            navigateTo(Screen.ManualImport)
+            navigateTo(Screen.AddSource)
         }
     }
 
@@ -393,18 +391,14 @@ fun FinUnityApp(
         PrototypeBottomBar(
             selected = when (selected) {
                 TopLevelTab.Overview -> PrototypeTab.Overview
-                TopLevelTab.Holdings -> PrototypeTab.Holdings
-                TopLevelTab.Flows -> PrototypeTab.Flows
-                TopLevelTab.Allocation -> PrototypeTab.Allocation
-                TopLevelTab.Accounts -> PrototypeTab.Accounts
+                TopLevelTab.Assets -> PrototypeTab.Assets
+                TopLevelTab.Mine -> PrototypeTab.Mine
             },
             onSelect = { tab ->
                 switchTopLevel(when (tab) {
                     PrototypeTab.Overview -> Screen.Main
-                    PrototypeTab.Holdings -> Screen.Holdings
-                    PrototypeTab.Flows -> Screen.Flows
-                    PrototypeTab.Allocation -> Screen.Allocation
-                    PrototypeTab.Accounts -> Screen.AccountHub
+                    PrototypeTab.Assets -> Screen.Holdings
+                    PrototypeTab.Mine -> Screen.AccountHub
                 })
             }
         )
@@ -420,8 +414,13 @@ fun FinUnityApp(
                     priceStatus = priceHealth.status,
                     priceHistory = allPriceHistory,
                     missingCurrencies = portfolioSummary?.missingExchangeRateCurrencies.orEmpty(),
+                    monthlyChange = monthlyChange,
                     onStartAddFlow = { startAddFlow() },
                     onRefreshPrices = { scope.launch { viewModel.refreshPrices() } },
+                    onOpenAllocation = { navigateTo(Screen.Allocation) },
+                    onOpenBucket = { bucketIndex -> navigateTo(Screen.RiskBucketDetail(bucketIndex)) },
+                    onOpenDataQuality = { recordId -> navigateTo(Screen.AssetDetail(recordId)) },
+                    onOpenAsset = { code -> navigateTo(Screen.MergedHoldingDetail(code)) },
                     bottomBar = { bottomBar(TopLevelTab.Overview) }
                 )
             }
@@ -430,10 +429,11 @@ fun FinUnityApp(
                 PrototypeHoldingsScreen(
                     portfolioSummary = portfolioSummary,
                     onRecordTrade = {
-                        if (portfolioSummary?.accounts.isNullOrEmpty()) startAddFlow() else navigateTo(Screen.TradeEntry)
+                        startAddFlow()
                     },
                     onOpenAsset = { key -> navigateTo(Screen.MergedHoldingDetail(key)) },
-                    bottomBar = { bottomBar(TopLevelTab.Holdings) }
+                    onOpenFlows = { navigateTo(Screen.Flows) },
+                    bottomBar = { bottomBar(TopLevelTab.Assets) }
                 )
             }
 
@@ -460,15 +460,9 @@ fun FinUnityApp(
                     transactions = allTransactions,
                     accounts = portfolioSummary?.accounts ?: emptyList(),
                     baseCurrency = portfolioSummary?.baseCurrency ?: "CNY",
-                    onRecordTrade = {
-                        if (portfolioSummary?.accounts.isNullOrEmpty()) {
-                            showMessage("请先添加成交账户")
-                            startAddFlow()
-                        } else {
-                            navigateTo(Screen.TradeEntry)
-                        }
-                    },
-                    bottomBar = { bottomBar(TopLevelTab.Flows) }
+                    onRecordTrade = { startAddFlow() },
+                    onBack = { navigateBack() },
+                    bottomBar = {}
                 )
             }
 
@@ -485,7 +479,8 @@ fun FinUnityApp(
                     },
                     onSaved = { showMessage("目标配置已保存") },
                     onOpenPlanning = { navigateTo(Screen.Planning) },
-                    bottomBar = { bottomBar(TopLevelTab.Allocation) }
+                    onBack = { navigateBack() },
+                    bottomBar = {}
                 )
             }
 
@@ -507,6 +502,23 @@ fun FinUnityApp(
                             navigateTo(Screen.AddAccount(continueToAsset = true))
                         } else {
                             navigateTo(Screen.ManualImport)
+                        }
+                    },
+                    onRecordTrade = {
+                        if (portfolioSummary?.accounts.isNullOrEmpty()) {
+                            showMessage("请先创建一个归属账户")
+                            navigateTo(Screen.AddAccount(continueToAsset = true))
+                        } else {
+                            navigateTo(Screen.TradeEntry)
+                        }
+                    },
+                    onRecordCashFlow = {
+                        val accountId = portfolioSummary?.accounts?.firstOrNull()?.account?.id
+                        if (accountId == null) {
+                            showMessage("请先创建一个归属账户")
+                            navigateTo(Screen.AddAccount(continueToAsset = false))
+                        } else {
+                            navigateTo(Screen.CashFlow(accountId))
                         }
                     }
                 )
@@ -540,7 +552,7 @@ fun FinUnityApp(
                             }
                             val result = viewModel.importAssetRecordsBatch(records)
                             if (result.committed) {
-                                showMessage("已导入 ${records.size} 项持仓")
+                                showMessage("已导入 ${records.size} 项资产")
                                 navigateBack()
                             } else {
                                 val failed = result.rows.firstOrNull { it.error != null }
@@ -560,7 +572,7 @@ fun FinUnityApp(
                         scope.launch {
                             when (val result = viewModel.addAssetRecordAndWait(record)) {
                                 is LedgerResult.Success -> {
-                                    showMessage("持仓已加入汇总")
+                                    showMessage("资产已加入总览")
                                     navigateBack()
                                 }
                                 is LedgerResult.Error -> showMessage("保存失败：${result.message}")
@@ -575,7 +587,7 @@ fun FinUnityApp(
                     accounts = portfolioSummary?.accounts ?: emptyList(),
                     holdings = portfolioSummary?.mergedHoldings ?: emptyList(),
                     onBack = { navigateBack() },
-                    onSave = { isBuy, accountId, name, securityCode, quantity, price, bucket, timestamp, currency ->
+                    onSave = { isBuy, accountId, name, securityCode, quantity, price, bucket, timestamp, currency, fee, note ->
                         scope.launch {
                             val errorMessage = viewModel.recordTradeBySecurityCode(
                                 accountId = accountId,
@@ -590,10 +602,12 @@ fun FinUnityApp(
                                     PrototypeBucket.BALANCED -> RiskBucket.BALANCED
                                     PrototypeBucket.AGGRESSIVE -> RiskBucket.AGGRESSIVE
                                 },
-                                timestamp = timestamp
+                                timestamp = timestamp,
+                                fee = fee,
+                                note = note
                             )
                             if (errorMessage == null) {
-                                showMessage(if (isBuy) "买入流水已记录" else "卖出流水已记录")
+                                showMessage(if (isBuy) "买入交易已记录" else "卖出交易已记录")
                                 navigateBack()
                             } else {
                                 showMessage(errorMessage)
@@ -611,7 +625,7 @@ fun FinUnityApp(
                 onViewAssetHistory = { recordId ->
                     navigateTo(Screen.AssetDetail(recordId, initialTab = 2))
                 },
-                bottomBar = { bottomBar(TopLevelTab.Accounts) }
+                bottomBar = { bottomBar(TopLevelTab.Mine) }
             )
         }
 
@@ -631,6 +645,12 @@ fun FinUnityApp(
                 onOpenHoldingImport = { navigateTo(Screen.AddSource) },
                 onOpenCsvImport = { navigateTo(Screen.ImportCsv) },
                 onOpenBackup = { navigateTo(Screen.Backup) },
+                onOpenPlanning = { navigateTo(Screen.Planning) },
+                onOpenMonthlyReview = { navigateTo(Screen.MonthlyReview) },
+                onOpenHistory = { navigateTo(Screen.History) },
+                onOpenExpenseSimulation = { navigateTo(Screen.ExpenseSimulation) },
+                onOpenStressTest = { navigateTo(Screen.StressTest) },
+                onOpenLandingPoints = { navigateTo(Screen.LandingPoints) },
                 onBack = { navigateBack() },
                 notificationsAllowed = notificationsAllowed,
                 onRequestNotificationPermission = onRequestNotificationPermission
@@ -687,6 +707,7 @@ fun FinUnityApp(
             com.finunity.ui.screens.MonthlyReviewScreen(
                 portfolioSummary = portfolioSummary,
                 monthlyChange = monthlyChange,
+                transactions = allTransactions,
                 onBack = { navigateBack() },
                 onEditTarget = { navigateTo(Screen.TargetAllocation) }
             )
@@ -744,7 +765,7 @@ fun FinUnityApp(
                     onViewAccount = { navigateTo(Screen.AccountDetail(it)) },
                     onAddAccount = { navigateTo(Screen.AddAccount(continueToAsset = false)) },
                     onOpenSettings = { navigateTo(Screen.Settings) },
-                    bottomBar = { bottomBar(TopLevelTab.Accounts) }
+                    bottomBar = { bottomBar(TopLevelTab.Mine) }
                 )
             }
 
@@ -755,7 +776,7 @@ fun FinUnityApp(
                 onOpenImportCsv = { navigateTo(Screen.ImportCsv) },
                 onOpenSettings = { navigateTo(Screen.Settings) },
                 onOpenBackup = { navigateTo(Screen.Backup) },
-                bottomBar = { bottomBar(TopLevelTab.Accounts) }
+                bottomBar = { bottomBar(TopLevelTab.Mine) }
             )
         }
 
@@ -940,7 +961,7 @@ fun FinUnityApp(
             val transactions by database.transactionDao().getAllTransactions().collectAsStateWithLifecycle(initialValue = emptyList())
             TransactionHistoryScreen(
                 transactions = transactions,
-                accountName = "交易流水",
+                accountName = "交易记录",
                 accountNames = portfolioSummary?.accounts.orEmpty().associate { it.account.id to it.account.name },
                 onBack = { navigateBack() }
             )
@@ -980,8 +1001,9 @@ fun FinUnityApp(
                         showMessage("资产已删除")
                         navigateBack()
                     },
-                    onBuy = { navigateTo(Screen.Trade(summary.record.id, isBuy = true)) },
-                    onSell = { navigateTo(Screen.Trade(summary.record.id, isBuy = false)) }
+                    onRecordTrade = { navigateTo(Screen.Trade(summary.record.id, isBuy = true)) },
+                    onViewTransactions = { navigateTo(Screen.AssetTransactionHistory(summary.record.id, summary.record.name)) },
+                    onViewPrices = { navigateTo(Screen.PriceHistory(summary.record.id, summary.record.name)) }
                 )
             } else {
                 navigateBack()
@@ -993,7 +1015,7 @@ fun FinUnityApp(
             if (tradeSummary != null) {
                 com.finunity.ui.screens.TradeScreen(
                     summary = tradeSummary,
-                    isBuy = screen.isBuy,
+                    initialIsBuy = screen.isBuy,
                     onBack = { navigateBack() },
                     onConfirmBuy = { qty, price, fee, timestamp, note ->
                         scope.launch {

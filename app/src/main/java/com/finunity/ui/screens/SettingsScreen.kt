@@ -35,6 +35,12 @@ fun SettingsScreen(
     onOpenHoldingImport: () -> Unit = {},
     onOpenCsvImport: () -> Unit = {},
     onOpenBackup: () -> Unit = {},
+    onOpenPlanning: () -> Unit = {},
+    onOpenMonthlyReview: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
+    onOpenExpenseSimulation: () -> Unit = {},
+    onOpenStressTest: () -> Unit = {},
+    onOpenLandingPoints: () -> Unit = {},
     onBack: () -> Unit,
     notificationsAllowed: Boolean = false,
     onRequestNotificationPermission: () -> Unit = {},
@@ -198,7 +204,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
             FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                FinSettingRow("导入持仓", "截图识别或手动录入", onClick = onOpenHoldingImport)
+                    FinSettingRow("导入资产", "截图识别或手动添加", onClick = onOpenHoldingImport)
                 FinSettingRow("CSV 导入", "批量导入本地记录", onClick = onOpenCsvImport)
                 FinSettingRow("备份恢复", "导出或恢复完整账本", onClick = onOpenBackup, showDivider = false)
             }
@@ -211,9 +217,23 @@ fun SettingsScreen(
             FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
                 FinSettingRow("隐私说明", "本地数据与权限", onClick = onOpenPrivacy)
                 FinSettingRow("财务报表", "收入、支出与净资产", onClick = onOpenReport)
-                FinSettingRow("周期收支", "管理固定收入与支出", onClick = onOpenRecurringRules)
                 FinSettingRow("数据对账", "检查并修复记录", onClick = onOpenReconciliation)
                 FinSettingRow("导出报表", "CSV 与 HTML", onClick = onOpenExport, showDivider = false)
+            }
+
+            Text(
+                text = "更多工具",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                FinSettingRow("目标配置", "查看三桶比例与偏离", onClick = onOpenPlanning)
+                FinSettingRow("月度复盘", "解释本月资产变化", onClick = onOpenMonthlyReview)
+                FinSettingRow("资产历史", "查看历史快照", onClick = onOpenHistory)
+                FinSettingRow("周期收支规则", "仅设置工资、房贷、房租、保费等显著事项", onClick = onOpenRecurringRules)
+                FinSettingRow("落点跟踪", "高级目标工具", onClick = onOpenLandingPoints)
+                FinSettingRow("大额支出模拟", "评估重要支出影响", onClick = onOpenExpenseSimulation)
+                FinSettingRow("压力测试", "查看极端情景影响", onClick = onOpenStressTest, showDivider = false)
             }
 
             Spacer(modifier = Modifier.height(32.dp))

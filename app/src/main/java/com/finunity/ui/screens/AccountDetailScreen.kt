@@ -188,7 +188,7 @@ private fun AccountActionRow(
         ) {
             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp), tint = FinColors.Number)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("添加资产", color = FinColors.TextPrimary)
+            Text("添加记录", color = FinColors.TextPrimary)
         }
         Button(
             onClick = onRecordCashFlow,
@@ -198,13 +198,13 @@ private fun AccountActionRow(
         ) {
             Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("记收支")
+            Text("资金变动")
         }
     }
     TextButton(onClick = onViewTransactions, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(4.dp))
-        Text("查看账户流水")
+        Text("查看资产变动")
     }
 }
 

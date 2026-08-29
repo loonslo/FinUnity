@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.Transaction
+import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.ReviewCadence
@@ -35,6 +37,7 @@ import java.util.Locale
 fun MonthlyReviewScreen(
     portfolioSummary: PortfolioSummary?,
     monthlyChange: MonthlyChange?,
+    transactions: List<Transaction> = emptyList(),
     onBack: () -> Unit,
     onEditTarget: () -> Unit,
     modifier: Modifier = Modifier
@@ -48,6 +51,14 @@ fun MonthlyReviewScreen(
     var cadence by remember { mutableStateOf(ReviewCadence.MONTHLY) }
     val manualChecks = remember { mutableStateMapOf<String, Boolean>() }
     val checklist = remember(summary) { summary?.let(::buildReviewChecklist).orEmpty() }
+    val eventBreakdown = remember(transactions) { summarizeAssetEvents(transactions) }
+    val conclusion = remember(monthlyChange, eventBreakdown, baseCurrency) {
+        monthlyChange?.let {
+            val netInflow = eventBreakdown.netInflow
+            val investmentResult = it.change - netInflow
+            "本月总资产${if (it.change >= 0) "增加" else "减少"} ${formatCurrency(kotlin.math.abs(it.change), baseCurrency)}，其中净流入 ${formatCurrency(netInflow, baseCurrency)}，投资与估值变化约 ${formatCurrency(investmentResult, baseCurrency)}。"
+        }
+    }
 
     val order = listOf(RiskBucket.AGGRESSIVE, RiskBucket.BALANCED, RiskBucket.DEFENSIVE)
     val driftItems = order.mapNotNull { bucket ->
@@ -80,6 +91,9 @@ fun MonthlyReviewScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (conclusion != null) {
+                            Text(conclusion, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
+                        }
                         Text("这段时间", style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
                         Text(
@@ -100,6 +114,13 @@ fun MonthlyReviewScreen(
                         } else {
                             Text(
                                 text = "还没有足够的历史快照（至少需要一个月、两条记录）。应用每天会自动记录一次，坚持记录后这里会显示变化。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = FinColors.TextSecondary
+                            )
+                        }
+                        if (monthlyChange != null) {
+                            Text(
+                                "资产事件：净流入 ${formatCurrency(eventBreakdown.netInflow, baseCurrency)} · ${eventBreakdown.eventCount} 笔；内部转账已排除。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = FinColors.TextSecondary
                             )
@@ -213,4 +234,31 @@ private fun bucketColorReview(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
     RiskBucket.BALANCED -> FinColors.Conservative
     RiskBucket.DEFENSIVE -> FinColors.Cash
+}
+
+private data class AssetEventBreakdown(val netInflow: Double, val eventCount: Int)
+
+/**
+ * 月度复盘只把能够解释总资产变化的外部资金事件计入净流入；
+ * 买卖、费用和账户内部转账保持独立口径，避免把调仓误当作新增财富。
+ */
+private fun summarizeAssetEvents(transactions: List<Transaction>): AssetEventBreakdown {
+    val since = System.currentTimeMillis() - 31L * 24 * 60 * 60 * 1000
+    var net = 0.0
+    var count = 0
+    transactions.filter { it.timestamp >= since }.forEach { tx ->
+        when {
+            tx.type == TransactionType.TRANSFER_IN || tx.type == TransactionType.TRANSFER_OUT -> Unit
+            tx.type == TransactionType.BUY || tx.type == TransactionType.SELL || tx.type == TransactionType.FEE -> Unit
+            tx.type == TransactionType.DEPOSIT || tx.type == TransactionType.DIVIDEND || tx.category.income == true -> {
+                net += tx.amount
+                count++
+            }
+            tx.type == TransactionType.WITHDRAW || tx.type == TransactionType.LIABILITY_PAYMENT || tx.category.income == false -> {
+                net -= tx.amount
+                count++
+            }
+        }
+    }
+    return AssetEventBreakdown(net, count)
 }

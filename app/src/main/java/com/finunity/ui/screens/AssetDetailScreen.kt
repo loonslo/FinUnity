@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,8 +47,10 @@ import com.finunity.ui.components.FinSettingRow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun AssetDetailScreen(
     summary: AssetRecordSummary,
@@ -62,10 +63,11 @@ fun AssetDetailScreen(
     onDelete: () -> Unit = {},
     onBuy: () -> Unit = {},
     onSell: () -> Unit = {},
+    onRecordTrade: () -> Unit = {},
+    onViewTransactions: () -> Unit = {},
+    onViewPrices: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
-    val tabs = listOf("概览", "流水", "价格")
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val profitColor = when {
         summary.profitLoss > 0 -> FinColors.Profit
@@ -75,6 +77,7 @@ fun AssetDetailScreen(
     val isTradable = summary.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
     val hideProfit = summary.record.assetType in listOf(
         AssetType.CASH,
+        AssetType.TIME_DEPOSIT,
         AssetType.REAL_ESTATE,
         AssetType.VEHICLE,
         AssetType.INSURANCE_POLICY
@@ -130,25 +133,12 @@ fun AssetDetailScreen(
         bottomBar = {
             if (isTradable) {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Button(
-                            onClick = onBuy,
-                            modifier = Modifier.weight(1f).height(52.dp),
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = FinColors.Profit, contentColor = Color.White)
-                        ) { Text("买入", color = Color.White, fontWeight = FontWeight.SemiBold) }
-                        Button(
-                            onClick = onSell,
-                            modifier = Modifier.weight(1f).height(52.dp),
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = FinColors.Loss, contentColor = Color.White)
-                        ) { Text("卖出", color = Color.White, fontWeight = FontWeight.SemiBold) }
-                    }
+                    Button(
+                        onClick = onRecordTrade,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).height(52.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = FinColors.Secondary, contentColor = Color.White)
+                    ) { Text("记录交易", color = Color.White, fontWeight = FontWeight.SemiBold) }
                 }
             }
         },
@@ -171,7 +161,6 @@ fun AssetDetailScreen(
                             verticalAlignment = Alignment.Top
                         ) {
                             Column {
-                                Text(summary.record.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                                 Text(
                                     "${summary.accountName} · ${summary.record.assetType.displayName()} · ${summary.record.currency}",
                                     style = MaterialTheme.typography.bodySmall,
@@ -182,62 +171,20 @@ fun AssetDetailScreen(
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(formatCurrency(summary.currentValue, baseCurrency), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                 if (!hideProfit) {
-                                    Text(formatSignedPercent(summary.profitLossRatio), color = profitColor, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        if (abs(summary.profitLossRatio) > 5.0) "收益率异常 · 请检查成本价" else formatSignedPercent(summary.profitLossRatio),
+                                        color = if (abs(summary.profitLossRatio) > 5.0) FinColors.Warning else profitColor,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
                                 }
                             }
                         }
                     }
                 }
             }
-            item {
-                TabRow(selectedTabIndex = selectedTab) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title) }
-                        )
-                    }
-                }
-            }
-            when (selectedTab) {
-                0 -> item {
-                    DetailOverview(summary = summary, baseCurrency = baseCurrency, onEdit = onEdit)
-                }
-                1 -> {
-                    if (transactions.isEmpty()) {
-                        item { EmptyDetailText("暂无流水") }
-                    } else {
-                        items(transactions, key = { it.id }) { tx ->
-                            DetailTransactionItem(tx, dateFormat)
-                        }
-                    }
-                }
-                2 -> {
-                    val tradable = summary.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
-                    if (tradable && priceHistory.size >= 2) {
-                        item {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = FinShapes.md,
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                            ) {
-                                PriceTrendChart(priceHistory, summary.record.currency)
-                            }
-                        }
-                    } else if (tradable && priceHistory.size in 1..1) {
-                        item { EmptyDetailText("积累几天价格后展示趋势") }
-                    }
-                    if (priceHistory.isEmpty()) {
-                        item { EmptyDetailText("暂无价格记录") }
-                    } else {
-                        items(priceHistory, key = { it.id }) { history ->
-                            DetailPriceItem(history, dateFormat, summary.record.currency)
-                        }
-                    }
-                }
-            }
+            item { DetailOverview(summary = summary, baseCurrency = baseCurrency, onEdit = onEdit) }
+            item { RecentTransactionsSection(transactions, dateFormat, onViewTransactions) }
+            item { RecentPriceSection(summary, priceHistory, onViewPrices) }
 
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
@@ -248,6 +195,7 @@ fun AssetDetailScreen(
 private fun DetailOverview(summary: AssetRecordSummary, baseCurrency: String, onEdit: () -> Unit) {
     val hideProfit = summary.record.assetType in listOf(
         AssetType.CASH,
+        AssetType.TIME_DEPOSIT,
         AssetType.REAL_ESTATE,
         AssetType.VEHICLE,
         AssetType.INSURANCE_POLICY
@@ -258,7 +206,7 @@ private fun DetailOverview(summary: AssetRecordSummary, baseCurrency: String, on
             FinSettingRow("总成本", formatCurrency(summary.costInBaseCurrency, baseCurrency))
             if (!hideProfit) {
                 FinSettingRow("累计盈亏", formatSignedMoney(summary.profitLoss, baseCurrency))
-                FinSettingRow("收益率", formatSignedPercent(summary.profitLossRatio))
+                FinSettingRow("收益率", if (abs(summary.profitLossRatio) > 5.0) "异常，请检查成本价" else formatSignedPercent(summary.profitLossRatio))
             }
             val bucketColor = when (summary.record.riskBucket) {
                 com.finunity.data.local.entity.RiskBucket.AGGRESSIVE -> FinColors.Aggressive
@@ -271,6 +219,62 @@ private fun DetailOverview(summary: AssetRecordSummary, baseCurrency: String, on
             FinSettingRow("持有数量", String.format(Locale.US, "%.4f", summary.record.quantity).trimEnd('0').trimEnd('.'))
             FinSettingRow("单位成本", formatCurrency(summary.record.averageCost, summary.record.currency))
             FinSettingRow("当前单价", formatCurrency(summary.record.currentPrice, summary.record.currency), showDivider = false)
+        }
+    }
+}
+
+@Composable
+private fun RecentTransactionsSection(
+    transactions: List<Transaction>,
+    dateFormat: SimpleDateFormat,
+    onViewAll: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("最近交易", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (transactions.isNotEmpty()) {
+                TextButton(onClick = onViewAll) { Text("查看全部") }
+            }
+        }
+        if (transactions.isEmpty()) {
+            EmptyDetailText("暂无交易记录")
+        } else {
+            transactions.take(3).forEach { tx -> DetailTransactionItem(tx, dateFormat) }
+        }
+    }
+}
+
+@Composable
+private fun RecentPriceSection(
+    summary: AssetRecordSummary,
+    priceHistory: List<PriceHistory>,
+    onViewAll: () -> Unit
+) {
+    val tradable = summary.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+    if (!tradable) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("最近行情", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (priceHistory.isNotEmpty()) TextButton(onClick = onViewAll) { Text("查看全部") }
+        }
+        when {
+            priceHistory.size >= 2 -> {
+                val latest = priceHistory.maxByOrNull { it.timestamp }!!
+                val previous = priceHistory.filter { it.timestamp < latest.timestamp }.maxByOrNull { it.timestamp }
+                val delta = previous?.let { latest.price - it.price }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("最新 ${formatCurrency(latest.price, summary.record.currency)}", fontWeight = FontWeight.SemiBold)
+                    if (delta != null) Text("较上次 ${formatSignedMoney(delta, summary.record.currency)}", color = if (delta >= 0) FinColors.Profit else FinColors.Loss)
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = FinShapes.md,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                ) { PriceTrendChart(priceHistory, summary.record.currency) }
+            }
+            priceHistory.size == 1 -> EmptyDetailText("暂无足够历史数据")
+            else -> EmptyDetailText("暂无价格记录")
         }
     }
 }

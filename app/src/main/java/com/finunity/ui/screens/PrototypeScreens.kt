@@ -106,6 +106,7 @@ import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.PortfolioSummary
 import com.finunity.data.model.normalizeSecurityCode
 import com.finunity.data.repository.ScreenshotImportRepository
+import com.finunity.data.repository.MonthlyChange
 import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
@@ -120,7 +121,13 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-enum class PrototypeTab { Overview, Holdings, Flows, Allocation, Accounts }
+/**
+ * 一级导航只保留用户完成核心资产识别所需的三个入口。
+ * 资产变动、配置和账户管理均通过二级路径进入，避免底部导航承载低频功能。
+ */
+enum class PrototypeTab { Overview, Assets, Mine }
+
+private enum class AssetEventFilter { ALL, TRADES, INFLOW, OUTFLOW }
 
 enum class PrototypeBucket(val label: String, val color: Color, val description: String) {
     DEFENSIVE("防守", FinColors.Cash, "要花的钱 · 随时要用"),
@@ -135,7 +142,8 @@ private data class PrototypeHolding(
     val cost: Double,
     val accountCount: Int,
     val rawCount: Int,
-    val bucket: PrototypeBucket
+    val bucket: PrototypeBucket,
+    val accountIds: List<String>
 ) {
     val profitLoss: Double get() = value - cost
     val profitRatio: Double get() = if (cost > 0) profitLoss / cost else 0.0
@@ -182,7 +190,8 @@ private fun buildPrototypeHoldings(summary: PortfolioSummary): List<PrototypeHol
             cost = item.totalCost,
             accountCount = item.accountCount,
             rawCount = item.sourceCount,
-            bucket = prototypeBucket(item.riskBucket)
+            bucket = prototypeBucket(item.riskBucket),
+            accountIds = item.accountIds
         )
     }
 }
@@ -276,10 +285,8 @@ fun PrototypeBottomBar(
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             PrototypeTabItem(PrototypeTab.Overview, "总览", Icons.Default.Home, selected, onSelect)
-            PrototypeTabItem(PrototypeTab.Holdings, "持仓", Icons.Default.List, selected, onSelect)
-            PrototypeTabItem(PrototypeTab.Flows, "流水", Icons.Default.SwapHoriz, selected, onSelect)
-            PrototypeTabItem(PrototypeTab.Allocation, "规划", Icons.Default.Tune, selected, onSelect)
-            PrototypeTabItem(PrototypeTab.Accounts, "账户", Icons.Default.Person, selected, onSelect)
+            PrototypeTabItem(PrototypeTab.Assets, "资产", Icons.Default.List, selected, onSelect)
+            PrototypeTabItem(PrototypeTab.Mine, "我的", Icons.Default.Person, selected, onSelect)
         }
     }
 }
@@ -313,8 +320,13 @@ fun PrototypeOverviewScreen(
     priceStatus: PriceStatus = PriceStatus.NORMAL,
     priceHistory: List<PriceHistory> = emptyList(),
     missingCurrencies: Set<String> = emptySet(),
+    monthlyChange: MonthlyChange? = null,
     onStartAddFlow: () -> Unit,
     onRefreshPrices: () -> Unit,
+    onOpenAllocation: () -> Unit = {},
+    onOpenBucket: (Int) -> Unit = {},
+    onOpenDataQuality: (String) -> Unit = {},
+    onOpenAsset: (String) -> Unit = {},
     bottomBar: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -340,6 +352,10 @@ fun PrototypeOverviewScreen(
                 holding.key to prototypeHoldingPriceTrend(summary, holding, priceHistory)
             }
             val threshold = summary.rebalanceThreshold
+            val suspiciousRecord = summary.assetRecords.firstOrNull {
+                it.record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND) &&
+                    it.costInBaseCurrency > 0.0 && abs(it.profitLossRatio) > 5.0
+            }
             val drift = allocations.mapValues { (bucket, actual) ->
                 actual - (targets[bucket] ?: 0f).toDouble()
             }
@@ -351,21 +367,27 @@ fun PrototypeOverviewScreen(
                     OverviewHeader(lastPriceUpdated, priceStatus, isLoading, onRefreshPrices)
                 }
                 item {
-                    TotalAssetCard(summary, portfolioSummary.accounts.size)
+                    TotalAssetCard(summary, monthlyChange)
                 }
-                if (missingCurrencies.isNotEmpty()) {
-                    item { DataQualityCard(missingCurrencies) }
-                }
-                if (drift.values.any { abs(it) > threshold }) {
-                    item { DriftWarningCard(drift, threshold, summary.totalAssets, summary.baseCurrency) }
+                if (suspiciousRecord != null || missingCurrencies.isNotEmpty() || priceStatus == PriceStatus.EXPIRED || priceStatus == PriceStatus.CACHE_FALLBACK || priceStatus == PriceStatus.PARTIAL_FAILURE || drift.values.any { abs(it) > threshold }) {
+                    item {
+                        OverviewPriorityAlert(
+                            missingCurrencies = missingCurrencies,
+                            priceStatus = priceStatus,
+                            suspiciousAssetName = suspiciousRecord?.record?.name,
+                            drift = drift,
+                            threshold = threshold,
+                            onOpenQuality = suspiciousRecord?.record?.id?.let { id -> { onOpenDataQuality(id) } }
+                        )
+                    }
                 }
                 item {
-                    AllocationCard(allocations, targets, holdings.size, threshold)
+                    AllocationCard(allocations, targets, holdings.size, threshold, onOpenAllocation, onOpenBucket)
                 }
                 if (holdings.isNotEmpty()) {
                     item { SectionCaption("市值 TOP 3") }
                     items(holdings.take(3), key = { it.key }) { holding ->
-                        CompactHoldingRow(holding, summary.baseCurrency, holdingTrends[holding.key].orEmpty())
+                        CompactHoldingRow(holding, summary.baseCurrency, holdingTrends[holding.key].orEmpty(), onClick = { onOpenAsset(holding.key) })
                     }
                     if (holdings.size < 3) {
                         item { AddHoldingPrompt(onStartAddFlow) }
@@ -389,7 +411,7 @@ private fun EmptyPrototypeOverview(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            if (hasAccounts) "账户已建立，先录入一笔资产" else "把散落的持仓，汇成一张总账",
+            if (hasAccounts) "账户已建立，先添加一项资产" else "把散落的资产，汇成一张总账",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
@@ -403,7 +425,7 @@ private fun EmptyPrototypeOverview(
         Button(onClick = onStartAddFlow, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)) {
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text(if (hasAccounts) "添加第一笔持仓" else "添加账户", fontWeight = FontWeight.Bold)
+            Text(if (hasAccounts) "添加第一项资产" else "添加账户", fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -449,8 +471,8 @@ private fun OverviewHeader(
 }
 
 @Composable
-private fun TotalAssetCard(summary: PortfolioSummary, accountCount: Int) {
-    // 活跃持仓统一来自 AssetRecord；旧 Position 只由迁移/备份兼容层处理。
+private fun TotalAssetCard(summary: PortfolioSummary, monthlyChange: MonthlyChange?) {
+    // 活跃资产统一来自 AssetRecord；旧 Position 只由迁移/备份兼容层处理。
     val cost = summary.assetRecords.sumOf { it.costInBaseCurrency }
     val cumulative = summary.totalAssets - cost
     Card(
@@ -467,7 +489,7 @@ private fun TotalAssetCard(summary: PortfolioSummary, accountCount: Int) {
         ) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
             Column(Modifier.padding(16.dp)) {
-                Text("总资产（${accountCount}账户合并）", color = FinColors.TextSecondary, fontSize = 11.sp)
+                Text("总资产", color = FinColors.TextSecondary, fontSize = 11.sp)
                 Spacer(Modifier.height(4.dp))
                 MonoText(money(summary.totalAssets, summary.baseCurrency), size = 29, weight = FontWeight.Bold)
                 Text(
@@ -478,12 +500,68 @@ private fun TotalAssetCard(summary: PortfolioSummary, accountCount: Int) {
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    MetricCell("今日收益", signedMoney(summary.todayChange, summary.baseCurrency), changeColor(summary.todayChange))
+                    val monthValue = monthlyChange?.change ?: 0.0
+                    MetricCell("本月变化", signedMoney(monthValue, summary.baseCurrency), changeColor(monthValue))
                     MetricDivider()
-                    MetricCell("今日收益率", signedPercent(summary.todayChangeRatio), changeColor(summary.todayChangeRatio))
+                    MetricCell("本月变化率", signedPercent(monthlyChange?.percentageChange ?: 0.0), changeColor(monthlyChange?.percentageChange ?: 0.0))
                     MetricDivider()
                     MetricCell("累计收益", signedMoney(cumulative, summary.baseCurrency), changeColor(cumulative))
                 }
+                Text("今日变化 ${signedMoney(summary.todayChange, summary.baseCurrency)} · 仅作辅助参考", color = FinColors.TextTertiary, fontSize = 9.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+}
+
+/** 首页只呈现一条最高优先级提醒：数据可信度优先于配置建议。 */
+@Composable
+private fun OverviewPriorityAlert(
+    missingCurrencies: Set<String>,
+    priceStatus: PriceStatus,
+    suspiciousAssetName: String?,
+    drift: Map<PrototypeBucket, Double>,
+    threshold: Double,
+    onOpenQuality: (() -> Unit)? = null
+) {
+    val title: String
+    val detail: String
+    val color: Color
+    when {
+        suspiciousAssetName != null -> {
+            title = "收益率异常"
+            detail = "${suspiciousAssetName} 的累计收益率超过 500%，请检查成本价后再判断收益。"
+            color = FinColors.Danger
+        }
+        missingCurrencies.isNotEmpty() -> {
+            title = "数据质量提醒"
+            detail = "缺少 ${missingCurrencies.joinToString()} 汇率，部分资产未计入总额。请补齐汇率后再查看配置。"
+            color = FinColors.Warning
+        }
+        priceStatus == PriceStatus.EXPIRED -> {
+            title = "行情已过期"
+            detail = "部分资产使用过期价格，刷新行情后再判断资产变化。"
+            color = FinColors.Danger
+        }
+        priceStatus == PriceStatus.CACHE_FALLBACK || priceStatus == PriceStatus.PARTIAL_FAILURE -> {
+            title = "行情使用缓存"
+            detail = "最新价格暂未全部更新，当前金额仅供参考。"
+            color = FinColors.Warning
+        }
+        else -> {
+            val bad = drift.filterValues { abs(it) > threshold }
+            title = "配置偏离提醒"
+            detail = bad.entries.joinToString("，") { (bucket, value) -> "${bucket.label}${if (value > 0) "超配" else "欠配"} ${signedPercent(value)}" } +
+                "。建议按目标比例检查，不代表需要立即交易。"
+            color = FinColors.Warning
+        }
+    }
+    PrototypeCard(modifier = if (onOpenQuality != null) Modifier.clickable { onOpenQuality() } else Modifier, color = color.copy(alpha = 0.13f)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.Warning, contentDescription = title, tint = color, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(title, color = color, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                Text(detail, color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 15.sp)
             }
         }
     }
@@ -548,9 +626,9 @@ private fun DriftWarningCard(drift: Map<PrototypeBucket, Double>, threshold: Dou
 }
 
 @Composable
-private fun AllocationCard(actual: Map<PrototypeBucket, Double>, target: Map<PrototypeBucket, Float>, holdingCount: Int, threshold: Double) {
+private fun AllocationCard(actual: Map<PrototypeBucket, Double>, target: Map<PrototypeBucket, Float>, holdingCount: Int, threshold: Double, onClick: () -> Unit = {}, onOpenBucket: (Int) -> Unit = {}) {
     PrototypeCard {
-        Text("策略配置占比", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+        Text("资产结构（查看目标配置）", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onClick))
         Spacer(Modifier.height(3.dp))
         Text(
             "彩环 = 实际 · 白刻度 = 目标 ${target[PrototypeBucket.DEFENSIVE]?.times(100)?.roundToInt() ?: 0}/${target[PrototypeBucket.BALANCED]?.times(100)?.roundToInt() ?: 0}/${target[PrototypeBucket.AGGRESSIVE]?.times(100)?.roundToInt() ?: 0}",
@@ -563,14 +641,17 @@ private fun AllocationCard(actual: Map<PrototypeBucket, Double>, target: Map<Pro
                 AllocationDonut(actual, target, Modifier.fillMaxSize())
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     MonoText("$holdingCount 项", size = 14, weight = FontWeight.Bold)
-                    Text("合并后持仓", color = FinColors.TextSecondary, fontSize = 9.sp)
+                    Text("资产", color = FinColors.TextSecondary, fontSize = 9.sp)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 PrototypeBucket.entries.forEach { bucket ->
                     val value = actual[bucket] ?: 0.0
                     val goal = target[bucket] ?: 0f
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = { onOpenBucket(bucket.ordinal) })
+                    ) {
                         Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(bucket.color))
                         Spacer(Modifier.width(6.dp))
                         Text(bucket.label, color = bucket.color, fontSize = 11.sp, maxLines = 1, modifier = Modifier.width(45.dp))
@@ -684,7 +765,7 @@ private fun AddHoldingPrompt(onClick: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Add, contentDescription = null, tint = FinColors.Secondary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("再添加一笔持仓", color = FinColors.Secondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text("再添加一项资产", color = FinColors.Secondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -695,19 +776,23 @@ private fun SectionCaption(text: String) {
 }
 
 @Composable
-private fun CompactHoldingRow(holding: PrototypeHolding, currency: String, priceTrend: List<Double>) {
-    PrototypeCard(modifier = Modifier.padding(bottom = 0.dp)) {
+private fun CompactHoldingRow(holding: PrototypeHolding, currency: String, priceTrend: List<Double>, onClick: () -> Unit = {}) {
+    PrototypeCard(modifier = Modifier.padding(bottom = 0.dp).clickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(holding.bucket.color))
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(holding.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                MonoText("${holding.key}${if (holding.accountCount > 1) " · ${holding.accountCount} 账户合并" else ""}", color = FinColors.TextSecondary, size = 9)
+                MonoText("${holding.key}${if (holding.accountCount > 1) " · 分布于 ${holding.accountCount} 个账户" else ""}", color = FinColors.TextSecondary, size = 9)
             }
             Column(horizontalAlignment = Alignment.End) {
                 MonoText(money(holding.value, currency), size = 12, weight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MonoText(signedPercent(holding.profitRatio), color = changeColor(holding.profitRatio), size = 10)
+                    if (abs(holding.profitRatio) > 5.0) {
+                        MonoText("收益率异常", color = FinColors.Warning, size = 10)
+                    } else {
+                        MonoText(signedPercent(holding.profitRatio), color = changeColor(holding.profitRatio), size = 10)
+                    }
                     Spacer(Modifier.width(6.dp))
                     if (priceTrend.size >= 2) HoldingSparkline(priceTrend, holding.profitRatio)
                 }
@@ -765,6 +850,7 @@ fun PrototypeHoldingsScreen(
     portfolioSummary: PortfolioSummary?,
     onOpenAsset: (String) -> Unit,
     onRecordTrade: () -> Unit,
+    onOpenFlows: () -> Unit = {},
     bottomBar: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -776,17 +862,43 @@ fun PrototypeHoldingsScreen(
         }
         val holdings = buildPrototypeHoldings(summary)
         var selected by remember { mutableStateOf<PrototypeBucket?>(null) }
-        val filtered = holdings.filter { selected == null || it.bucket == selected }
+        var selectedAccountId by remember { mutableStateOf<String?>(null) }
+        var filtersExpanded by rememberSaveable { mutableStateOf(false) }
+        var sortDescending by rememberSaveable { mutableStateOf(true) }
+        val filtered = holdings
+            .filter { selected == null || it.bucket == selected }
+            .filter { selectedAccountId == null || selectedAccountId in it.accountIds }
+            .let { list -> if (sortDescending) list.sortedByDescending { it.value } else list.sortedBy { it.value } }
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text("持仓", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
-                Text("${summary.accounts.size} 账户 · ${holdings.sumOf { it.rawCount }} 笔 → 合并为 ${holdings.size} 项", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
+                Text("资产", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                Text("${summary.accounts.size} 个账户 · ${holdings.size} 项资产", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
                 HoldingSummaryCard(holdings, summary)
             }
-            item {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    PrototypeChip("全部", selected == null) { selected = null }
-                    PrototypeBucket.entries.forEach { bucket -> PrototypeChip(bucket.label, selected == bucket) { selected = if (selected == bucket) null else bucket } }
+            if (holdings.size > 1) {
+                item {
+                    TextButton(onClick = { filtersExpanded = !filtersExpanded }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (filtersExpanded) "收起筛选/排序" else "筛选/排序", color = FinColors.Secondary)
+                    }
+                    if (filtersExpanded) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                PrototypeChip("全部", selected == null) { selected = null }
+                                PrototypeBucket.entries.forEach { bucket -> PrototypeChip(bucket.label, selected == bucket) { selected = if (selected == bucket) null else bucket } }
+                            }
+                            if (summary.accounts.size > 1) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    PrototypeChip("全部账户", selectedAccountId == null) { selectedAccountId = null }
+                                    summary.accounts.forEach { account ->
+                                        PrototypeChip(account.account.name, selectedAccountId == account.account.id) { selectedAccountId = if (selectedAccountId == account.account.id) null else account.account.id }
+                                    }
+                                }
+                            }
+                            TextButton(onClick = { sortDescending = !sortDescending }) {
+                                Text(if (sortDescending) "市值从高到低" else "市值从低到高", color = FinColors.TextSecondary)
+                            }
+                        }
+                    }
                 }
             }
             items(filtered, key = { it.key }) { holding ->
@@ -804,7 +916,12 @@ fun PrototypeHoldingsScreen(
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)
-                ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("记一笔", fontWeight = FontWeight.Bold) }
+                ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("添加记录", fontWeight = FontWeight.Bold) }
+            }
+            item {
+                TextButton(onClick = onOpenFlows, modifier = Modifier.fillMaxWidth()) {
+                    Text("查看资产变动", color = FinColors.Secondary)
+                }
             }
             item { Spacer(Modifier.height(12.dp)) }
         }
@@ -819,7 +936,7 @@ private fun HoldingSummaryCard(holdings: List<PrototypeHolding>, summary: Portfo
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             SummaryMetric(money(holdings.sumOf { it.value }, summary.baseCurrency), "总市值")
             SummaryMetric(signedPercent(if (totalCost > 0) totalProfit / totalCost else 0.0), "累计收益率", changeColor(if (totalCost > 0) totalProfit / totalCost else 0.0))
-            SummaryMetric(holdings.size.toString(), "持仓项")
+            SummaryMetric(holdings.size.toString(), "资产项")
         }
     }
 }
@@ -844,7 +961,7 @@ private fun HoldingListRow(holding: PrototypeHolding, currency: String, maxValue
             MonoText(holding.key, color = FinColors.TextSecondary, size = 9)
             if (holding.accountCount > 1) {
                 Spacer(Modifier.weight(1f))
-                Surface(color = Color(0xFF26385F), shape = RoundedCornerShape(6.dp)) { Text("${holding.accountCount} 账户合并", color = FinColors.Secondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
+                Surface(color = Color(0xFF26385F), shape = RoundedCornerShape(6.dp)) { Text("分布于 ${holding.accountCount} 个账户", color = FinColors.Secondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -854,7 +971,11 @@ private fun HoldingListRow(holding: PrototypeHolding, currency: String, maxValue
                 Text("总成本 ${money(holding.cost, currency)}", color = FinColors.TextSecondary, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
             }
             Column(horizontalAlignment = Alignment.End) {
-                MonoText(signedPercent(holding.profitRatio), color = changeColor(holding.profitRatio), size = 12, weight = FontWeight.SemiBold)
+                if (abs(holding.profitRatio) > 5.0) {
+                    MonoText("收益率异常", color = FinColors.Warning, size = 11, weight = FontWeight.SemiBold)
+                } else {
+                    MonoText(signedPercent(holding.profitRatio), color = changeColor(holding.profitRatio), size = 12, weight = FontWeight.SemiBold)
+                }
                 FinBucketTag(holding.bucket.label, holding.bucket.color, Modifier.padding(top = 4.dp))
             }
         }
@@ -864,7 +985,7 @@ private fun HoldingListRow(holding: PrototypeHolding, currency: String, maxValue
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(String.format(Locale.US, "占组合 %.1f%%", if (totalValue > 0) holding.value / totalValue * 100 else 0.0), color = FinColors.TextSecondary, fontSize = 9.sp)
-            Text(if (holding.rawCount > 1) "${holding.rawCount} 笔归集" else "单笔持仓", color = FinColors.TextSecondary, fontSize = 9.sp)
+            Text(if (holding.rawCount > 1) "${holding.rawCount} 条来源" else "单项资产", color = FinColors.TextSecondary, fontSize = 9.sp)
         }
     }
 }
@@ -876,26 +997,37 @@ fun PrototypeFlowsScreen(
     accounts: List<AccountSummary>,
     baseCurrency: String,
     onRecordTrade: () -> Unit,
+    onBack: () -> Unit = {},
     bottomBar: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var filter by remember { mutableStateOf<TransactionType?>(null) }
+    var filter by remember { mutableStateOf(AssetEventFilter.ALL) }
     val monthFormat = remember { SimpleDateFormat("yyyy-MM", Locale.getDefault()) }
     val dateFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     val accountNames = remember(accounts) { accounts.associate { it.account.id to it.account.name } }
-    // 初始录入产生的审计 BUY 流水不算“记一笔”交易，避免把导入持仓误计为本月买入。
-    val trades = transactions.filter {
-        (it.type == TransactionType.BUY || it.type == TransactionType.SELL) &&
-            !it.note.orEmpty().startsWith("录入 ")
+    // 初始录入产生的审计 BUY 不算资产事件，避免把导入动作误计入本月变化。
+    val events = transactions.filter { !it.note.orEmpty().startsWith("录入 ") }
+    val filtered = events.filter {
+        when (filter) {
+            AssetEventFilter.ALL -> true
+            AssetEventFilter.TRADES -> it.type == TransactionType.BUY || it.type == TransactionType.SELL
+            AssetEventFilter.INFLOW -> it.type == TransactionType.DEPOSIT || it.type == TransactionType.DIVIDEND || it.category.income == true
+            AssetEventFilter.OUTFLOW -> it.type == TransactionType.WITHDRAW || it.type == TransactionType.LIABILITY_PAYMENT || it.category.income == false
+        }
     }
-    val filtered = trades.filter { filter == null || it.type == filter }
     val currentMonth = monthFormat.format(Date())
-    val currentMonthTrades = trades.filter { monthFormat.format(Date(it.timestamp)) == currentMonth }
-    val bought = currentMonthTrades.filter { it.type == TransactionType.BUY }.sumOf { it.amount }
-    val sold = currentMonthTrades.filter { it.type == TransactionType.SELL }.sumOf { it.amount }
+    val currentMonthEvents = events.filter { monthFormat.format(Date(it.timestamp)) == currentMonth }
+    val bought = currentMonthEvents.filter { it.type == TransactionType.BUY }.sumOf { it.amount }
+    val sold = currentMonthEvents.filter { it.type == TransactionType.SELL }.sumOf { it.amount }
+    val inflow = currentMonthEvents.filter {
+        it.type == TransactionType.DEPOSIT || it.type == TransactionType.DIVIDEND || it.category.income == true
+    }.sumOf { it.amount }
+    val outflow = currentMonthEvents.filter {
+        it.type == TransactionType.WITHDRAW || it.type == TransactionType.LIABILITY_PAYMENT || it.category.income == false
+    }.sumOf { it.amount }
     val grouped = filtered.groupBy { monthFormat.format(Date(it.timestamp)) }.toSortedMap(compareByDescending { it })
 
-    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, bottomBar = bottomBar) { padding ->
+    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, topBar = { PrototypeTopBar("资产变动", onBack) }, bottomBar = bottomBar) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -903,39 +1035,40 @@ fun PrototypeFlowsScreen(
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("流水", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("买入卖出会自动更新同账户持仓", color = FinColors.TextSecondary, fontSize = 10.sp)
+                        Text("资产变动", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("交易与重要资金事件，用来解释资产变化", color = FinColors.TextSecondary, fontSize = 10.sp)
                     }
                     Button(
                         onClick = onRecordTrade,
                         modifier = Modifier.height(44.dp),
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)
-                    ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(3.dp)); Text("记一笔", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(3.dp)); Text("添加记录", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
             item {
                 PrototypeCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        SummaryMetric(signedMoney(-bought, baseCurrency), "本月买入", if (bought > 0) FinColors.Profit else FinColors.TextSecondary)
+                        SummaryMetric(signedMoney(inflow - outflow, baseCurrency), "本月净流入", changeColor(inflow - outflow))
                         MetricDivider()
-                        SummaryMetric(signedMoney(sold, baseCurrency), "本月卖出", if (sold > 0) FinColors.Loss else FinColors.TextSecondary)
+                        SummaryMetric(signedMoney(sold - bought, baseCurrency), "投资交易净额", changeColor(sold - bought))
                         MetricDivider()
-                        SummaryMetric(signedMoney(sold - bought, baseCurrency), "净流入", changeColor(sold - bought))
+                        SummaryMetric(events.size.toString(), "事件数")
                     }
                 }
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    PrototypeChip("全部", filter == null) { filter = null }
-                    PrototypeChip("买入", filter == TransactionType.BUY) { filter = TransactionType.BUY }
-                    PrototypeChip("卖出", filter == TransactionType.SELL) { filter = TransactionType.SELL }
+                    PrototypeChip("全部", filter == AssetEventFilter.ALL) { filter = AssetEventFilter.ALL }
+                    PrototypeChip("交易", filter == AssetEventFilter.TRADES) { filter = AssetEventFilter.TRADES }
+                    PrototypeChip("资金流入", filter == AssetEventFilter.INFLOW) { filter = AssetEventFilter.INFLOW }
+                    PrototypeChip("资金流出", filter == AssetEventFilter.OUTFLOW) { filter = AssetEventFilter.OUTFLOW }
                 }
             }
             if (grouped.isEmpty()) {
                 item {
                     PrototypeCard(modifier = Modifier.padding(top = 18.dp)) {
-                        Text("暂无买入或卖出流水", color = FinColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 22.dp))
+                        Text("暂无资产变动记录", color = FinColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 22.dp))
                     }
                 }
             } else {
@@ -947,7 +1080,7 @@ fun PrototypeFlowsScreen(
                 }
             }
             item {
-                Text("流水驱动持仓：保存后按证券编码匹配账户内的原始持仓，买入加权重算成本，卖出按比例结转成本。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 8.dp))
+                Text("资产变动用于解释资产变化；内部转账不计入净流入，普通小额消费可按周或按月汇总记录。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 8.dp))
             }
         }
     }
@@ -956,10 +1089,21 @@ fun PrototypeFlowsScreen(
 @Composable
 private fun PrototypeTradeRow(transaction: Transaction, accountName: String?, dateFormat: SimpleDateFormat) {
     val isBuy = transaction.type == TransactionType.BUY
+    val label = when (transaction.type) {
+        TransactionType.BUY -> "买入"
+        TransactionType.SELL -> "卖出"
+        TransactionType.DIVIDEND -> "分红/利息"
+        TransactionType.FEE -> "费用"
+        TransactionType.TRANSFER_IN -> "转入"
+        TransactionType.TRANSFER_OUT -> "转出"
+        TransactionType.DEPOSIT -> "收入/入金"
+        TransactionType.WITHDRAW -> "支出/出金"
+        TransactionType.LIABILITY_PAYMENT -> "还款"
+    }
     val tradeColor = when {
         transaction.amount == 0.0 -> FinColors.TextSecondary
-        isBuy -> FinColors.Profit
-        !isBuy -> FinColors.Loss
+        transaction.type == TransactionType.BUY || transaction.type == TransactionType.DEPOSIT || transaction.type == TransactionType.DIVIDEND || transaction.type == TransactionType.TRANSFER_IN -> FinColors.Profit
+        transaction.type == TransactionType.SELL || transaction.type == TransactionType.WITHDRAW || transaction.type == TransactionType.FEE || transaction.type == TransactionType.LIABILITY_PAYMENT || transaction.type == TransactionType.TRANSFER_OUT -> FinColors.Loss
         else -> FinColors.TextSecondary
     }
     val note = transaction.note.orEmpty()
@@ -973,7 +1117,7 @@ private fun PrototypeTradeRow(transaction: Transaction, accountName: String?, da
     PrototypeCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(color = (if (isBuy) FinColors.Profit else FinColors.Loss).copy(alpha = 0.16f), shape = RoundedCornerShape(6.dp)) {
-                Text(if (isBuy) "买" else "卖", color = if (isBuy) FinColors.Profit else FinColors.Loss, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
+                Text(label.take(1), color = tradeColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
             }
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
@@ -989,7 +1133,12 @@ private fun PrototypeTradeRow(transaction: Transaction, accountName: String?, da
                 Text("${normalizeSecurityCode(transaction.symbol.orEmpty())} · ${accountName ?: "未知账户"} · ${dateFormat.format(Date(transaction.timestamp))}", color = FinColors.TextSecondary, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Column(horizontalAlignment = Alignment.End) {
-                MonoText("${if (isBuy) "-" else "+"}${money(transaction.amount, transaction.currency)}", color = tradeColor, size = 11, weight = FontWeight.SemiBold)
+                val sign = when (transaction.type) {
+                    TransactionType.BUY, TransactionType.WITHDRAW, TransactionType.FEE, TransactionType.LIABILITY_PAYMENT, TransactionType.TRANSFER_OUT -> "-"
+                    TransactionType.SELL, TransactionType.DEPOSIT, TransactionType.DIVIDEND, TransactionType.TRANSFER_IN -> "+"
+                    else -> ""
+                }
+                MonoText("$sign${money(transaction.amount, transaction.currency)}", color = tradeColor, size = 11, weight = FontWeight.SemiBold)
                 MonoText("${formatQuantity(transaction.shares)} @ ${transaction.price?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}", color = FinColors.TextSecondary, size = 9)
             }
         }
@@ -1005,7 +1154,7 @@ fun PrototypeTradeEntryScreen(
     accounts: List<AccountSummary>,
     holdings: List<com.finunity.data.model.MergedHoldingSummary>,
     onBack: () -> Unit,
-    onSave: (isBuy: Boolean, accountId: String, name: String, securityCode: String, quantity: Double, price: Double, bucket: PrototypeBucket, timestamp: Long, currency: String) -> Unit,
+    onSave: (isBuy: Boolean, accountId: String, name: String, securityCode: String, quantity: Double, price: Double, bucket: PrototypeBucket, timestamp: Long, currency: String, fee: Double, note: String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isBuy by remember { mutableStateOf(true) }
@@ -1013,6 +1162,9 @@ fun PrototypeTradeEntryScreen(
     var securityCode by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
+    var feeText by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf("") }
+    var moreOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedAccount by remember(accounts) { mutableStateOf(accounts.firstOrNull()?.account?.id.orEmpty()) }
     var selectedHoldingCurrency by remember { mutableStateOf<String?>(null) }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply { isLenient = false } }
@@ -1020,6 +1172,7 @@ fun PrototypeTradeEntryScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val parsedQuantity = quantity.toDoubleOrNull()
     val parsedPrice = price.toDoubleOrNull()
+    val fee = feeText.toDoubleOrNull() ?: 0.0
     val timestamp = remember(dateText) { runCatching { dateFormat.parse(dateText)?.time }.getOrNull() }
     val amount = (parsedQuantity ?: 0.0) * (parsedPrice ?: 0.0)
     val selectedCurrency = selectedHoldingCurrency
@@ -1029,7 +1182,7 @@ fun PrototypeTradeEntryScreen(
     Scaffold(
         modifier = modifier,
         containerColor = FinColors.PageBg,
-        topBar = { PrototypeTopBar("记一笔", onBack) },
+        topBar = { PrototypeTopBar("记录交易", onBack) },
         bottomBar = {
             Surface(color = FinColors.PageBg) {
                 Column(
@@ -1045,15 +1198,16 @@ fun PrototypeTradeEntryScreen(
                                 parsedQuantity == null || parsedQuantity <= 0.0 -> "请输入有效成交数量"
                                 parsedPrice == null || parsedPrice <= 0.0 -> "请输入有效成交价"
                                 selectedAccount.isBlank() -> "请选择成交账户"
+                                fee < 0.0 -> "费用不能为负数"
                                 timestamp == null -> "日期格式应为 yyyy-MM-dd"
                                 else -> null
                             }
-                            if (error == null) onSave(isBuy, selectedAccount, name.trim().ifBlank { securityCode.trim() }, securityCode.trim(), parsedQuantity!!, parsedPrice!!, PrototypeBucket.AGGRESSIVE, timestamp!!, selectedCurrency)
+                            if (error == null) onSave(isBuy, selectedAccount, name.trim().ifBlank { securityCode.trim() }, securityCode.trim(), parsedQuantity!!, parsedPrice!!, PrototypeBucket.AGGRESSIVE, timestamp!!, selectedCurrency, fee, noteText.trim().ifBlank { null })
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = if (isBuy) FinColors.Profit else FinColors.Loss, contentColor = Color.White)
-                    ) { Text("保存流水 · 更新持仓", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) { Text("保存交易 · 更新资产", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -1068,7 +1222,7 @@ fun PrototypeTradeEntryScreen(
             if (holdings.isNotEmpty()) {
                 item {
                     PrototypeCard {
-                        Text("已有持仓（点击带入）", color = FinColors.TextSecondary, fontSize = 10.sp)
+                        Text("已有资产（点击带入）", color = FinColors.TextSecondary, fontSize = 10.sp)
                         Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             holdings.take(8).forEach { holding ->
                                 PrototypeChip("${holding.displayName} · ${holding.code} · ${holding.currency}", false) {
@@ -1111,8 +1265,22 @@ fun PrototypeTradeEntryScreen(
                     }
                 }
             }
+            item {
+                TextButton(onClick = { moreOptionsExpanded = !moreOptionsExpanded }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (moreOptionsExpanded) "收起更多选项" else "更多选项（费用、日期、备注）", color = FinColors.Secondary)
+                }
+            }
+            if (moreOptionsExpanded) {
+                item {
+                    PrototypeCard {
+                        PrototypeField("费用", feeText, { feeText = it }, "可选", number = true)
+                        PrototypeField("成交日期", dateText, { dateText = it.take(10) }, "yyyy-MM-dd")
+                        PrototypeField("备注", noteText, { noteText = it }, "可选")
+                    }
+                }
+            }
             item { if (error != null) Text(error!!, color = FinColors.Danger, fontSize = 10.sp) }
-            item { Text("卖出数量超过当前持仓会被拦截；买入同码持仓会按数量加权重算成本。", color = FinColors.TextSecondary, fontSize = 10.sp, modifier = Modifier.padding(bottom = 10.dp)) }
+            item { Text("卖出数量超过当前资产会被拦截；买入同码资产会按数量加权重算成本。", color = FinColors.TextSecondary, fontSize = 10.sp, modifier = Modifier.padding(bottom = 10.dp)) }
         }
     }
 }
@@ -1124,12 +1292,13 @@ fun PrototypeAllocationScreen(
     onSave: (Map<PrototypeBucket, Float>) -> Unit,
     onSaved: () -> Unit,
     onOpenPlanning: () -> Unit = {},
+    onBack: () -> Unit = {},
     bottomBar: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val summary = portfolioSummary
     if (summary == null) {
-        Scaffold(modifier = modifier, containerColor = FinColors.PageBg, bottomBar = bottomBar) { padding ->
+        Scaffold(modifier = modifier, containerColor = FinColors.PageBg, topBar = { PrototypeTopBar("资产结构目标", onBack) }, bottomBar = bottomBar) { padding ->
             PrototypeLoadingSkeleton(Modifier.fillMaxSize().padding(padding))
         }
         return
@@ -1141,16 +1310,16 @@ fun PrototypeAllocationScreen(
     var aggressive by remember(initial) { mutableStateOf(initial[PrototypeBucket.AGGRESSIVE] ?: 0f) }
     val values = mapOf(PrototypeBucket.DEFENSIVE to defensive, PrototypeBucket.BALANCED to balanced, PrototypeBucket.AGGRESSIVE to aggressive)
     val total = defensive + balanced + aggressive
-    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, bottomBar = bottomBar) { padding ->
+    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, topBar = { PrototypeTopBar("资产结构目标", onBack) }, bottomBar = bottomBar) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                Text("策略配置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
-                Text("拖动设定目标比例 · 合计须为 100%", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp))
+                Text("资产结构目标", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                Text("设置防守、稳健、进攻的目标比例 · 合计须为 100%", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp))
                 OutlinedButton(
                     onClick = onOpenPlanning,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     shape = CircleShape
-                ) { Text("进入完整规划") }
+                ) { Text("更多规划工具") }
             }
             item {
                 PrototypeCard {
@@ -1261,8 +1430,9 @@ fun PrototypeAccountsScreen(
         val mergedCount = buildPrototypeHoldings(summary).size
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text("账户", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
-                Text("已接入 ${summary.accounts.size} 个数据源 · 支持券商与基金平台", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                Text("我的", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                Text("账户与关键数据操作", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                Text("账户", color = FinColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
             }
             items(summary.accounts, key = { it.account.id }) { account ->
                 AccountSourceRow(account, summary, onClick = { onViewAccount(account.account.id) })
@@ -1301,8 +1471,8 @@ fun PrototypeAccountsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("设置与数据管理", fontWeight = FontWeight.SemiBold)
-                            Text("导入、备份、对账、隐私与偏好", color = FinColors.TextSecondary, fontSize = 10.sp)
+                            Text("数据与安全、设置和更多工具", fontWeight = FontWeight.SemiBold)
+                            Text("导入、备份、导出、隐私与低频工具", color = FinColors.TextSecondary, fontSize = 10.sp)
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = "打开设置", tint = FinColors.TextSecondary)
                     }
@@ -1330,7 +1500,12 @@ private fun AccountSourceRow(summary: AccountSummary, portfolioSummary: Portfoli
                 Text("${summary.account.type.displayName()} · ${summary.account.currency}", color = FinColors.TextSecondary, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
             }
             Column(horizontalAlignment = Alignment.End) {
-                MonoText("$count 笔", size = 12, weight = FontWeight.SemiBold)
+                val accountValue = portfolioSummary.assetRecords
+                    .filter { it.record.accountId == summary.account.id }
+                    .sumOf { it.currentValue }
+                    .plus(portfolioSummary.holdings.filter { it.position.accountId == summary.account.id }.sumOf { it.currentValue })
+                MonoText(money(accountValue, portfolioSummary.baseCurrency), size = 12, weight = FontWeight.SemiBold)
+                Text("$count 项资产", color = FinColors.TextSecondary, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
                 Text(if (stale) "数据可能过期" else "已同步 $updated", color = if (stale) FinColors.Warning else FinColors.Success, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = FinColors.TextSecondary, modifier = Modifier.size(18.dp))
@@ -1349,7 +1524,7 @@ private fun MergeRuleCard(rawCount: Int, mergedCount: Int) {
             MergeBox("$mergedCount 项持仓")
         }
         Spacer(Modifier.height(10.dp))
-        Text("合并规则：同一证券编码在不同账户中的持仓自动归集为一行，数量、市值、成本按持仓量加权合并；A/C 份额等同名不同码资产默认分列。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp)
+        Text("资产详情会按证券编码归集来源；同名不同码资产仍分别展示。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp)
     }
 }
 
@@ -1365,13 +1540,17 @@ fun PrototypeAddSourceScreen(
     onAddAccount: () -> Unit,
     onScreenshot: () -> Unit,
     onManual: () -> Unit,
+    onRecordTrade: () -> Unit = {},
+    onRecordCashFlow: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, topBar = { PrototypeTopBar("导入持仓", onBack) }) { padding ->
+    Scaffold(modifier = modifier, containerColor = FinColors.PageBg, topBar = { PrototypeTopBar("添加记录", onBack) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Text("从你提供的持仓截图中识别数据", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(bottom = 3.dp)) }
-            item { SourceOptionCard("截图识别导入", "选择券商或基金 App 的持仓截图，本地识别后确认", FinColors.Cash, Icons.Default.CropFree, true, onScreenshot) }
-            item { SourceOptionCard("手动录入", "逐项填写，零散持仓也能记", FinColors.Aggressive, Icons.Default.Edit, false, onManual) }
+            item { Text("选择要记录的资产事件", color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(bottom = 3.dp)) }
+            item { SourceOptionCard("截图导入", "从券商或基金 App 截图识别资产，本地确认后保存", FinColors.Cash, Icons.Default.CropFree, true, onScreenshot) }
+            item { SourceOptionCard("手动添加资产", "逐项填写非交易型资产或初始持仓", FinColors.Aggressive, Icons.Default.Edit, false, onManual) }
+            item { SourceOptionCard("记录交易", "记录买入或卖出，自动更新数量与成本", FinColors.Secondary, Icons.Default.ReceiptLong, false, onRecordTrade) }
+            item { SourceOptionCard("记录资金变动", "记录收入、大额支出、转账或分红等重要事件", FinColors.Warning, Icons.Default.SwapHoriz, false, onRecordCashFlow) }
             item {
                 TextButton(onClick = onAddAccount, modifier = Modifier.fillMaxWidth()) {
                     Text("还没有归属账户？先创建账户", color = FinColors.Secondary)

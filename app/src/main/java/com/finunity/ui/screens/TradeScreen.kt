@@ -30,7 +30,7 @@ import java.util.*
 @Composable
 fun TradeScreen(
     summary: AssetRecordSummary,
-    isBuy: Boolean,
+    initialIsBuy: Boolean,
     onBack: () -> Unit,
     onConfirmBuy: (qty: Double, price: Double, fee: Double, timestamp: Long, note: String?) -> Unit,
     onConfirmSell: (qty: Double, price: Double, fee: Double, timestamp: Long, note: String?) -> Unit,
@@ -39,6 +39,8 @@ fun TradeScreen(
     val record = summary.record
     val currency = record.currency
     val holdingLabel = trimQty(record.quantity)
+
+    var isBuy by remember { mutableStateOf(initialIsBuy) }
 
     var qtyText by remember { mutableStateOf("") }
     var priceText by remember { mutableStateOf(if (record.currentPrice > 0) String.format(Locale.US, "%.2f", record.currentPrice) else "") }
@@ -133,6 +135,24 @@ fun TradeScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { isBuy = true },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
+                        contentColor = FinColors.TextPrimary
+                    )
+                ) { Text("买入") }
+                OutlinedButton(
+                    onClick = { isBuy = false },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (!isBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
+                        contentColor = FinColors.TextPrimary
+                    )
+                ) { Text("卖出") }
+            }
             // 持仓概要
             WhiteCard {
                 InfoRow("所属账户", summary.accountName)

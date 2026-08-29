@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -90,6 +91,7 @@ fun CashFlowScreen(
     var category by remember { mutableStateOf(CashFlowCategory.OTHER_INCOME) }
     var targetExpanded by remember { mutableStateOf(false) }
     var targetAccountId by remember { mutableStateOf("") }
+    var moreOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     val transferTargets = accounts
         .map { it.account }
         .filter { it.id != accountId }
@@ -101,7 +103,7 @@ fun CashFlowScreen(
         (mode != CashFlowMode.TRANSFER || selectedTarget != null)
 
     Scaffold(
-        topBar = { FinTopBar("记收支", onBack) },
+        topBar = { FinTopBar("记录资金变动", onBack) },
         containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
@@ -114,10 +116,15 @@ fun CashFlowScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
+                Text(
+                    text = account?.name ?: "账户不存在",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
             Text(
-                text = account?.name ?: "账户不存在",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
+                "只记录能解释资产变化的重要事件；餐饮、交通等小额消费可按周或按月合并一笔。",
+                style = MaterialTheme.typography.bodySmall,
+                color = FinColors.TextSecondary
             )
 
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -134,7 +141,7 @@ fun CashFlowScreen(
             if (account?.type != AccountType.LIABILITY) TextButton(onClick = onAddAsset, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("这不是收支？直接添加资产")
+                Text("这不是资金变动？添加资产")
             }
 
             OutlinedTextField(
@@ -148,6 +155,11 @@ fun CashFlowScreen(
                 shape = FinShapes.sm
             )
             if (mode == CashFlowMode.CASH_IN || mode == CashFlowMode.CASH_OUT) {
+                TextButton(onClick = { moreOptionsExpanded = !moreOptionsExpanded }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (moreOptionsExpanded) "收起更多选项" else "更多选项（分类、备注）", color = FinColors.Secondary)
+                }
+            }
+            if (moreOptionsExpanded && (mode == CashFlowMode.CASH_IN || mode == CashFlowMode.CASH_OUT)) {
                 Text(
                     if (mode == CashFlowMode.CASH_IN) "收入分类" else "支出分类",
                     style = MaterialTheme.typography.labelLarge,
@@ -156,7 +168,7 @@ fun CashFlowScreen(
                 val categoryOptions = if (mode == CashFlowMode.CASH_IN) {
                     listOf(CashFlowCategory.SALARY, CashFlowCategory.BONUS, CashFlowCategory.RENTAL_INCOME, CashFlowCategory.INTEREST, CashFlowCategory.DIVIDEND, CashFlowCategory.OTHER_INCOME)
                 } else {
-                    listOf(CashFlowCategory.FOOD, CashFlowCategory.HOUSING, CashFlowCategory.TRANSPORT, CashFlowCategory.INSURANCE, CashFlowCategory.LOAN_REPAYMENT, CashFlowCategory.TAX, CashFlowCategory.HEALTH, CashFlowCategory.SHOPPING, CashFlowCategory.ENTERTAINMENT, CashFlowCategory.EDUCATION, CashFlowCategory.OTHER_EXPENSE)
+                    listOf(CashFlowCategory.HOUSING, CashFlowCategory.INSURANCE, CashFlowCategory.LOAN_REPAYMENT, CashFlowCategory.TAX, CashFlowCategory.HEALTH, CashFlowCategory.EDUCATION, CashFlowCategory.OTHER_EXPENSE)
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     categoryOptions.forEach { item ->
@@ -266,15 +278,17 @@ fun CashFlowScreen(
                     }
                 }
 
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("备注") },
-                placeholder = { Text(defaultNoteFor(mode)) },
-                minLines = 2,
-                shape = FinShapes.sm
-            )
+            if (moreOptionsExpanded || mode == CashFlowMode.TRANSFER || mode == CashFlowMode.LIABILITY_PAYMENT) {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("备注（可注明周/月汇总）") },
+                    placeholder = { Text(if (mode == CashFlowMode.CASH_OUT) "例如：8 月日常支出汇总" else defaultNoteFor(mode)) },
+                    minLines = 2,
+                    shape = FinShapes.sm
+                )
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
