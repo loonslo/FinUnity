@@ -40,7 +40,7 @@ fun MergedHoldingDetailScreen(
 ) {
     Scaffold(
         modifier = modifier,
-        topBar = { FinTopBar("${holding.displayName} · 持仓详情", onBack) }
+        topBar = { FinTopBar("${holding.displayName} · 资产详情", onBack) }
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
@@ -65,7 +65,7 @@ fun MergedHoldingDetailScreen(
                     }
                 }
             }
-            item { Text("账户 / 来源（买卖前必须选择具体来源）", fontWeight = FontWeight.SemiBold) }
+            item { Text("账户来源（记录交易前选择具体账户）", fontWeight = FontWeight.SemiBold) }
             items(sources, key = { it.record.id }) { source ->
                 SourceRow(source, baseCurrency, onOpenTrade)
             }
@@ -91,18 +91,11 @@ private fun SourceRow(
             Text("单位成本 ${formatCurrency(record.averageCost, record.currency)} · 当前单价 ${formatCurrency(record.currentPrice, record.currency)}")
             Text("市值 ${formatCurrency(source.currentValue, baseCurrency)} · 盈亏 ${formatSignedMoney(source.profitLoss, baseCurrency)}")
             Text("价格状态：${if (record.currentPrice > 0.0) "有本地价格" else "缺价格"}", color = FinColors.TextSecondary)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onOpenTrade(record.id, true) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.Profit)
-                ) { Text("买入") }
-                Button(
-                    onClick = { onOpenTrade(record.id, false) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.Loss)
-                ) { Text("卖出") }
-            }
+            Button(
+                onClick = { onOpenTrade(record.id, true) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = FinColors.Secondary)
+            ) { Text("记录交易") }
         }
     }
 }

@@ -327,6 +327,7 @@ fun PrototypeOverviewScreen(
     onOpenBucket: (Int) -> Unit = {},
     onOpenDataQuality: (String) -> Unit = {},
     onOpenAsset: (String) -> Unit = {},
+    onOpenMonthlyReview: () -> Unit = {},
     bottomBar: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -391,6 +392,13 @@ fun PrototypeOverviewScreen(
                     }
                     if (holdings.size < 3) {
                         item { AddHoldingPrompt(onStartAddFlow) }
+                    }
+                }
+                if (monthlyChange != null) {
+                    item {
+                        TextButton(onClick = onOpenMonthlyReview, modifier = Modifier.fillMaxWidth()) {
+                            Text("查看本月资产复盘", color = FinColors.Secondary)
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(12.dp)) }

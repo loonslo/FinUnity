@@ -421,6 +421,7 @@ fun FinUnityApp(
                     onOpenBucket = { bucketIndex -> navigateTo(Screen.RiskBucketDetail(bucketIndex)) },
                     onOpenDataQuality = { recordId -> navigateTo(Screen.AssetDetail(recordId)) },
                     onOpenAsset = { code -> navigateTo(Screen.MergedHoldingDetail(code)) },
+                    onOpenMonthlyReview = { navigateTo(Screen.MonthlyReview) },
                     bottomBar = { bottomBar(TopLevelTab.Overview) }
                 )
             }
