@@ -30,7 +30,7 @@ import java.util.*
 @Composable
 fun TradeScreen(
     summary: AssetRecordSummary,
-    initialIsBuy: Boolean,
+    isBuy: Boolean,
     onBack: () -> Unit,
     onConfirmBuy: (qty: Double, price: Double, fee: Double, timestamp: Long, note: String?) -> Unit,
     onConfirmSell: (qty: Double, price: Double, fee: Double, timestamp: Long, note: String?) -> Unit,
@@ -40,7 +40,7 @@ fun TradeScreen(
     val currency = record.currency
     val holdingLabel = trimQty(record.quantity)
 
-    var isBuy by remember { mutableStateOf(initialIsBuy) }
+    var tradeIsBuy by remember { mutableStateOf(isBuy) }
 
     var qtyText by remember { mutableStateOf("") }
     var priceText by remember { mutableStateOf(if (record.currentPrice > 0) String.format(Locale.US, "%.2f", record.currentPrice) else "") }
@@ -58,29 +58,29 @@ fun TradeScreen(
 
     val sellQty = qtyText.toDoubleOrNull() ?: record.quantity   // 卖出留空=全部
     val sellError = when {
-        !isBuy && qtyText.isNotBlank() && qtyText.toDoubleOrNull() == null -> "请输入有效数量"
-        !isBuy && sellQty <= 0 -> "卖出数量必须大于 0"
-        !isBuy && sellQty > record.quantity -> "不能超过持有数量 $holdingLabel"
-        !isBuy && tradePrice <= 0 -> "请填写实际成交价"
-        !isBuy && fee < 0 -> "费用不能为负数"
-        !isBuy && tradeTimestamp == null -> "日期格式应为 yyyy-MM-dd"
+        !tradeIsBuy && qtyText.isNotBlank() && qtyText.toDoubleOrNull() == null -> "请输入有效数量"
+        !tradeIsBuy && sellQty <= 0 -> "卖出数量必须大于 0"
+        !tradeIsBuy && sellQty > record.quantity -> "不能超过持有数量 $holdingLabel"
+        !tradeIsBuy && tradePrice <= 0 -> "请填写实际成交价"
+        !tradeIsBuy && fee < 0 -> "费用不能为负数"
+        !tradeIsBuy && tradeTimestamp == null -> "日期格式应为 yyyy-MM-dd"
         else -> null
     }
-    val valid = if (isBuy) qty > 0 && buyPrice > 0 && fee >= 0 && tradeTimestamp != null else sellError == null
-    val previewAmount = if (isBuy) qty * buyPrice + fee else (sellQty * tradePrice - fee).coerceAtLeast(0.0)
+    val valid = if (tradeIsBuy) qty > 0 && buyPrice > 0 && fee >= 0 && tradeTimestamp != null else sellError == null
+    val previewAmount = if (tradeIsBuy) qty * buyPrice + fee else (sellQty * tradePrice - fee).coerceAtLeast(0.0)
 
     if (showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },
-            title = { Text(if (isBuy) "确认买入" else "确认卖出") },
+            title = { Text(if (tradeIsBuy) "确认买入" else "确认卖出") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("${record.name} · ${summary.accountName}", fontWeight = FontWeight.SemiBold)
-                    Text("数量：${if (isBuy) trimQty(qty) else trimQty(sellQty)} 份")
+                    Text("数量：${if (tradeIsBuy) trimQty(qty) else trimQty(sellQty)} 份")
                     Text("成交价：${formatCurrency(tradePrice, currency)}")
                     Text("费用：${formatCurrency(fee, currency)}")
                     Text(
-                        if (isBuy) "预计扣款：${formatCurrency(previewAmount, currency)}"
+                        if (tradeIsBuy) "预计扣款：${formatCurrency(previewAmount, currency)}"
                         else "预计到账：${formatCurrency(previewAmount, currency)}",
                         fontWeight = FontWeight.SemiBold
                     )
@@ -90,7 +90,7 @@ fun TradeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showConfirmDialog = false
-                    if (isBuy) onConfirmBuy(qty, buyPrice, fee, tradeTimestamp!!, noteText.trim().ifBlank { null })
+                    if (tradeIsBuy) onConfirmBuy(qty, buyPrice, fee, tradeTimestamp!!, noteText.trim().ifBlank { null })
                     else onConfirmSell(sellQty, tradePrice, fee, tradeTimestamp!!, noteText.trim().ifBlank { null })
                 }) { Text("确认") }
             },
@@ -102,7 +102,7 @@ fun TradeScreen(
 
     Scaffold(
         containerColor = FinColors.PageBg,
-        topBar = { FinTopBar(title = "${if (isBuy) "买入" else "卖出"} ${record.name}", onBack = onBack) },
+        topBar = { FinTopBar(title = "${if (tradeIsBuy) "买入" else "卖出"} ${record.name}", onBack = onBack) },
         bottomBar = {
             Surface(color = FinColors.PageBg) {
                 Button(
@@ -114,13 +114,13 @@ fun TradeScreen(
                         .height(52.dp),
                     shape = androidx.compose.foundation.shape.CircleShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isBuy) FinColors.Profit else FinColors.Loss,
+                        containerColor = if (tradeIsBuy) FinColors.Profit else FinColors.Loss,
                         contentColor = Color.White,
                         disabledContainerColor = FinColors.SurfaceElevated,
                         disabledContentColor = FinColors.TextTertiary
                     )
                 ) {
-                    Text(if (isBuy) "确认买入" else "确认卖出", fontWeight = FontWeight.SemiBold)
+                    Text(if (tradeIsBuy) "确认买入" else "确认卖出", fontWeight = FontWeight.SemiBold)
                 }
             }
         },
@@ -137,18 +137,18 @@ fun TradeScreen(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = { isBuy = true },
+                    onClick = { tradeIsBuy = true },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
+                        containerColor = if (tradeIsBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
                         contentColor = FinColors.TextPrimary
                     )
                 ) { Text("买入") }
                 OutlinedButton(
-                    onClick = { isBuy = false },
+                    onClick = { tradeIsBuy = false },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (!isBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
+                        containerColor = if (!tradeIsBuy) FinColors.Secondary.copy(alpha = 0.16f) else Color.Transparent,
                         contentColor = FinColors.TextPrimary
                     )
                 ) { Text("卖出") }
@@ -166,7 +166,7 @@ fun TradeScreen(
 
             // 输入区
             WhiteCard {
-                if (isBuy) {
+                if (tradeIsBuy) {
                     FinInlineField(
                         value = qtyText,
                         onValueChange = { qtyText = it.filter { c -> c.isDigit() || c == '.' } },
@@ -187,13 +187,13 @@ fun TradeScreen(
                     FinInlineField(value = priceText, onValueChange = { priceText = it.filter { c -> c.isDigit() || c == '.' } }, label = "实际成交价", placeholder = "0.00", keyboardType = KeyboardType.Decimal)
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isBuy) "本次买入金额" else "预计净到账", style = MaterialTheme.typography.bodyMedium, color = FinColors.TextSecondary)
+                    Text(if (tradeIsBuy) "本次买入金额" else "预计净到账", style = MaterialTheme.typography.bodyMedium, color = FinColors.TextSecondary)
                     Text(if (valid) formatCurrency(previewAmount, currency) else "—", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
                 }
                 FinInlineField(value = feeText, onValueChange = { feeText = it.filter { c -> c.isDigit() || c == '.' } }, label = "费用（选填）", placeholder = "0.00", keyboardType = KeyboardType.Decimal)
                 FinInlineField(value = dateText, onValueChange = { dateText = it.filter { c -> c.isDigit() || c == '-' }.take(10) }, label = "成交日期", placeholder = "yyyy-MM-dd")
-                FinInlineField(value = noteText, onValueChange = { noteText = it }, label = "备注（选填）", placeholder = if (isBuy) "如：按计划加仓" else "如：按计划减仓")
-                if (!isBuy && sellError != null) {
+                FinInlineField(value = noteText, onValueChange = { noteText = it }, label = "备注（选填）", placeholder = if (tradeIsBuy) "如：按计划加仓" else "如：按计划减仓")
+                if (!tradeIsBuy && sellError != null) {
                     Text(sellError, color = FinColors.Danger, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
                 }
             }

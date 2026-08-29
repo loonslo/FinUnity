@@ -1016,7 +1016,7 @@ fun FinUnityApp(
             if (tradeSummary != null) {
                 com.finunity.ui.screens.TradeScreen(
                     summary = tradeSummary,
-                    initialIsBuy = screen.isBuy,
+                    isBuy = screen.isBuy,
                     onBack = { navigateBack() },
                     onConfirmBuy = { qty, price, fee, timestamp, note ->
                         scope.launch {
