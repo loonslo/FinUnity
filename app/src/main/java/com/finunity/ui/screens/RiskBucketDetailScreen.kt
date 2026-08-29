@@ -45,14 +45,14 @@ fun RiskBucketDetailScreen(
 ) {
     // 过滤出属于该风险维度的账户和记录
     // 账户属于某个维度的情况：
-    // - CASH: 账户下有现金类持仓
+    // - DEFENSIVE: 账户下有现金类持仓
     // - AGGRESSIVE: 账户下有持仓（Position）或股票/ETF/基金资产记录
-    // - CONSERVATIVE: 账户下有定期存款资产记录
+    // - BALANCED: 账户下有稳健类资产记录
     val accountsInBucket = accounts.filter { account ->
         when (riskBucketSummary.riskBucket) {
-            RiskBucket.CASH -> assetRecords.any {
+            RiskBucket.DEFENSIVE -> assetRecords.any {
                     it.record.accountId == account.account.id &&
-                    it.record.riskBucket == RiskBucket.CASH
+                    it.record.riskBucket == RiskBucket.DEFENSIVE
                 }
             RiskBucket.AGGRESSIVE -> {
                 // 账户有持仓（Position）或股票/ETF/基金资产记录
@@ -62,18 +62,11 @@ fun RiskBucketDetailScreen(
                     it.record.riskBucket == RiskBucket.AGGRESSIVE
                 }
             }
-            RiskBucket.CONSERVATIVE -> {
+            RiskBucket.BALANCED -> {
                 // 账户有定期存款记录
                 assetRecords.any {
                     it.record.accountId == account.account.id &&
-                    it.record.riskBucket == RiskBucket.CONSERVATIVE
-                }
-            }
-            RiskBucket.INSURANCE -> {
-                // 账户有保命型资产记录（保险/应急）
-                assetRecords.any {
-                    it.record.accountId == account.account.id &&
-                    it.record.riskBucket == RiskBucket.INSURANCE
+                    it.record.riskBucket == RiskBucket.BALANCED
                 }
             }
         }
@@ -131,9 +124,8 @@ fun RiskBucketDetailScreen(
                                 .filter { it.position.accountId == accountSummary.account.id }
                                 .sumOf { it.currentValue }
                         }
-                        RiskBucket.CASH,
-                        RiskBucket.CONSERVATIVE,
-                        RiskBucket.INSURANCE -> recordValueForAccount
+                        RiskBucket.DEFENSIVE,
+                        RiskBucket.BALANCED -> recordValueForAccount
                     }
 
                     AccountInBucketItem(
@@ -194,17 +186,16 @@ fun RiskBucketSummaryCard(
     baseCurrency: String
 ) {
     val bucketColor = when (summary.riskBucket) {
-        RiskBucket.CONSERVATIVE -> FinColors.Conservative
+        RiskBucket.BALANCED -> FinColors.Conservative
         RiskBucket.AGGRESSIVE -> FinColors.Aggressive
-        RiskBucket.INSURANCE -> FinColors.Insurance
-        RiskBucket.CASH -> FinColors.Cash
+        RiskBucket.DEFENSIVE -> FinColors.Cash
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.xl,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -235,7 +226,7 @@ fun RiskBucketSummaryCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "${String.format("%.1f", summary.percentage * 100)}%",
+                        text = "${String.format(Locale.US, "%.1f", summary.percentage * 100)}%",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = bucketColor
@@ -282,16 +273,14 @@ fun RiskBucketSummaryCard(
 }
 
 private fun moneyPurposeTitle(bucket: RiskBucket): String = when (bucket) {
-    RiskBucket.CASH -> "要花的钱 · 随时要用"
-    RiskBucket.INSURANCE -> "保命的钱 · 应急与保险"
-    RiskBucket.CONSERVATIVE -> "保本的钱 · 1-3 年要用"
+    RiskBucket.DEFENSIVE -> "要花的钱 · 随时要用"
+    RiskBucket.BALANCED -> "稳健的钱 · 保障与保值"
     RiskBucket.AGGRESSIVE -> "生钱的钱 · 5 年以上长期"
 }
 
 private fun moneyPurposeDescription(bucket: RiskBucket): String = when (bucket) {
-    RiskBucket.CASH -> "用于日常开销、应急备用和短期周转，重点是安全和流动性。"
-    RiskBucket.INSURANCE -> "用于意外、重疾等保障和应急储备，专款专用，不参与日常开销和投资。"
-    RiskBucket.CONSERVATIVE -> "用于中近期确定性支出，重点是控制波动，不追求过高收益。"
+    RiskBucket.DEFENSIVE -> "用于日常开销、应急备用和短期周转，重点是安全和流动性。"
+    RiskBucket.BALANCED -> "用于保障、保值和中近期确定性支出，重点是控制波动。"
     RiskBucket.AGGRESSIVE -> "用于长期目标和可承受波动的钱，重点是长期增长，而不是短期买卖。"
 }
 
@@ -308,7 +297,7 @@ fun AccountInBucketItem(
             .clickable(onClick = onClick),
         shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -351,7 +340,7 @@ fun HoldingInBucketItem(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -424,7 +413,7 @@ fun AssetRecordInBucketItem(
             .clickable(onClick = onClick),
         shape = FinShapes.lg,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {

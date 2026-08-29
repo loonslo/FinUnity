@@ -38,9 +38,9 @@ class AppDatabaseTest {
     @Before
     fun createDb() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // Use in-memory database for tests with fallbackToDestructiveMigration
+        // In-memory database starts at the current schema version; migration-chain tests should
+        // use a file-backed database fixture with the historical schemas.
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .fallbackToDestructiveMigration()
             .build()
         accountDao = db.accountDao()
         transactionDao = db.transactionDao()
@@ -53,12 +53,12 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `database version is 14`() {
-        assertEquals(14, db.openHelper.readableDatabase.version)
+    fun databaseVersionIs24() {
+        assertEquals(24, db.openHelper.readableDatabase.version)
     }
 
     @Test
-    fun `asset industry tag can be persisted`() = runBlocking {
+    fun assetIndustryTagCanBePersisted() = runBlocking {
         accountDao.insert(Account(id = "industry-acc", name = "证券", type = AccountType.BROKER, currency = "CNY", balance = 0.0))
         db.assetRecordDao().insert(
             AssetRecord(
@@ -83,7 +83,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `transactions with recordId can be inserted and retrieved`() = runBlocking {
+    fun transactionsWithRecordIdCanBeInsertedAndRetrieved() = runBlocking {
         // Create account first
         val account = Account(
             id = "test-acc-tx",
@@ -115,7 +115,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `transactions without recordId can also be inserted`() = runBlocking {
+    fun transactionsWithoutRecordIdCanAlsoBeInserted() = runBlocking {
         val account = Account(
             id = "test-acc-no-record",
             name = "测试账户2",
@@ -144,7 +144,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `insert and retrieve account`() = runBlocking {
+    fun insertAndRetrieveAccount() = runBlocking {
         val account = Account(
             id = "test-acc-1",
             name = "测试账户",
@@ -161,7 +161,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `update account balance`() = runBlocking {
+    fun updateAccountBalance() = runBlocking {
         val account = Account(
             id = "test-acc-2",
             name = "原始名称",
@@ -179,7 +179,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `delete account`() = runBlocking {
+    fun deleteAccount() = runBlocking {
         val account = Account(
             id = "test-acc-3",
             name = "待删除账户",
@@ -196,7 +196,7 @@ class AppDatabaseTest {
     }
 
     @Test
-    fun `get account by id`() = runBlocking {
+    fun getAccountById() = runBlocking {
         val account = Account(
             id = "unique-id-123",
             name = "特定账户",

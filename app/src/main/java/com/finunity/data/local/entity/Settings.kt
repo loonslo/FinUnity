@@ -12,9 +12,8 @@ data class Settings(
     @PrimaryKey
     val id: Int = 1,                    // 始终为1，单例
     val baseCurrency: String = "CNY",   // 基准货币
-    // 目标资产配置（标普四象限），key：CONSERVATIVE/AGGRESSIVE/INSURANCE/CASH（稳健/进取/保命/防守）
-    // 默认采用经典标普比例：保本40% 生钱30% 保命20% 要花10%
-    val targetAllocation: String = "CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1",
+    // 三桶目标配置，键顺序固定，便于备份、展示和迁移审计。
+    val targetAllocation: String = DEFAULT_TARGET_ALLOCATION,
     val rebalanceThreshold: Double = 0.05,  // 再平衡阈值，默认5%偏离度触发提醒
     val onboarded: Boolean = false,          // 是否已完成新手引导
     val amountsVisible: Boolean = true,      // 金额是否可见（全局隐藏开关）
@@ -26,25 +25,96 @@ data class Settings(
  * 解析 targetAllocation 字符串
  * @return 资产类别到目标比例的映射
  */
-fun parseTargetAllocation(allocationStr: String): Map<String, Double> {
-    fun normalizeKey(key: String): String = when (key.trim().uppercase()) {
-        "稳健", "CONSERVATIVE" -> "CONSERVATIVE"
-        "进取", "AGGRESSIVE" -> "AGGRESSIVE"
-        "保命", "INSURANCE" -> "INSURANCE"
-        "防守", "CASH" -> "CASH"
-        else -> key.trim()
-    }
+const val DEFAULT_TARGET_ALLOCATION = "DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"
 
-    return allocationStr.split(",")
-        .mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) {
-                val key = normalizeKey(parts[0])
-                val value = parts[1].trim().toDoubleOrNull()
-                if (value != null) key to value else null
-            } else null
+data class TargetAllocationValidation(
+    val values: Map<String, Double>,
+    val errors: List<String>
+) {
+    val isValid: Boolean get() = errors.isEmpty()
+}
+
+private val THREE_BUCKET_KEYS = listOf("DEFENSIVE", "BALANCED", "AGGRESSIVE")
+
+/**
+ * 解析并规范化目标配置。旧 CONSERVATIVE + INSURANCE 会合并为 BALANCED，旧 CASH 会变为
+ * DEFENSIVE。解析函数保留合法片段，完整合法性由 [validateTargetAllocation] 判定。
+ */
+fun parseTargetAllocation(allocationStr: String): Map<String, Double> =
+    parseTargetAllocationInternal(allocationStr).values
+
+fun validateTargetAllocation(allocationStr: String): TargetAllocationValidation {
+    val parsed = parseTargetAllocationInternal(allocationStr)
+    val errors = parsed.errors.toMutableList()
+    THREE_BUCKET_KEYS.filterNot(parsed.values::containsKey).forEach { key ->
+        errors += "缺少目标桶 $key"
+    }
+    if (parsed.values.isNotEmpty()) {
+        val sum = parsed.values.values.sum()
+        if (kotlin.math.abs(sum - 1.0) > 1e-6) {
+            errors += "目标比例合计必须为 1，当前为 $sum"
         }
-        .toMap()
+    }
+    return TargetAllocationValidation(parsed.values, errors.distinct())
+}
+
+fun parseTargetAllocationOrDefault(allocationStr: String): Map<String, Double> =
+    validateTargetAllocation(allocationStr).takeIf { it.isValid }?.values
+        ?: parseTargetAllocation(DEFAULT_TARGET_ALLOCATION)
+
+fun formatTargetAllocation(targets: Map<String, Double>): String {
+    val validation = validateTargetAllocation(
+        THREE_BUCKET_KEYS.joinToString(",") { "$it:${targets[it] ?: 0.0}" }
+    )
+    require(validation.isValid) { validation.errors.joinToString("；") }
+    return THREE_BUCKET_KEYS.joinToString(",") { "$it:${targets.getValue(it)}" }
+}
+
+private data class ParsedTargetAllocation(
+    val values: Map<String, Double>,
+    val errors: List<String>
+)
+
+private fun parseTargetAllocationInternal(allocationStr: String): ParsedTargetAllocation {
+    if (allocationStr.isBlank()) return ParsedTargetAllocation(emptyMap(), emptyList())
+    val values = linkedMapOf<String, Double>()
+    val errors = mutableListOf<String>()
+    val rawKeys = mutableSetOf<String>()
+
+    allocationStr.split(",").forEachIndexed { index, pair ->
+        val parts = pair.split(":", limit = 2)
+        if (parts.size != 2 || parts[0].trim().isEmpty()) {
+            errors += "第 ${index + 1} 项格式应为 KEY:比例"
+            return@forEachIndexed
+        }
+        val rawKey = parts[0].trim()
+        val key = legacyBucketToThreeBucket(rawKey)?.name
+        if (key == null) {
+            errors += "未知目标桶 '$rawKey'"
+            return@forEachIndexed
+        }
+        val rawKeyUpper = rawKey.uppercase()
+        // CONSERVATIVE 和 INSURANCE 是唯一允许合并到同一新键的两个旧键；其余重复项均非法。
+        val isDistinctLegacyPair =
+            (rawKeyUpper == "CONSERVATIVE" && rawKeys.contains("INSURANCE")) ||
+                (rawKeyUpper == "INSURANCE" && rawKeys.contains("CONSERVATIVE"))
+        if (key in values && !isDistinctLegacyPair) {
+            errors += "目标桶 '$key' 重复"
+            return@forEachIndexed
+        }
+        val value = parts[1].trim().toDoubleOrNull()
+        if (value == null || !value.isFinite()) {
+            errors += "目标桶 '$rawKey' 的比例不是有限数字"
+            return@forEachIndexed
+        }
+        if (value < 0.0) {
+            errors += "目标桶 '$rawKey' 的比例不能为负数"
+            return@forEachIndexed
+        }
+        values[key] = (values[key] ?: 0.0) + value
+        rawKeys += rawKeyUpper
+    }
+    return ParsedTargetAllocation(values, errors)
 }
 
 /**
@@ -59,17 +129,20 @@ fun calculateRebalanceRecommendations(
     targetAllocation: Map<String, Double>,
     threshold: Double
 ): List<String> {
+    val normalizedCurrent = currentAllocation.entries.groupBy { legacyBucketToThreeBucket(it.key)?.name ?: it.key }
+        .mapValues { (_, entries) -> entries.sumOf { it.value } }
+    val normalizedTarget = targetAllocation.entries.groupBy { legacyBucketToThreeBucket(it.key)?.name ?: it.key }
+        .mapValues { (_, entries) -> entries.sumOf { it.value } }
     fun labelOf(asset: String): String = when (asset) {
-        "CONSERVATIVE" -> "稳健"
-        "AGGRESSIVE" -> "进取"
-        "INSURANCE" -> "保命"
-        "CASH" -> "防守"
+        "DEFENSIVE" -> "防守"
+        "BALANCED" -> "稳健"
+        "AGGRESSIVE" -> "进攻"
         else -> asset
     }
 
     val recommendations = mutableListOf<String>()
-    for ((asset, target) in targetAllocation) {
-        val current = currentAllocation[asset] ?: 0.0
+    for ((asset, target) in normalizedTarget) {
+        val current = normalizedCurrent[asset] ?: 0.0
         val drift = current - target
         if (kotlin.math.abs(drift) > threshold) {
             val action = if (drift > 0) "减配" else "增配"

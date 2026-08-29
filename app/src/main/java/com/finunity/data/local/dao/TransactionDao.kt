@@ -19,6 +19,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE recordId = :recordId ORDER BY timestamp DESC")
     fun getTransactionsByRecordId(recordId: String): Flow<List<Transaction>>
 
+    @Query("DELETE FROM transactions WHERE recordId = :recordId")
+    suspend fun deleteByRecordId(recordId: String)
+
     @Query("SELECT * FROM transactions WHERE sourceFingerprint = :sourceFingerprint LIMIT 1")
     suspend fun getBySourceFingerprint(sourceFingerprint: String): Transaction?
 
@@ -55,4 +58,7 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM transactions WHERE importBatchId = :batchId")
+    suspend fun deleteImported(batchId: String): Int
 }

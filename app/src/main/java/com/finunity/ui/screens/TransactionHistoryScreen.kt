@@ -19,6 +19,7 @@ import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.model.displayName
 import com.finunity.ui.components.FinTopBar
+import com.finunity.ui.theme.FinColors
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -27,7 +28,6 @@ import java.util.*
 fun TransactionHistoryScreen(
     transactions: List<Transaction>,
     accountName: String?,
-    baseCurrency: String,
     accountNames: Map<String, String> = emptyMap(),
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -134,7 +134,6 @@ fun TransactionHistoryScreen(
                 items(filteredTransactions) { transaction ->
                     TransactionItem(
                         transaction = transaction,
-                        baseCurrency = baseCurrency,
                         dateFormat = dateFormat
                     )
                 }
@@ -167,7 +166,6 @@ private fun FilterRow(
 @Composable
 fun TransactionItem(
     transaction: Transaction,
-    baseCurrency: String,
     dateFormat: SimpleDateFormat
 ) {
     val typeLabel = when (transaction.type) {
@@ -179,6 +177,7 @@ fun TransactionItem(
         TransactionType.TRANSFER_OUT -> "转出"
         TransactionType.DEPOSIT -> "入金"
         TransactionType.WITHDRAW -> "出金"
+        TransactionType.LIABILITY_PAYMENT -> "还款"
     }
 
     Card(
@@ -202,7 +201,12 @@ fun TransactionItem(
                     Text(
                         text = typeLabel,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = when (transaction.type) {
+                            TransactionType.BUY -> FinColors.Profit
+                            TransactionType.SELL -> FinColors.Loss
+                            else -> FinColors.TextPrimary
+                        }
                     )
                     if (transaction.symbol != null) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -228,13 +232,13 @@ fun TransactionItem(
             ) {
                 if (transaction.shares != null && transaction.price != null) {
                     Text(
-                        text = "${String.format("%.4f", transaction.shares)} 份 × ${formatCurrency(transaction.price, transaction.currency)}",
+                        text = "${String.format(Locale.US, "%.4f", transaction.shares)} 份 × ${formatCurrency(transaction.price, transaction.currency)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 } else if (transaction.shares != null) {
                     Text(
-                        text = "${String.format("%.4f", transaction.shares)} 份",
+                        text = "${String.format(Locale.US, "%.4f", transaction.shares)} 份",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
@@ -258,6 +262,14 @@ fun TransactionItem(
                     text = transaction.note,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                )
+            }
+            if (transaction.category != com.finunity.data.local.entity.CashFlowCategory.OTHER &&
+                transaction.type !in listOf(TransactionType.BUY, TransactionType.SELL)) {
+                Text(
+                    text = "分类 · ${transaction.category.displayName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FinColors.TextSecondary
                 )
             }
         }

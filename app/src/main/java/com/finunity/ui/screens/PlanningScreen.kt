@@ -26,6 +26,7 @@ import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
+import java.util.Locale
 
 /**
  * 规划页：回答"资产配置是否偏离目标"，给出调整建议，并提供目标配置与复盘入口。
@@ -50,12 +51,11 @@ fun PlanningScreen(
     val strategyAssets = summary?.strategyAssets ?: 0.0
     val baseCurrency = summary?.baseCurrency ?: "CNY"
 
-    // 四象限固定展示顺序
+    // 三桶固定展示顺序
     val order = listOf(
         RiskBucket.AGGRESSIVE,
-        RiskBucket.CONSERVATIVE,
-        RiskBucket.INSURANCE,
-        RiskBucket.CASH
+        RiskBucket.BALANCED,
+        RiskBucket.DEFENSIVE
     )
 
     Scaffold(
@@ -91,7 +91,7 @@ fun PlanningScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -99,7 +99,7 @@ fun PlanningScreen(
                             text = if (needs) "配置已偏离目标" else "配置基本符合目标",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (needs) FinColors.Cash else FinColors.Profit
+                            color = if (needs) FinColors.Warning else FinColors.Success
                         )
                         Text(
                             text = if (needs) "下面列出了偏离较大的部分，可按建议慢慢调整，无需一次到位。"
@@ -116,7 +116,7 @@ fun PlanningScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -154,7 +154,7 @@ fun PlanningScreen(
             item {
                 EntryRowCard(
                     title = "落点跟踪",
-                    subtitle = "象限之下的每个落点：目标 / 现有 / 缺口 / 停止条件",
+                    subtitle = "三桶之下的每个落点：目标 / 现有 / 缺口 / 停止条件",
                     onClick = onOpenLandingPoints
                 )
             }
@@ -203,7 +203,7 @@ private fun DrawdownCard(advice: DrawdownAdvice?, baseCurrency: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -213,13 +213,13 @@ private fun DrawdownCard(advice: DrawdownAdvice?, baseCurrency: String) {
                 Text("至少积累 2 天资产快照后，才会根据历史总资产高点给出阶梯建议。",
                     style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
             } else {
-                Text("自高点回撤 ${String.format("%.1f", advice.drawdownRatio * 100)}%",
+                Text("自高点回撤 ${String.format(Locale.US, "%.1f", advice.drawdownRatio * 100)}%",
                     style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-                    color = if (advice.triggered) FinColors.Cash else FinColors.Number)
+                    color = if (advice.triggered) FinColors.Warning else FinColors.Number)
                 Text("历史高点 ${formatCurrency(advice.peakAssets, baseCurrency)} · ${advice.sampleCount} 个快照样本",
                     style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
                 if (advice.triggered) {
-                    Text("当前触发 -${advice.levelPercent}% 档：${advice.fundingSource}，定投 ${String.format("%.1f", advice.recurringMultiplier)} 倍。",
+                    Text("当前触发 -${advice.levelPercent}% 档：${advice.fundingSource}，定投 ${String.format(Locale.US, "%.1f", advice.recurringMultiplier)} 倍。",
                         style = MaterialTheme.typography.bodyMedium, color = FinColors.TextPrimary)
                     if (advice.recommendedAmmoAmount > 0.0) {
                         Text("本档可分批使用弹药 ${formatCurrency(advice.recommendedAmmoAmount, baseCurrency)}，优先用于核心宽基。",
@@ -227,7 +227,7 @@ private fun DrawdownCard(advice: DrawdownAdvice?, baseCurrency: String) {
                     }
                 } else {
                     Text("未到 -5% 触发线，保持常规定投，弹药继续留存。",
-                        style = MaterialTheme.typography.bodySmall, color = FinColors.Profit)
+                        style = MaterialTheme.typography.bodySmall, color = FinColors.Success)
                 }
             }
         }
@@ -241,12 +241,12 @@ private fun RiskCheckCard(
     alerts: List<RiskAlert>
 ) {
     val exceeded = maxAggressiveRatio in 0.0..1.0 && aggressiveRatio > maxAggressiveRatio + 1e-9
-    val barColor = if (exceeded) FinColors.Loss else FinColors.Aggressive
+    val barColor = if (exceeded) FinColors.Danger else FinColors.Aggressive
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -259,12 +259,12 @@ private fun RiskCheckCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("风险仓位（进取）", style = MaterialTheme.typography.bodyMedium,
+                                Text("风险仓位（进攻）", style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium, color = FinColors.TextPrimary)
                     Text(
                         text = "${(aggressiveRatio * 100).toInt()}% / 上限 ${(maxAggressiveRatio * 100).toInt()}%",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (exceeded) FinColors.Loss else FinColors.TextSecondary
+                        color = if (exceeded) FinColors.Danger else FinColors.TextSecondary
                     )
                 }
                 Box(
@@ -284,10 +284,10 @@ private fun RiskCheckCard(
 
             if (alerts.isEmpty()) {
                 Text("未触及红线，结构健康。", style = MaterialTheme.typography.bodySmall,
-                    color = FinColors.Profit)
+                    color = FinColors.Success)
             } else {
                 alerts.forEach { alert ->
-                    val color = if (alert.level == RiskAlertLevel.WARNING) FinColors.Loss else FinColors.Accent
+                    val color = if (alert.level == RiskAlertLevel.WARNING) FinColors.Warning else FinColors.Accent
                     Row(verticalAlignment = Alignment.Top) {
                         Box(modifier = Modifier.padding(top = 6.dp).size(6.dp)
                             .clip(RoundedCornerShape(999.dp)).background(color))
@@ -314,7 +314,7 @@ private fun EntryRowCard(
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
@@ -378,7 +378,7 @@ private fun CompareRow(
                 text = if (drift > 0) "偏高，可考虑减少约 ${formatCurrency(amount, baseCurrency)}"
                 else "偏低，可考虑增加约 ${formatCurrency(amount, baseCurrency)}",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (drift > 0) FinColors.Loss else FinColors.Accent
+                color = FinColors.Warning
             )
         }
     }
@@ -386,7 +386,6 @@ private fun CompareRow(
 
 private fun bucketColor(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
-    RiskBucket.CONSERVATIVE -> FinColors.Conservative
-    RiskBucket.INSURANCE -> FinColors.Insurance
-    RiskBucket.CASH -> FinColors.Cash
+    RiskBucket.BALANCED -> FinColors.Conservative
+    RiskBucket.DEFENSIVE -> FinColors.Cash
 }

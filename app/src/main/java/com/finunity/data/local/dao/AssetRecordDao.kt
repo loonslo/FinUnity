@@ -49,4 +49,7 @@ interface AssetRecordDao {
 
     @Query("DELETE FROM asset_records")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM asset_records WHERE importBatchId = :batchId")
+    suspend fun deleteByImportBatchId(batchId: String): Int
 }

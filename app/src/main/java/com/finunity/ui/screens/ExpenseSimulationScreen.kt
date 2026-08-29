@@ -27,21 +27,21 @@ import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
 
 private enum class FundingSource(val label: String, val order: List<RiskBucket>) {
-    CASH_FIRST("活钱优先", listOf(RiskBucket.CASH, RiskBucket.CONSERVATIVE, RiskBucket.AGGRESSIVE)),
-    STEADY_FIRST("稳健优先", listOf(RiskBucket.CONSERVATIVE, RiskBucket.CASH, RiskBucket.AGGRESSIVE)),
-    PROPORTIONAL("按比例", listOf(RiskBucket.CASH, RiskBucket.CONSERVATIVE, RiskBucket.AGGRESSIVE))
+    CASH_FIRST("活钱优先", listOf(RiskBucket.DEFENSIVE, RiskBucket.BALANCED, RiskBucket.AGGRESSIVE)),
+    STEADY_FIRST("稳健优先", listOf(RiskBucket.BALANCED, RiskBucket.DEFENSIVE, RiskBucket.AGGRESSIVE)),
+    PROPORTIONAL("按比例", listOf(RiskBucket.DEFENSIVE, RiskBucket.BALANCED, RiskBucket.AGGRESSIVE))
 }
 
 private val PURPOSES = listOf("买房", "买车", "装修", "教育", "其他")
 
 // 展示顺序固定
 private val BUCKET_ORDER = listOf(
-    RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH
+    RiskBucket.AGGRESSIVE, RiskBucket.BALANCED, RiskBucket.DEFENSIVE
 )
 
 /**
- * 大额支出模拟：输入金额 + 用途 + 资金来源，预览支出前后的总资产和四象限结构变化。
- * 「保命的钱」不参与扣减。
+ * 大额支出模拟：输入金额 + 用途 + 资金来源，预览支出前后的总资产和三桶结构变化。
+ * 锁定专款不参与扣减。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,7 +54,7 @@ fun ExpenseSimulationScreen(
     val baseCurrency = summary?.baseCurrency ?: "CNY"
     val totalAssets = summary?.totalAssets ?: 0.0
 
-    // 当前各象限金额
+    // 当前各三桶金额
     val beforeMap: Map<RiskBucket, Double> = remember(summary) {
         val m = RiskBucket.entries.associateWith { 0.0 }.toMutableMap()
         summary?.riskBuckets?.forEach { m[it.riskBucket] = it.totalValue }
@@ -161,7 +161,7 @@ fun ExpenseSimulationScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = FinShapes.xl,
                         colors = CardDefaults.cardColors(
-                            containerColor = if (shortfall > 0.01) Color(0xFFFFF6E9) else Color.White
+                            containerColor = if (shortfall > 0.01) FinColors.SurfaceElevated else FinColors.Surface
                         ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
@@ -222,16 +222,16 @@ private fun riskNotes(
 ): List<String> {
     val notes = mutableListOf<String>()
     if (shortfall > 0.01) {
-        notes.add("可动用资产不足以覆盖这笔$purpose 支出，缺口约 ${shortfall.toLong()}（保命的钱不计入）。")
+        notes.add("可动用资产不足以覆盖这笔$purpose 支出，缺口约 ${shortfall.toLong()}（锁定专款不计入）。")
     }
-    val cashAfter = after[RiskBucket.CASH] ?: 0.0
+    val cashAfter = after[RiskBucket.DEFENSIVE] ?: 0.0
     if (totalAfter > 0 && cashAfter / totalAfter < 0.05) {
         notes.add("支出后活钱占比偏低，建议保留 3-6 个月日常开销的现金。")
     }
     if (totalBefore > 0 && amount / totalBefore > 0.5) {
         notes.add("这笔支出超过总资产的一半，属于重大决策，建议谨慎评估。")
     }
-    notes.add("「保命的钱」不参与本次扣减，保险与应急保障始终保留。")
+    notes.add("锁定专款不参与本次扣减，保障类资产仍保留在总资产中。")
     return notes
 }
 
@@ -240,7 +240,7 @@ private fun WhiteCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp), content = content)
@@ -300,9 +300,8 @@ private fun LegendDeltaRow(bucket: RiskBucket, before: Double, after: Double, to
 
 private fun bucketColorSim(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
-    RiskBucket.CONSERVATIVE -> FinColors.Conservative
-    RiskBucket.INSURANCE -> FinColors.Insurance
-    RiskBucket.CASH -> FinColors.Cash
+    RiskBucket.BALANCED -> FinColors.Conservative
+    RiskBucket.DEFENSIVE -> FinColors.Cash
 }
 
 private fun currencySymbol(currency: String): String = when (currency) {

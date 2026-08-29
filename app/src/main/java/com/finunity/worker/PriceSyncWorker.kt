@@ -8,6 +8,7 @@ import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Settings
+import com.finunity.data.model.normalizeSecurityCode
 import com.finunity.data.repository.PriceRepository
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
@@ -27,17 +28,15 @@ class PriceSyncWorker(
             val database = AppDatabase.getDatabase(applicationContext)
             val priceRepository = PriceRepository(database.priceDao())
 
-            // 获取所有持仓的股票代码
-            val symbols = database.positionDao().getAllSymbols()
-
             // 优先使用显式证券编码；旧记录回退到名称，兼容历史数据。
             val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name)
             val tradableRecords = database.assetRecordDao().getRecordsByTypes(tradableTypes)
-            val assetRecordCodes = tradableRecords.map { it.securityCode.ifBlank { it.name } }
+            val assetRecordCodes = tradableRecords
+                .map { normalizeSecurityCode(it.securityCode.ifBlank { it.name }) }
 
             // 合并所有需要刷新的代码
-            val allSymbols = (symbols + assetRecordCodes).distinct()
-            Log.d(TAG, "Found ${symbols.size} position symbols and ${assetRecordCodes.size} asset record codes, total ${allSymbols.size}")
+            val allSymbols = assetRecordCodes.distinct()
+            Log.d(TAG, "Found ${assetRecordCodes.size} tradable asset record codes, total ${allSymbols.size}")
 
             // 获取所有账户的货币类型，构建汇率刷新列表
             val accounts = database.accountDao().getAllAccounts().first()
@@ -45,22 +44,39 @@ class PriceSyncWorker(
             val baseCurrency = settings.baseCurrency
 
             // 收集所有涉及的币种：账户币种 + 资产记录币种 + 持仓币种
-            val allPositions = database.positionDao().getAllPositions().first()
             val currencies = (accounts.map { it.currency } +
-                    tradableRecords.map { it.currency } +
-                    allPositions.map { it.currency })
+                    tradableRecords.map { it.currency })
                 .distinct()
                 .filter { it != baseCurrency }
             val rates = currencies.associate { "${it}${baseCurrency}" to 1.0 }
 
             // 批量刷新价格和汇率
-            priceRepository.refreshAllPrices(allSymbols, rates)
-            Log.d(TAG, "Price sync completed successfully")
+            val result = priceRepository.refreshAllPrices(allSymbols, rates)
+            Log.d(
+                TAG,
+                "Price sync result: symbols ${result.symbolsRefreshed}/${allSymbols.size}, " +
+                    "rates ${result.ratesRefreshed}/${rates.size}, " +
+                    "failedSymbols=${result.symbolsFailed}, failedRates=${result.ratesFailed}"
+            )
 
             // 为股票/ETF/基金 AssetRecord 保存价格历史
-            saveAssetRecordPriceHistory(database, priceRepository, tradableRecords)
+            saveAssetRecordPriceHistory(
+                database,
+                priceRepository,
+                tradableRecords,
+                result.successfulSymbols
+            )
 
-            Result.success()
+            if (!result.isPartialFailure) {
+                Result.success()
+            } else if (runAttemptCount < MAX_ATTEMPTS - 1) {
+                // 成功项已经落库，失败项保留旧缓存并让 WorkManager 使用统一指数退避重试。
+                Result.retry()
+            } else {
+                // 达到上限不能伪报成功；旧价格仍保留在 prices 表中供离线展示。
+                Log.e(TAG, "Price sync reached retry limit; old cache is retained")
+                Result.failure()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Price sync failed: ${e.message}")
             if (runAttemptCount < MAX_ATTEMPTS - 1) {
@@ -79,16 +95,18 @@ class PriceSyncWorker(
     private suspend fun saveAssetRecordPriceHistory(
         database: AppDatabase,
         priceRepository: PriceRepository,
-        tradableRecords: List<AssetRecord>
+        tradableRecords: List<AssetRecord>,
+        successfulSymbols: Set<String>
     ) {
         try {
             Log.d(TAG, "Found ${tradableRecords.size} tradable asset records for price history")
 
             for (record in tradableRecords) {
                 try {
-                    val securityCode = record.securityCode.ifBlank { record.name }
+                    val securityCode = normalizeSecurityCode(record.securityCode.ifBlank { record.name })
+                    if (securityCode !in successfulSymbols) continue
                     val price = priceRepository.getPrice(securityCode)
-                    if (price != null && price.price > 0) {
+                    if (price != null && price.price > 0 && !price.isFallback) {
                         // 保存价格历史：cost 存储单位成本（平均成本），与 unit price 对应
                         val priceHistory = PriceHistory(
                             recordId = record.id,
@@ -118,9 +136,6 @@ class PriceSyncWorker(
         private const val TAG = "PriceSyncWorker"
         private const val WORK_NAME = "price_sync_worker"
         private const val MAX_ATTEMPTS = 3
-        // 指数退避：1min, 5min, 15min
-        private val BACKOFF_DELAYS = listOf(1L, 5L, 15L)
-
         /**
          * 安排定期价格同步
          * 每天执行一次（符合"股票每日更新一次"的产品定位），需要网络，指数退避重试。

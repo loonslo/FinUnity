@@ -3,14 +3,13 @@ package com.finunity.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AllocationTarget
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.AssetType
-import com.finunity.data.local.entity.HoldingSourceType
-import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Settings
 import com.finunity.data.model.AssetRecordSummary
@@ -25,14 +24,20 @@ import com.finunity.data.model.evaluateHoldingRedlines
 import com.finunity.data.model.evaluateDrawdownLadder
 import com.finunity.data.model.evaluateSignalRules
 import com.finunity.data.local.entity.TransactionType
-import com.finunity.data.local.entity.parseTargetAllocation
+import com.finunity.data.local.entity.PriceHealth
+import com.finunity.data.local.entity.PriceStatus
+import com.finunity.data.local.entity.evaluatePriceHealth
+import com.finunity.data.local.entity.parseTargetAllocationOrDefault
 import com.finunity.data.local.entity.calculateRebalanceRecommendations
 import com.finunity.data.repository.PriceRepository
 import com.finunity.data.repository.RefreshResult
 import com.finunity.data.repository.HoldingLedgerRepository
 import com.finunity.data.repository.HoldingSnapshotCommand
+import com.finunity.data.repository.SnapshotBatchResult
 import com.finunity.data.repository.HoldingTradeCommand
 import com.finunity.data.repository.LedgerResult
+import com.finunity.data.model.normalizeSecurityCode
+import com.finunity.data.local.entity.PriceHistory
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -41,7 +46,7 @@ class MainViewModel(
     private val priceRepository: PriceRepository
 ) : ViewModel() {
 
-    private val holdingLedger = HoldingLedgerRepository(database)
+    private val holdingLedger = HoldingLedgerRepository(database, priceRepository)
 
     private val _portfolioSummary = MutableStateFlow<PortfolioSummary?>(null)
     val portfolioSummary: StateFlow<PortfolioSummary?> = _portfolioSummary.asStateFlow()
@@ -51,6 +56,10 @@ class MainViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _priceHealth = MutableStateFlow(PriceHealth(PriceStatus.NORMAL))
+    val priceHealth: StateFlow<PriceHealth> = _priceHealth.asStateFlow()
+    private val _lastPriceRefreshPartial = MutableStateFlow(false)
 
     private val _settings = MutableStateFlow(Settings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
@@ -77,20 +86,23 @@ class MainViewModel(
 
     private fun observeData() {
         viewModelScope.launch {
+            combine(database.priceDao().observeAllPrices(), _lastPriceRefreshPartial) { prices, partial ->
+                evaluatePriceHealth(prices, partialFailure = partial)
+            }.collect { _priceHealth.value = it }
+        }
+        viewModelScope.launch {
             combine(
                 database.accountDao().getAllAccounts(),
-                database.positionDao().getAllPositions(),
                 database.assetRecordDao().getAllRecords(),
                 database.allocationTargetDao().getAllTargets(),
                 _settings
-            ) { accounts, positions, assetRecords, allocationTargets, settings ->
-                PortfolioInputs(accounts, positions, assetRecords, allocationTargets, settings)
+            ) { accounts, assetRecords, allocationTargets, settings ->
+                PortfolioInputs(accounts, assetRecords, allocationTargets, settings)
             }.combine(database.assetSnapshotDao().getAllSnapshots()) { inputs, snapshots ->
                 inputs.copy(snapshots = snapshots)
             }.collect { inputs ->
                 calculatePortfolio(
                     accounts = inputs.accounts,
-                    positions = inputs.positions,
                     assetRecords = inputs.assetRecords,
                     allocationTargets = inputs.allocationTargets,
                     settings = inputs.settings,
@@ -102,7 +114,6 @@ class MainViewModel(
 
     private suspend fun calculatePortfolio(
         accounts: List<Account>,
-        positions: List<Position>,
         assetRecords: List<AssetRecord>,
         allocationTargets: List<AllocationTarget>,
         settings: Settings,
@@ -114,8 +125,7 @@ class MainViewModel(
         try {
             val baseCurrency = settings.baseCurrency
             // v17 起 Position 仅作为遗留表保留，所有活跃持仓统一由 AssetRecord 承载。
-            val activePositions = emptyList<Position>()
-            val calculator = PortfolioCalculator(accounts, activePositions, assetRecords, priceRepository, baseCurrency)
+            val calculator = PortfolioCalculator(accounts, emptyList(), assetRecords, priceRepository, baseCurrency)
 
             // 验证一致性（汇率失败会导致 NaN）
             val consistency = calculator.verifyConsistency()
@@ -123,28 +133,33 @@ class MainViewModel(
                 _error.value = "部分数据汇率获取失败: ${consistency.issues.first()}"
             }
 
-            val totalAssets = calculator.computeTotalAssets()
-            val totalStockValue = calculator.computeStockValue()
-            val totalCash = totalAssets - totalStockValue
-            val todayChange = calculator.computeTodayChange()
-            val stockRatio = if (totalAssets > 0) totalStockValue / totalAssets else 0.0
+            val totals = calculator.computePortfolioTotals()
+            val grossAssets = totals.grossAssets
+            val liabilities = totals.liabilities
+            val netWorth = totals.netWorth
+            val defensiveAssets = totals.bucketValues[RiskBucket.DEFENSIVE] ?: 0.0
+            val balancedAssets = totals.bucketValues[RiskBucket.BALANCED] ?: 0.0
+            val aggressiveAssets = totals.bucketValues[RiskBucket.AGGRESSIVE] ?: 0.0
+            val todayChangeMetrics = calculator.computeTodayChangeMetrics()
+            val todayChange = todayChangeMetrics.amount
+            val stockRatio = if (grossAssets > 0) aggressiveAssets / grossAssets else 0.0
 
             // 使用 PortfolioCalculator 统一计算
             val accountSummaries = calculator.computeAccountSummaries()
             val assetRecordSummaries = calculator.computeAssetRecordSummaries()
             val holdingSummaries = calculator.computeHoldingSummaries()
-            val positionSummaries = calculator.computePositionSummaries()
+            val positionSummaries = emptyList<PositionSummary>()
             val mergedHoldingSummaries = calculator.computeMergedHoldingSummaries()
             // 总览明细仍展示锁定专款；偏离与再平衡只使用可投策略盘。
-            val riskSummaries = calculator.computeRiskBucketSummaries(totalAssets)
+            val riskSummaries = calculator.computeRiskBucketSummaries(grossAssets)
             val lockedAssets = calculator.computeLockedValue()
-            val strategyAssets = (totalAssets - lockedAssets).coerceAtLeast(0.0)
+            val strategyAssets = (grossAssets - lockedAssets).coerceAtLeast(0.0)
             val strategyRiskSummaries = calculator.computeRiskBucketSummaries(
                 totalAssets = strategyAssets,
                 excludeLocked = true
             )
 
-            val targetAllocationMap = parseTargetAllocation(settings.targetAllocation)
+            val targetAllocationMap = parseTargetAllocationOrDefault(settings.targetAllocation)
             val totalStrategyBucketValue = strategyRiskSummaries.sumOf { it.totalValue }
             val currentAllocationMap = if (strategyAssets > 0 && totalStrategyBucketValue > 0) {
                 strategyRiskSummaries.associate { it.riskBucket.name to it.percentage }
@@ -175,16 +190,16 @@ class MainViewModel(
                 .filter { !it.record.locked && it.record.subCategory.trim() == "弹药" }
                 .sumOf { it.currentValue }
             val drawdownAdvice = evaluateDrawdownLadder(
-                currentAssets = totalAssets,
-                historicalTotals = snapshots.map { it.totalAssets },
+                currentAssets = grossAssets,
+                historicalTotals = snapshots.map { it.grossAssets },
                 availableAmmo = availableAmmo
             )
             val signalAlerts = evaluateSignalRules(assetRecords).alerts
 
             _portfolioSummary.value = PortfolioSummary(
-                totalAssets = totalAssets,
-                cashAssets = totalCash,
-                stockAssets = totalStockValue,
+                totalAssets = grossAssets,
+                cashAssets = defensiveAssets,
+                stockAssets = aggressiveAssets,
                 stockRatio = stockRatio,
                 baseCurrency = baseCurrency,
                 rebalanceThreshold = settings.rebalanceThreshold,
@@ -205,7 +220,16 @@ class MainViewModel(
                 lockedAssets = lockedAssets,
                 maxAggressiveRatio = settings.maxAggressiveRatio,
                 todayChange = todayChange,
-                lastUpdated = System.currentTimeMillis()
+                lastUpdated = System.currentTimeMillis(),
+                grossAssets = grossAssets,
+                liabilities = liabilities,
+                netWorth = netWorth,
+                defensiveAssets = defensiveAssets,
+                balancedAssets = balancedAssets,
+                aggressiveAssets = aggressiveAssets,
+                strategyAssetsValue = strategyAssets,
+                trackedYesterdayValue = todayChangeMetrics.trackedYesterdayValue,
+                missingExchangeRateCurrencies = calculator.missingExchangeRateCurrencies
             )
         } catch (e: Exception) {
             _error.value = e.message ?: "计算失败"
@@ -242,65 +266,66 @@ class MainViewModel(
         if (result is LedgerResult.Error) _error.value = result.message
     }
 
-    fun addPosition(position: Position) {
-        viewModelScope.launch {
-            reportLedgerResult(
-                holdingLedger.upsertSnapshot(
-                    HoldingSnapshotCommand(
-                        record = AssetRecord(
-                            id = position.id,
-                            accountId = position.accountId,
-                            assetType = AssetType.STOCK,
-                            riskBucket = RiskBucket.AGGRESSIVE,
-                            name = position.symbol,
-                            securityCode = position.symbol,
-                            quantity = position.shares,
-                            cost = position.totalCost,
-                            currentPrice = position.averageCost,
-                            currency = position.currency
-                        ),
-                        sourceType = HoldingSourceType.MANUAL,
-                        sourceAccountId = position.accountId
-                    )
-                )
-            )
-        }
+    /** Awaitable write APIs used by screens that must not report success before the transaction commits. */
+    suspend fun recordCashInAndWait(accountId: String, amount: Double, note: String? = null): LedgerResult {
+        return holdingLedger.recordCashMovement(
+            accountId,
+            amount,
+            TransactionType.DEPOSIT,
+            note?.ifBlank { null } ?: "入金"
+        )
     }
 
-    fun updatePosition(position: Position) {
-        viewModelScope.launch {
-            val existing = database.assetRecordDao().getRecordById(position.id)
-            if (existing == null) {
-                _error.value = "持仓不存在"
-                return@launch
-            }
-            reportLedgerResult(
-                holdingLedger.upsertSnapshot(
-                    HoldingSnapshotCommand(
-                        record = existing.copy(
-                            name = position.symbol,
-                            securityCode = position.symbol,
-                            quantity = position.shares,
-                            cost = position.totalCost,
-                            currentPrice = position.averageCost,
-                            currency = position.currency
-                        ),
-                        sourceType = existing.sourceType,
-                        sourceAccountId = existing.sourceAccountId,
-                        sourceRecordId = existing.sourceRecordId,
-                        importBatchId = existing.importBatchId,
-                        sourceFingerprint = existing.sourceFingerprint,
-                        syncedAt = existing.syncedAt
-                    )
-                )
-            )
-        }
+    suspend fun recordCashOutAndWait(accountId: String, amount: Double, note: String? = null): LedgerResult {
+        return holdingLedger.recordCashMovement(
+            accountId,
+            amount,
+            TransactionType.WITHDRAW,
+            note?.ifBlank { null } ?: "出金"
+        )
     }
 
-    fun deletePosition(positionId: String) {
-        viewModelScope.launch {
-            database.assetRecordDao().deleteById(positionId)
-        }
+    suspend fun recordIncomeAndWait(
+        accountId: String,
+        amount: Double,
+        category: com.finunity.data.local.entity.CashFlowCategory,
+        note: String? = null
+    ): LedgerResult {
+        val type = if (category == com.finunity.data.local.entity.CashFlowCategory.DIVIDEND) {
+            TransactionType.DIVIDEND
+        } else TransactionType.DEPOSIT
+        return holdingLedger.recordCashMovement(
+            accountId,
+            amount,
+            type,
+            note?.ifBlank { category.displayName } ?: category.displayName,
+            category = category
+        )
+    }
+
+    suspend fun recordExpenseAndWait(
+        accountId: String,
+        amount: Double,
+        category: com.finunity.data.local.entity.CashFlowCategory,
+        note: String? = null
+    ): LedgerResult = holdingLedger.recordCashMovement(
+        accountId,
+        amount,
+        TransactionType.WITHDRAW,
+        note?.ifBlank { category.displayName } ?: category.displayName,
+        category = category
+    )
+
+    suspend fun recordLiabilityPaymentAndWait(accountId: String, amount: Double, note: String? = null): LedgerResult =
+        holdingLedger.recordLiabilityPayment(accountId, amount, note)
+
+    suspend fun transferCashAndWait(
+        fromAccountId: String,
+        toAccountId: String,
+        amount: Double,
+        note: String? = null
+    ): LedgerResult {
+        return holdingLedger.transferCash(fromAccountId, toAccountId, amount, note?.ifBlank { null })
     }
 
     fun addAssetRecord(record: AssetRecord) {
@@ -325,7 +350,14 @@ class MainViewModel(
      * 买入加仓：在现有持仓上追加数量与成本，重算均价并记录买入流水。
      * 录入模型为"声明持仓"，此处不自动扣减账户现金（资金来源不强假设）。
      */
-    fun buyMoreAssetRecord(recordId: String, addQuantity: Double, buyPrice: Double) {
+    fun buyMoreAssetRecord(
+        recordId: String,
+        addQuantity: Double,
+        buyPrice: Double,
+        fee: Double = 0.0,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String? = null
+    ) {
         viewModelScope.launch {
             val record = database.assetRecordDao().getRecordById(recordId) ?: return@launch
             reportLedgerResult(
@@ -338,11 +370,76 @@ class MainViewModel(
                         riskBucket = record.riskBucket,
                         isBuy = true,
                         quantity = addQuantity,
-                        price = buyPrice
+                        price = buyPrice,
+                        currency = record.currency,
+                        fee = fee,
+                        timestamp = timestamp,
+                        note = note?.takeIf { it.isNotBlank() }
                     )
                 )
             )
         }
+    }
+
+    suspend fun addAssetRecordAndWait(record: AssetRecord): LedgerResult = holdingLedger.upsertSnapshot(
+        HoldingSnapshotCommand(
+            record = record,
+            sourceType = record.sourceType,
+            sourceAccountId = record.sourceAccountId,
+            sourceRecordId = record.sourceRecordId,
+            importBatchId = record.importBatchId,
+            sourceFingerprint = record.sourceFingerprint,
+            syncedAt = record.syncedAt
+        )
+    )
+
+    /** 批量导入统一走 HoldingLedger 的单事务入口；失败时整批回滚并返回失败行。 */
+    suspend fun importAssetRecordsBatch(records: List<AssetRecord>): SnapshotBatchResult {
+        val result = holdingLedger.upsertSnapshotBatch(
+            records.map { record ->
+                HoldingSnapshotCommand(
+                    record = record,
+                    sourceType = record.sourceType,
+                    sourceAccountId = record.sourceAccountId,
+                    sourceRecordId = record.sourceRecordId,
+                    importBatchId = record.importBatchId,
+                    sourceFingerprint = record.sourceFingerprint,
+                    syncedAt = record.syncedAt
+                )
+            }
+        )
+        if (!result.committed) {
+            _error.value = result.rows.firstOrNull { it.error != null }?.let { "第 ${it.rowIndex + 1} 行：${it.error}" }
+        }
+        return result
+    }
+
+    suspend fun buyMoreAssetRecordAndWait(
+        recordId: String,
+        addQuantity: Double,
+        buyPrice: Double,
+        fee: Double = 0.0,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String? = null
+    ): LedgerResult {
+        val record = database.assetRecordDao().getRecordById(recordId)
+            ?: return LedgerResult.Error("资产记录不存在")
+        return holdingLedger.recordTrade(
+            HoldingTradeCommand(
+                accountId = record.accountId,
+                securityCode = record.securityCode.ifBlank { record.name },
+                name = record.name,
+                assetType = record.assetType,
+                riskBucket = record.riskBucket,
+                isBuy = true,
+                quantity = addQuantity,
+                price = buyPrice,
+                currency = record.currency,
+                fee = fee,
+                timestamp = timestamp,
+                note = note?.takeIf { it.isNotBlank() }
+            )
+        )
     }
 
     /**
@@ -360,7 +457,8 @@ class MainViewModel(
         quantity: Double,
         price: Double,
         riskBucket: RiskBucket,
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        currency: String? = null
     ): String? = when (
         val result = holdingLedger.recordTrade(
             HoldingTradeCommand(
@@ -372,6 +470,7 @@ class MainViewModel(
                 isBuy = isBuy,
                 quantity = quantity,
                 price = price,
+                currency = currency,
                 timestamp = timestamp
             )
         )
@@ -405,10 +504,11 @@ class MainViewModel(
 
     fun deleteAssetRecord(recordId: String) {
         viewModelScope.launch {
-            // 注意：删除资产记录不等于卖出！
-            // 如果用户想卖出，应该调用 sellAssetRecord() 方法
-            // 这里只是纯粹删除记录，不产生任何交易流水
-            database.assetRecordDao().deleteById(recordId)
+            database.withTransaction {
+                database.transactionDao().deleteByRecordId(recordId)
+                database.priceHistoryDao().deleteByRecordId(recordId)
+                database.assetRecordDao().deleteById(recordId)
+            }
         }
     }
 
@@ -485,6 +585,7 @@ class MainViewModel(
                         isBuy = false,
                         quantity = quantityToSell,
                         price = actualPrice,
+                        currency = record.currency,
                         fee = fee,
                         timestamp = timestamp,
                         note = note?.takeIf { it.isNotBlank() }
@@ -494,34 +595,34 @@ class MainViewModel(
         }
     }
 
-    /**
-     * 卖出持仓
-     * 平均成本法：按比例减少股数和成本
-     */
-    fun sellPosition(positionId: String, sharesToSell: Double) {
-        viewModelScope.launch {
-            val record = database.assetRecordDao().getRecordById(positionId)
-            if (record == null) {
-                _error.value = "持仓不存在"
-                return@launch
-            }
-            val marketPrice = priceRepository.getPrice(record.securityCode.ifBlank { record.name })?.price
-                ?: record.currentPrice
-            reportLedgerResult(
-                holdingLedger.recordTrade(
-                    HoldingTradeCommand(
-                        accountId = record.accountId,
-                        securityCode = record.securityCode.ifBlank { record.name },
-                        name = record.name,
-                        assetType = record.assetType,
-                        riskBucket = record.riskBucket,
-                        isBuy = false,
-                        quantity = sharesToSell,
-                        price = marketPrice
-                    )
-                )
+    suspend fun sellAssetRecordAndWait(
+        recordId: String,
+        sellQuantity: Double? = null,
+        sellPrice: Double? = null,
+        fee: Double = 0.0,
+        timestamp: Long = System.currentTimeMillis(),
+        note: String? = null
+    ): LedgerResult {
+        val record = database.assetRecordDao().getRecordById(recordId)
+            ?: return LedgerResult.Error("资产记录不存在")
+        val quantityToSell = sellQuantity ?: record.quantity
+        val actualPrice = sellPrice?.takeIf { it > 0.0 } ?: record.currentPrice
+        return holdingLedger.recordTrade(
+            HoldingTradeCommand(
+                accountId = record.accountId,
+                securityCode = record.securityCode.ifBlank { record.name },
+                name = record.name,
+                assetType = record.assetType,
+                riskBucket = record.riskBucket,
+                isBuy = false,
+                quantity = quantityToSell,
+                price = actualPrice,
+                currency = record.currency,
+                fee = fee,
+                timestamp = timestamp,
+                note = note?.takeIf { it.isNotBlank() }
             )
-        }
+        )
     }
 
     fun updateSettings(newSettings: Settings) {
@@ -557,11 +658,11 @@ class MainViewModel(
                 .filter { it != baseCurrency }
             val rates = currencies.associate { "${it}${baseCurrency}" to 1.0 }
 
-            // 基金也可使用显式代码刷新；不受 Yahoo 支持的代码会保留缓存价格并报告失败。
-            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name, AssetType.FUND.name)
+            // 基金净值来源不稳定且通常不受 Yahoo 代码接口支持；保留用户手动价格，不在每日刷新中制造错误噪音。
+            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name)
             val assetRecordCodes = allAssetRecords
                 .filter { it.assetType.name in tradableTypes }
-                .map { record -> record.securityCode.ifBlank { record.name } }
+                .map { record -> normalizeSecurityCode(record.securityCode.ifBlank { record.name }) }
                 .distinct()
 
             // 合并所有需要刷新的代码
@@ -569,6 +670,13 @@ class MainViewModel(
 
             // 批量刷新价格
             val result = priceRepository.refreshAllPrices(allSymbols, rates)
+            _lastPriceRefreshPartial.value = result.isPartialFailure
+            val requestedSymbols = allSymbols.toSet()
+            _priceHealth.value = evaluatePriceHealth(
+                database.priceDao().getAllPrices(),
+                requestedSymbols = requestedSymbols + rates.keys.map { "${it}=X" },
+                partialFailure = result.isPartialFailure
+            )
 
             // 如果有失败，记录部分失败信息
             val failureMessages = mutableListOf<String>()
@@ -581,12 +689,12 @@ class MainViewModel(
 
             // 回写 AssetRecord 当前价格（更新所有持有该股票的记录）
             // allAssetRecords 已在前面获取，此处直接使用
-            for (code in assetRecordCodes) {
+            for (code in result.successfulSymbols) {
                 val price = priceRepository.getPrice(code)
-                if (price != null && price.price > 0) {
+                if (price != null && price.price > 0 && !price.isFallback) {
                     val matchingRecords = allAssetRecords.filter { record ->
-                        record.securityCode.ifBlank { record.name } == code &&
-                            record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+                        normalizeSecurityCode(record.securityCode.ifBlank { record.name }) == code &&
+                            record.assetType in listOf(AssetType.STOCK, AssetType.ETF)
                     }
                     for (existing in matchingRecords) {
                         val updated = existing.copy(
@@ -594,6 +702,13 @@ class MainViewModel(
                             updatedAt = System.currentTimeMillis()
                         )
                         database.assetRecordDao().update(updated)
+                        database.priceHistoryDao().insert(
+                            PriceHistory(
+                                recordId = existing.id,
+                                price = price.price,
+                                cost = existing.averageCost
+                            )
+                        )
                     }
                 }
             }
@@ -603,7 +718,7 @@ class MainViewModel(
             val allocationTargets = database.allocationTargetDao().getAllTargets().first()
             val snapshots = database.assetSnapshotDao().getAllSnapshots().first()
 
-            calculatePortfolio(accounts, emptyList(), updatedAssetRecords, allocationTargets, settings, snapshots)
+            calculatePortfolio(accounts, updatedAssetRecords, allocationTargets, settings, snapshots)
 
             // 如果有部分失败但整体没抛异常，仍提示用户
             if (failureMessages.isNotEmpty()) {
@@ -630,23 +745,53 @@ class MainViewModel(
         )
 
         val transactions = database.transactionDao().getTransactionsForReconciliation(accountId)
+            .filter { it.origin != com.finunity.data.local.entity.TransactionOrigin.SNAPSHOT_IMPORT }
+        val currentBalance = if (account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
+            account.balance
+        } else {
+            database.assetRecordDao().getRecordsByAccount(accountId).first()
+                .filter { it.assetType == AssetType.CASH && it.currency.equals(account.currency, ignoreCase = true) }
+                .sumOf { it.currentValue }
+        }
+        val first = transactions.firstOrNull()
+        val openingBalance = when {
+            account.type == com.finunity.data.local.entity.AccountType.LIABILITY && account.initialPrincipal > 0.0 -> account.initialPrincipal
+            first?.balanceAfter != null -> first.balanceAfter - reconciliationDelta(first, account.type)
+            else -> null
+        }
+        if (openingBalance == null) {
+            return ReconciliationResult(
+                isBalanced = false,
+                currentBalance = currentBalance,
+                computedBalance = 0.0,
+                difference = 0.0,
+                issues = listOf("缺少期初余额或起始快照，无法可靠核对"),
+                status = ReconciliationStatus.INSUFFICIENT_DATA
+            )
+        }
 
-        // 按时间顺序累加计算余额
-        var computedBalance = 0.0
+        // 按时间顺序从期初余额累加，不能把没有依据的 0 当成起点。
+        val opening = checkNotNull(openingBalance) // null 已在上面的数据不足分支返回
+        var computedBalance = opening
         val issues = mutableListOf<String>()
 
         for (tx in transactions) {
-            when (tx.type) {
-                TransactionType.DEPOSIT, TransactionType.TRANSFER_IN, TransactionType.DIVIDEND, TransactionType.SELL -> {
-                    computedBalance += tx.amount
-                }
-                TransactionType.WITHDRAW, TransactionType.TRANSFER_OUT, TransactionType.BUY, TransactionType.FEE -> {
-                    computedBalance -= tx.amount
+            if (account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
+                if (tx.type == TransactionType.LIABILITY_PAYMENT) computedBalance = (computedBalance - tx.amount).coerceAtLeast(0.0)
+            } else {
+                when (tx.type) {
+                    TransactionType.DEPOSIT, TransactionType.TRANSFER_IN, TransactionType.DIVIDEND, TransactionType.SELL -> {
+                        computedBalance += tx.amount
+                    }
+                    TransactionType.WITHDRAW, TransactionType.TRANSFER_OUT, TransactionType.BUY, TransactionType.FEE,
+                    TransactionType.LIABILITY_PAYMENT -> {
+                        computedBalance -= tx.amount
+                    }
                 }
             }
 
             // 验证交易后的余额记录（如果有的话）
-            tx.balanceAfter?.let { recorded ->
+            tx.balanceAfter?.takeIf { account.type != com.finunity.data.local.entity.AccountType.LIABILITY }?.let { recorded ->
                 if (kotlin.math.abs(recorded - computedBalance) > 0.01) {
                     issues.add("交易 ${tx.id} 记录余额 $recorded 与推导余额 $computedBalance 不符")
                     computedBalance = recorded // 以记录为准
@@ -654,7 +799,6 @@ class MainViewModel(
             }
         }
 
-        val currentBalance = account.balance
         val difference = computedBalance - currentBalance
 
         val result = ReconciliationResult(
@@ -662,11 +806,16 @@ class MainViewModel(
             currentBalance = currentBalance,
             computedBalance = computedBalance,
             difference = difference,
-            issues = issues
+            issues = issues,
+            status = if (kotlin.math.abs(difference) < 0.01 && issues.isEmpty()) {
+                ReconciliationStatus.CONSISTENT
+            } else {
+                ReconciliationStatus.INCONSISTENT
+            }
         )
 
         // 仅保留给审计场景使用，普通账户金额不通过 balance 参与资产统计。
-        if (autoFix && !result.isBalanced) {
+        if (autoFix && !result.isBalanced && account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
             val updated = account.copy(balance = computedBalance)
             database.accountDao().update(updated)
         }
@@ -677,8 +826,26 @@ class MainViewModel(
     /**
      * 获取账户的计算余额（从交易流水中推导）
      */
-    suspend fun getComputedBalance(accountId: String): Double {
-        return database.transactionDao().getComputedBalance(accountId)
+    suspend fun getComputedBalance(accountId: String): Double? {
+        val account = database.accountDao().getAccountById(accountId) ?: return null
+        val transactions = database.transactionDao().getTransactionsForReconciliation(accountId)
+            .filter { it.origin != com.finunity.data.local.entity.TransactionOrigin.SNAPSHOT_IMPORT }
+        val first = transactions.firstOrNull()
+        val openingBalance = when {
+            account.type == com.finunity.data.local.entity.AccountType.LIABILITY && account.initialPrincipal > 0.0 -> account.initialPrincipal
+            first?.balanceAfter != null -> first.balanceAfter - reconciliationDelta(first, account.type)
+            else -> return null
+        }
+        val transactionsToApply = if (
+            account.type == com.finunity.data.local.entity.AccountType.LIABILITY && account.initialPrincipal > 0.0
+        ) transactions else transactions.drop(1)
+        return transactionsToApply.fold(openingBalance) { balance, tx ->
+            if (account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
+                if (tx.type == TransactionType.LIABILITY_PAYMENT) (balance - tx.amount).coerceAtLeast(0.0) else balance
+            } else {
+                balance + reconciliationDelta(tx, account.type)
+            }
+        }
     }
 
     class Factory(
@@ -695,13 +862,32 @@ class MainViewModel(
 
     private data class PortfolioInputs(
         val accounts: List<Account>,
-        val positions: List<Position>,
         val assetRecords: List<AssetRecord>,
         val allocationTargets: List<AllocationTarget>,
         val settings: Settings,
         val snapshots: List<AssetSnapshot> = emptyList()
     )
 }
+
+private fun reconciliationDelta(
+    transaction: com.finunity.data.local.entity.Transaction,
+    accountType: com.finunity.data.local.entity.AccountType
+): Double {
+    if (accountType == com.finunity.data.local.entity.AccountType.LIABILITY) return 0.0
+    return when (transaction.type) {
+        TransactionType.DEPOSIT,
+        TransactionType.TRANSFER_IN,
+        TransactionType.DIVIDEND,
+        TransactionType.SELL -> transaction.amount
+        TransactionType.WITHDRAW,
+        TransactionType.TRANSFER_OUT,
+        TransactionType.BUY,
+        TransactionType.FEE,
+        TransactionType.LIABILITY_PAYMENT -> -transaction.amount
+    }
+}
+
+enum class ReconciliationStatus { CONSISTENT, INCONSISTENT, INSUFFICIENT_DATA }
 
 /**
  * 余额核对结果
@@ -711,5 +897,6 @@ data class ReconciliationResult(
     val currentBalance: Double,
     val computedBalance: Double,
     val difference: Double,
-    val issues: List<String>
+    val issues: List<String>,
+    val status: ReconciliationStatus = if (isBalanced) ReconciliationStatus.CONSISTENT else ReconciliationStatus.INCONSISTENT
 )

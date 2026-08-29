@@ -17,6 +17,7 @@ import com.finunity.ui.components.FinTextField
 import com.finunity.ui.components.FinTopBar
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
+import java.util.Locale
 
 @Composable
 fun StressTestScreen(
@@ -90,7 +91,7 @@ fun StressTestScreen(
                     StressCard {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(result.scenario.label, fontWeight = FontWeight.Medium, color = FinColors.TextPrimary)
-                            Text(String.format("-%.1f%%", result.lossRatio * 100),
+                            Text(String.format(Locale.US, "-%.1f%%", result.lossRatio * 100),
                                 color = if (result.withinTolerance) FinColors.Profit else FinColors.Loss)
                         }
                         Text("预估峰谷浮亏 ${formatCurrency(result.lossAmount, baseCurrency)}",
@@ -113,14 +114,13 @@ fun StressTestScreen(
 private fun StressCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(), shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content) }
 }
 
 private fun bucketStressLabel(bucket: RiskBucket) = when (bucket) {
-    RiskBucket.AGGRESSIVE -> "进取"
-    RiskBucket.CONSERVATIVE -> "稳健"
-    RiskBucket.INSURANCE -> "保命"
-    RiskBucket.CASH -> "防守"
+    RiskBucket.AGGRESSIVE -> "进攻"
+    RiskBucket.BALANCED -> "稳健"
+    RiskBucket.DEFENSIVE -> "防守"
 }

@@ -25,7 +25,7 @@ class PriceSyncWorkerTest {
     }
 
     @Test
-    fun `schedule creates periodic work request`() {
+    fun scheduleCreatesPeriodicWorkRequest() {
         // 验证 schedule 方法存在且可调用
         PriceSyncWorker.schedule(context)
 
@@ -37,7 +37,7 @@ class PriceSyncWorkerTest {
     }
 
     @Test
-    fun `snapshotNow creates one-time work request`() {
+    fun snapshotNowCreatesOneTimeWorkRequest() {
         // 验证 snapshotNow 方法存在且可调用
         SnapshotWorker.snapshotNow(context)
 

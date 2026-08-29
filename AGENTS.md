@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs daily prices from Yahoo Finance, and provides rebalancing alerts with four-quadrant asset allocation. UI is in Chinese.
+FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs daily prices from Yahoo Finance, and provides rebalancing alerts with three-bucket asset allocation. UI is in Chinese.
 
 ## Build & Test Commands
 
@@ -50,22 +50,21 @@ FinUnity is an Android portfolio tracker app for managing multi-currency investm
 
 The app is migrating from `Position` → `AssetRecord`. Both coexist:
 
-- **`Position`** (legacy): `id, accountId, symbol, shares, totalCost, currency`. Always STOCK type, always AGGRESSIVE risk bucket. Created by older code paths.
-- **`AssetRecord`** (new): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT/REAL_ESTATE/VEHICLE/INSURANCE_POLICY) and `RiskBucket` (CONSERVATIVE/AGGRESSIVE/INSURANCE/CASH). Has explicit `name, quantity, cost, currentPrice, currency`.
+- **`Position`** (legacy): `id, accountId, symbol, shares, totalCost, currency`. Always STOCK type, always AGGRESSIVE risk bucket. Retained only for backup and historical migration compatibility.
+- **`AssetRecord`** (current): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT/REAL_ESTATE/VEHICLE/INSURANCE_POLICY) and the formal three-bucket `RiskBucket` (DEFENSIVE/BALANCED/AGGRESSIVE). Has explicit `name, quantity, cost, currentPrice, currency`.
 
 The `PortfolioCalculator` handles both. `UnifiedAsset` interface bridges them. Cash is managed as AssetRecord(CASH, CASH bucket). The `adjustCashAsset()` method in MainViewModel auto-creates/updates/deletes CASH records when buying/selling.
 
-## Risk Bucket System (四象限)
+## Risk Bucket System（三桶）
 
-Four risk dimensions for asset allocation:
+Three risk dimensions for asset allocation:
 - **AGGRESSIVE** (进取/生钱的钱): Stocks, ETFs, equity funds
-- **CONSERVATIVE** (稳健/保本的钱): Bonds, time deposits, money market funds, real estate, vehicles
-- **INSURANCE** (保命/保命的钱): Insurance policies, emergency funds
-- **CASH** (防守/要花的钱): Cash, demand deposits, Yu'ebao-type products
+- **BALANCED** (稳健/保障与保值的钱): Bonds, time deposits, insurance policies, real estate, vehicles, funds without a more specific subtype
+- **DEFENSIVE** (防守/要花的钱): Cash, demand deposits, Yu'ebao-type products
 
-UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INSURANCE), gold (CASH). Target allocation string format: `"CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1"`.
+UI shows a three-segment donut chart with green (AGGRESSIVE), blue (BALANCED), and gold (DEFENSIVE). The default target allocation is `"DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"`.
 
-## Database Schema (Room, version 9)
+## Database Schema (Room, version 24)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
@@ -76,7 +75,7 @@ UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INS
 - `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals and data-quality fields). Destructive fallback allowed from v1, v2 only.
 
 ## Key Design Decisions
 
@@ -88,13 +87,13 @@ UI shows a donut chart with green (AGGRESSIVE), blue (CONSERVATIVE), purple (INS
 - **Price Cache**: Price entity has 12h staleness, 30-sec connect/read timeouts, circuit breaker (5 failures → 5-min open)
 - **Batch Refresh**: PriceSyncWorker refreshes in batches of 5, exponential backoff (1min/5min/15min), max 3 attempts
 - **Offline Support**: Prices cached in Room; stale cache returned as `isFallback=true` when network unavailable
-- **Rebalancing**: Configurable target allocation per risk bucket; drift > threshold (default 5%) triggers recommendations
+- **Rebalancing**: Configurable three-bucket target allocation; drift > threshold (default 5%) triggers recommendations
 - **CSV Import**: Supports importing accounts, positions, transactions from CSV files in assets/ directory
-- **Currency Formatting**: `formatCurrency()` in MainScreen.kt (single source) — `¥` for CNY, `$` for USD, `HK$` for HKD
+- **Currency Formatting**: `formatCurrency()` in `ui/screens/Formatters.kt` (single source) — `¥` for CNY, `$` for USD, `HK$` for HKD
 
 ## Tech Stack
 
-- Kotlin 1.9.20, compileSdk 34, minSdk 26, jvmTarget 17
+- Kotlin 1.9.20, compileSdk 36, targetSdk 36, minSdk 26, jvmTarget 17
 - Jetpack Compose with Material 3 (BOM 2023.10.01)
 - Room 2.6.1 with KSP, WorkManager 2.9.0
 - Retrofit 2.9.0 + OkHttp 4.12.0 + Gson
@@ -107,7 +106,7 @@ Design system defined in `ui/theme/Theme.kt` (green primary `#166B45`, gray-base
 
 ## Workers
 
-- **PriceSyncWorker**: PeriodicWorkRequest every 24h (requires network). Gets all Position symbols + AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
+- **PriceSyncWorker**: PeriodicWorkRequest every 24h (requires network). Gets stock/ETF AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory for successful real prices, and retains old cache on failure. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
 - **SnapshotWorker**: PeriodicWorkRequest daily at 9 AM (no network required). Computes total assets/cost, saves AssetSnapshot, cleans up snapshots >2 years old.
 
 ## Imported Claude Cowork project instructions

@@ -25,12 +25,13 @@ import com.finunity.data.local.entity.Price
 import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Settings
 import com.finunity.data.local.entity.Transaction
+import com.finunity.data.local.entity.RecurringRule
 import com.finunity.data.local.migration.DatabaseMigrations
 
 @Database(
-    entities = [Account::class, Position::class, Price::class, Settings::class, Transaction::class, AssetSnapshot::class, AssetRecord::class, PriceHistory::class, AllocationTarget::class],
-    version = 18,
-    exportSchema = false
+    entities = [Account::class, Position::class, Price::class, Settings::class, Transaction::class, AssetSnapshot::class, AssetRecord::class, PriceHistory::class, AllocationTarget::class, RecurringRule::class],
+    version = 24,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun assetRecordDao(): AssetRecordDao
     abstract fun priceHistoryDao(): PriceHistoryDao
     abstract fun allocationTargetDao(): AllocationTargetDao
+    abstract fun recurringRuleDao(): com.finunity.data.local.dao.RecurringRuleDao
 
     companion object {
         @Volatile

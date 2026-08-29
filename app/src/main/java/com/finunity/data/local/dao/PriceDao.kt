@@ -2,6 +2,7 @@ package com.finunity.data.local.dao
 
 import androidx.room.*
 import com.finunity.data.local.entity.Price
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PriceDao {
@@ -11,6 +12,9 @@ interface PriceDao {
 
     @Query("SELECT * FROM prices")
     suspend fun getAllPrices(): List<Price>
+
+    @Query("SELECT * FROM prices ORDER BY updatedAt DESC")
+    fun observeAllPrices(): Flow<List<Price>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(price: Price)

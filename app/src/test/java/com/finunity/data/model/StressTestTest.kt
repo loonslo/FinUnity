@@ -11,15 +11,13 @@ class StressTestTest {
     fun `压力浮亏按象限权重与跌幅加权`() {
         val scenario = StressScenario("x", "测试", mapOf(
             RiskBucket.AGGRESSIVE to 0.50,
-            RiskBucket.CONSERVATIVE to 0.10,
-            RiskBucket.CASH to 0.0,
-            RiskBucket.INSURANCE to 0.0
+            RiskBucket.BALANCED to 0.10,
+            RiskBucket.DEFENSIVE to 0.0
         ))
         val weights = mapOf(
             RiskBucket.AGGRESSIVE to 0.40,
-            RiskBucket.CONSERVATIVE to 0.30,
-            RiskBucket.CASH to 0.20,
-            RiskBucket.INSURANCE to 0.10
+            RiskBucket.BALANCED to 0.30,
+            RiskBucket.DEFENSIVE to 0.20
         )
 
         val result = computeStressLoss(1_000_000.0, weights, scenario, maxTolerableLoss = 250_000.0)

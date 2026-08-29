@@ -32,7 +32,7 @@ import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
 
 /**
- * 落点跟踪：把"四象限之下"的具体落点（标普/纳指/红利/训练仓/弹药…）
+ * 落点跟踪：把三桶之下的具体落点（标普/纳指/红利/训练仓/弹药…）
  * 的目标金额、现有、缺口、上限红线和停止条件汇总成表，对应方案第三章加仓落点表。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +80,7 @@ fun LandingPointScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -112,7 +112,7 @@ fun LandingPointScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = FinShapes.xl,
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -174,7 +174,7 @@ private fun LandingPointCard(
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -274,7 +274,7 @@ private fun TargetEditDialog(
     }
     var stopNote by remember { mutableStateOf(point?.stopNote ?: "") }
 
-    val buckets = listOf(RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH)
+    val buckets = listOf(RiskBucket.AGGRESSIVE, RiskBucket.BALANCED, RiskBucket.DEFENSIVE)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -291,7 +291,7 @@ private fun TargetEditDialog(
                     Text("落点名称与持仓关联，不可修改。",
                         style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
                 }
-                Text("所属象限", style = MaterialTheme.typography.labelMedium, color = FinColors.TextSecondary)
+                Text("所属三桶", style = MaterialTheme.typography.labelMedium, color = FinColors.TextSecondary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     buckets.forEach { b ->
                         FinPill(selected = bucket == b, onClick = { bucket = b }, text = b.displayName())
@@ -355,7 +355,6 @@ private fun trimAmount(value: Double): String =
 
 private fun bucketColorLp(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
-    RiskBucket.CONSERVATIVE -> FinColors.Conservative
-    RiskBucket.INSURANCE -> FinColors.Insurance
-    RiskBucket.CASH -> FinColors.Cash
+    RiskBucket.BALANCED -> FinColors.Conservative
+    RiskBucket.DEFENSIVE -> FinColors.Cash
 }

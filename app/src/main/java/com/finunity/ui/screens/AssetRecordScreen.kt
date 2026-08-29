@@ -2,6 +2,7 @@ package com.finunity.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -23,13 +25,19 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.defaultRiskBucket
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountAssetRules
 import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinShapes
+import com.finunity.ui.theme.FinColors
+import java.util.Locale
 import com.finunity.ui.components.FinPill
+import com.finunity.ui.components.FinBucketTag
 import com.finunity.ui.components.FinSoftButton
 import com.finunity.ui.components.FinTextField
+import com.finunity.ui.components.FinInlineField
+import com.finunity.ui.components.FinCard
 import com.finunity.ui.components.FinTopBar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -47,7 +55,7 @@ fun AssetRecordScreen(
     var name by remember { mutableStateOf(record?.name ?: "") }
     var securityCode by remember { mutableStateOf(record?.securityCode ?: "") }
     var selectedAssetType by remember { mutableStateOf(record?.assetType ?: allowedAssetTypes.firstOrNull() ?: AssetType.CASH) }
-    var selectedRiskBucket by remember { mutableStateOf(record?.riskBucket ?: defaultRiskBucketFor(selectedAssetType, account?.type)) }
+    var selectedRiskBucket by remember { mutableStateOf(record?.riskBucket ?: defaultRiskBucketFor(selectedAssetType)) }
     var quantity by remember { mutableStateOf(record?.quantity?.toString() ?: "") }
     var cost by remember { mutableStateOf(record?.cost?.toString() ?: "") }
     var currentPrice by remember { mutableStateOf(record?.currentPrice?.toString() ?: "") }
@@ -59,19 +67,24 @@ fun AssetRecordScreen(
     var dividendYield by remember { mutableStateOf(record?.dividendYield?.times(100)?.toString() ?: "") }
     var premiumRate by remember { mutableStateOf(record?.premiumRate?.times(100)?.toString() ?: "") }
     var locked by remember { mutableStateOf(record?.locked ?: false) }
+    var showAdvancedOptions by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
+    var showRiskBucketSheet by remember { mutableStateOf(false) }
 
-    val riskBuckets = RiskBucket.entries
     val currencies = listOf("CNY", "USD", "HKD")
     val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
 
     val isNewRecord = record == null
     val hasRiskBucket = selectedAssetType != AssetType.CASH
+    val hasConfiguredAdvancedOptions = selectedCurrency != (account?.currency ?: "CNY") ||
+        selectedRiskBucket != defaultRiskBucketFor(selectedAssetType) ||
+        subCategory.isNotBlank() || industryTag.isNotBlank() || purchaseRestricted ||
+        peRatio.isNotBlank() || dividendYield.isNotBlank() || premiumRate.isNotBlank() || locked
 
     LaunchedEffect(allowedAssetTypes) {
         if (selectedAssetType !in allowedAssetTypes && allowedAssetTypes.isNotEmpty()) {
             selectedAssetType = allowedAssetTypes.first()
-            selectedRiskBucket = defaultRiskBucketFor(allowedAssetTypes.first(), account?.type)
+            selectedRiskBucket = defaultRiskBucketFor(allowedAssetTypes.first())
         }
     }
 
@@ -127,6 +140,33 @@ fun AssetRecordScreen(
         )
     }
 
+    if (showRiskBucketSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRiskBucketSheet = false },
+            containerColor = FinColors.Surface,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = FinColors.TextTertiary) }
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("选择策略桶", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("归类只影响配置占比和偏移提醒，可随时修改。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                RiskBucket.entries.forEach { bucket ->
+                    val bucketColor = when (bucket) {
+                        RiskBucket.DEFENSIVE -> FinColors.Cash
+                        RiskBucket.BALANCED -> FinColors.Conservative
+                        RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+                    }
+                    Surface(onClick = { selectedRiskBucket = bucket; showRiskBucketSheet = false }, color = Color.Transparent, shape = FinShapes.sm, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            FinBucketTag(bucket.displayName(), bucketColor)
+                            if (selectedRiskBucket == bucket) Text("✓", color = FinColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+            }
+        }
+    }
+
     Scaffold(
         topBar = { FinTopBar(if (record == null) "添加资产" else "编辑资产", onBack = {
             if (hasUnsavedChanges) showUnsavedDialog = true else onBack()
@@ -137,37 +177,23 @@ fun AssetRecordScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .padding(top = 16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (account != null) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("账户", style = MaterialTheme.typography.bodyMedium)
-                            Text(account.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        }
-                        Text(
-                            text = "${account.type.displayName()} 可添加：${AccountAssetRules.allowedAssetText(account.type)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
-                        )
-                    }
+                    Text("添加到", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                    Text(
+                        "${account.name} · ${account.type.displayName()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
 
@@ -208,7 +234,7 @@ fun AssetRecordScreen(
                                     quantity = ""
                                     cost = ""
                                     currentPrice = ""
-                                    selectedRiskBucket = defaultRiskBucketFor(type, account?.type)
+                                    selectedRiskBucket = defaultRiskBucketFor(type)
                                 }
                                 selectedAssetType = type
                             },
@@ -218,79 +244,26 @@ fun AssetRecordScreen(
                 }
             }
 
-            if (hasRiskBucket) {
-                Column {
-                    Text(
-                        text = "风险维度",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    if (selectedAssetType == AssetType.FUND) {
-                        // 基金按产品类型归类：货币基金=稳健，股票基金=进取
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FinPill(
-                                selected = selectedRiskBucket == RiskBucket.CONSERVATIVE,
-                                onClick = { selectedRiskBucket = RiskBucket.CONSERVATIVE },
-                                text = "货币基金（稳健）"
-                            )
-                            FinPill(
-                                selected = selectedRiskBucket == RiskBucket.AGGRESSIVE,
-                                onClick = { selectedRiskBucket = RiskBucket.AGGRESSIVE },
-                                text = "股票基金（进取）"
-                            )
-                        }
-                    } else {
-                        // 其它资产类型由标的自动归类，不可手选，只读展示
-                        Surface(
-                            shape = FinShapes.sm,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        ) {
-                            Text(
-                                text = "${selectedRiskBucket.displayName()} · 按资产类型自动归类",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
             if (selectedAssetType != AssetType.CASH) {
-                FinTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = getNameLabel(selectedAssetType),
-                    placeholder = getNamePlaceholder(selectedAssetType)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                FinTextField(
-                    value = securityCode,
-                    onValueChange = { securityCode = it },
-                    label = "证券编码（用于同码合并，可选）",
-                    placeholder = "如 510300、AAPL、0700.HK"
-                )
-                if (selectedAssetType == AssetType.STOCK || selectedAssetType == AssetType.ETF) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "为自动获取每日价格，请填写 Yahoo 代码：美股直接填代码（AAPL），" +
-                            "沪市加 .SS（600519.SS），深市加 .SZ（000001.SZ），港股加 .HK（0700.HK）。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                    FinInlineField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = if (!isNewRecord && selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF)) {
+                            "资产名称"
+                        } else {
+                            getNameLabel(selectedAssetType)
+                        },
+                        placeholder = getNamePlaceholder(selectedAssetType)
                     )
-                }
-                if (selectedAssetType == AssetType.FUND) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "基金按手动净值维护，暂不自动同步中国公募基金净值。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                    )
+                    if (!isNewRecord && selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
+                        FinInlineField(
+                            value = securityCode,
+                            onValueChange = { securityCode = it },
+                            label = "证券编码",
+                            placeholder = "如 510300.SS、AAPL、0700.HK"
+                        )
+                    }
                 }
             }
 
@@ -300,10 +273,49 @@ fun AssetRecordScreen(
                 cost = cost,
                 currentPrice = currentPrice,
                 selectedCurrency = selectedCurrency,
+                showCurrentPrice = !isNewRecord || showAdvancedOptions,
+                autoFillCurrentPrice = isNewRecord,
                 onQuantityChange = { quantity = it },
                 onCostChange = { cost = it },
                 onCurrentPriceChange = { currentPrice = it }
             )
+
+            TextButton(
+                onClick = { showAdvancedOptions = !showAdvancedOptions },
+                modifier = Modifier.align(Alignment.Start),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    when {
+                        showAdvancedOptions -> "收起更多选项"
+                        hasConfiguredAdvancedOptions -> "更多选项 · 已设置"
+                        else -> "更多选项"
+                    }
+                )
+            }
+
+            if (showAdvancedOptions) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (hasRiskBucket) {
+                Column {
+                    Text("资产用途", style = MaterialTheme.typography.labelLarge, color = FinColors.TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        modifier = Modifier.clickable { showRiskBucketSheet = true },
+                        shape = CircleShape,
+                        color = Color.Transparent
+                    ) {
+                        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val bucketColor = when (selectedRiskBucket) {
+                                RiskBucket.DEFENSIVE -> FinColors.Cash
+                                RiskBucket.BALANCED -> FinColors.Conservative
+                                RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+                            }
+                            FinBucketTag(selectedRiskBucket.displayName(), bucketColor)
+                            Text("已按资产类型自动归类 · 点击修改", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                        }
+                    }
+                }
+            }
 
             Column {
                 Text(
@@ -424,8 +436,9 @@ fun AssetRecordScreen(
                     Switch(checked = locked, onCheckedChange = { locked = it })
                 }
             }
+            }
 
-            if (quantity.isNotEmpty() && cost.isNotEmpty() && currentPrice.isNotEmpty()) {
+            if (!isNewRecord && quantity.isNotEmpty() && cost.isNotEmpty() && currentPrice.isNotEmpty()) {
                 val qty = quantity.toDoubleOrNull() ?: 0.0
                 val c = cost.toDoubleOrNull() ?: 0.0
                 val price = currentPrice.toDoubleOrNull() ?: 0.0
@@ -465,7 +478,7 @@ fun AssetRecordScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("金额:")
-                                Text("${String.format("%.2f", currentValue)} $selectedCurrency")
+                                Text("${String.format(Locale.US, "%.2f", currentValue)} $selectedCurrency")
                             }
                         } else if (selectedAssetType == AssetType.TIME_DEPOSIT) {
                             Row(
@@ -473,7 +486,7 @@ fun AssetRecordScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("到期本息:")
-                                Text("${String.format("%.2f", currentValue)} $selectedCurrency")
+                                Text("${String.format(Locale.US, "%.2f", currentValue)} $selectedCurrency")
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
@@ -482,7 +495,7 @@ fun AssetRecordScreen(
                             ) {
                                 Text("利息收益:")
                                 Text(
-                                    "${if (profitLoss >= 0) "+" else ""}${String.format("%.2f", profitLoss)} $selectedCurrency (${String.format("%.1f", profitLossRatio * 100)}%)",
+                                    "${if (profitLoss >= 0) "+" else ""}${String.format(Locale.US, "%.2f", profitLoss)} $selectedCurrency (${String.format(Locale.US, "%.1f", profitLossRatio * 100)}%)",
                                     color = if (profitLoss >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                             }
@@ -492,7 +505,7 @@ fun AssetRecordScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("当前市值:")
-                                Text("${String.format("%.2f", currentValue)} $selectedCurrency")
+                                Text("${String.format(Locale.US, "%.2f", currentValue)} $selectedCurrency")
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
@@ -501,7 +514,7 @@ fun AssetRecordScreen(
                             ) {
                                 Text("盈亏:")
                                 Text(
-                                    "${if (profitLoss >= 0) "+" else ""}${String.format("%.2f", profitLoss)} $selectedCurrency (${String.format("%.1f", profitLossRatio * 100)}%)",
+                                    "${if (profitLoss >= 0) "+" else ""}${String.format(Locale.US, "%.2f", profitLoss)} $selectedCurrency (${String.format(Locale.US, "%.1f", profitLossRatio * 100)}%)",
                                     color = if (profitLoss >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                             }
@@ -522,22 +535,6 @@ fun AssetRecordScreen(
                     qty > 0 &&
                     isValidForTradable &&
                     allowedAssetTypes.isNotEmpty()
-            val missingReasons = buildList {
-                if (allowedAssetTypes.isEmpty()) add("当前账户类型不支持新增持仓")
-                if (selectedAssetType != AssetType.CASH && name.isBlank()) add("${getNameLabel(selectedAssetType)}")
-                if (qty <= 0) add(if (selectedAssetType == AssetType.CASH) "金额" else "数量/份额")
-                if (isTradableType && c <= 0) add("买入单价")
-                if (isTradableType && price <= 0) add("当前价格/净值")
-            }
-
-            if (!isFormValid && missingReasons.isNotEmpty()) {
-                Text(
-                    text = "请填写必填项：${missingReasons.joinToString("、")}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-
             FinSoftButton(
                 text = "保存",
                 onClick = {
@@ -545,9 +542,13 @@ fun AssetRecordScreen(
                         id = record?.id ?: java.util.UUID.randomUUID().toString(),
                         accountId = account?.id ?: record?.accountId ?: "",
                         assetType = selectedAssetType,
-                        riskBucket = if (selectedAssetType == AssetType.CASH) RiskBucket.CASH else selectedRiskBucket,
+                        riskBucket = if (selectedAssetType == AssetType.CASH) RiskBucket.DEFENSIVE else selectedRiskBucket,
                         name = if (selectedAssetType == AssetType.CASH) "现金" else name.trim(),
-                        securityCode = if (selectedAssetType == AssetType.CASH) "" else securityCode.trim(),
+                        securityCode = when {
+                            selectedAssetType == AssetType.CASH -> ""
+                            isNewRecord && isTradableType -> name.trim()
+                            else -> securityCode.trim()
+                        },
                         quantity = qty,
                         cost = c,
                         currentPrice = price,
@@ -583,19 +584,23 @@ private fun DynamicAssetFields(
     cost: String,
     currentPrice: String,
     selectedCurrency: String,
+    showCurrentPrice: Boolean,
+    autoFillCurrentPrice: Boolean,
     onQuantityChange: (String) -> Unit,
     onCostChange: (String) -> Unit,
     onCurrentPriceChange: (String) -> Unit
 ) {
     when (selectedAssetType) {
         AssetType.CASH -> {
-            FinTextField(
-                value = quantity,
-                onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = "金额",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal
-            )
+            FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                FinInlineField(
+                    value = quantity,
+                    onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
+                    label = "金额",
+                    placeholder = "0.00",
+                    keyboardType = KeyboardType.Decimal
+                )
+            }
             LaunchedEffect(quantity) {
                 onCostChange(quantity)
                 onCurrentPriceChange("1.0")
@@ -610,20 +615,22 @@ private fun DynamicAssetFields(
                 if (currentPriceDouble > 1.0) ((currentPriceDouble - 1) * 100).toString() else ""
             ) }
 
-            FinTextField(
-                value = principalInput,
-                onValueChange = { principalInput = it.filter { c -> c.isDigit() || c == '.' } },
-                label = "本金",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal
-            )
-            FinTextField(
-                value = rateInput,
-                onValueChange = { rateInput = it.filter { c -> c.isDigit() || c == '.' } },
-                label = "年利率 (%)",
-                placeholder = "如：3.5",
-                keyboardType = KeyboardType.Decimal
-            )
+            FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                FinInlineField(
+                    value = principalInput,
+                    onValueChange = { principalInput = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = "本金",
+                    placeholder = "0.00",
+                    keyboardType = KeyboardType.Decimal
+                )
+                FinInlineField(
+                    value = rateInput,
+                    onValueChange = { rateInput = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = "年利率 (%)",
+                    placeholder = "如：3.5",
+                    keyboardType = KeyboardType.Decimal
+                )
+            }
 
             val principal = principalInput.toDoubleOrNull() ?: 0.0
             val rate = rateInput.toDoubleOrNull() ?: 0.0
@@ -647,14 +654,14 @@ private fun DynamicAssetFields(
                         ) {
                             Text("到期本息:", style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "${String.format("%.2f", maturityValue)} $selectedCurrency",
+                                "${String.format(Locale.US, "%.2f", maturityValue)} $selectedCurrency",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "利息: ${String.format("%.2f", maturityValue - principal)} $selectedCurrency",
+                            text = "利息: ${String.format(Locale.US, "%.2f", maturityValue - principal)} $selectedCurrency",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
@@ -678,13 +685,15 @@ private fun DynamicAssetFields(
             var valuationInput by remember(selectedAssetType) { mutableStateOf(
                 if (cost.toDoubleOrNull() == currentPrice.toDoubleOrNull() && cost.toDoubleOrNull() != null && cost.toDoubleOrNull()!! > 0) cost else ""
             ) }
-            FinTextField(
-                value = valuationInput,
-                onValueChange = { valuationInput = it.filter { c -> c.isDigit() || c == '.' } },
-                label = "当前估值",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal
-            )
+            FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                FinInlineField(
+                    value = valuationInput,
+                    onValueChange = { valuationInput = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = "当前估值",
+                    placeholder = "0.00",
+                    keyboardType = KeyboardType.Decimal
+                )
+            }
             LaunchedEffect(valuationInput) {
                 val valuation = valuationInput.toDoubleOrNull() ?: 0.0
                 onQuantityChange("1")
@@ -694,6 +703,7 @@ private fun DynamicAssetFields(
         }
         else -> {
             // 买入单价：编辑态用 总成本/数量 反推
+            var currentPriceManuallyEdited by remember(selectedAssetType) { mutableStateOf(false) }
             var buyPrice by remember(selectedAssetType) {
                 mutableStateOf(run {
                     val q = quantity.toDoubleOrNull() ?: 0.0
@@ -701,33 +711,40 @@ private fun DynamicAssetFields(
                     if (q > 0 && c > 0) trimNumber(c / q) else ""
                 })
             }
-            FinTextField(
-                value = quantity,
-                onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = "数量/份额",
-                placeholder = "0",
-                keyboardType = KeyboardType.Decimal
-            )
-            FinTextField(
-                value = buyPrice,
-                onValueChange = { buyPrice = it.filter { c -> c.isDigit() || c == '.' } },
-                label = "买入单价/净值",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal
-            )
-            FinTextField(
-                value = currentPrice,
-                onValueChange = { onCurrentPriceChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                label = "当前价格/净值",
-                placeholder = "0.00",
-                keyboardType = KeyboardType.Decimal
-            )
+            FinCard(contentPadding = PaddingValues(horizontal = 16.dp)) {
+                FinInlineField(
+                    value = quantity,
+                    onValueChange = { onQuantityChange(it.filter { c -> c.isDigit() || c == '.' }) },
+                    label = "数量/份额",
+                    placeholder = "0",
+                    keyboardType = KeyboardType.Decimal
+                )
+                FinInlineField(
+                    value = buyPrice,
+                    onValueChange = { buyPrice = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = "买入单价/净值",
+                    placeholder = "0.00",
+                    keyboardType = KeyboardType.Decimal
+                )
+                if (showCurrentPrice) {
+                    FinInlineField(
+                        value = currentPrice,
+                        onValueChange = {
+                            currentPriceManuallyEdited = true
+                            onCurrentPriceChange(it.filter { c -> c.isDigit() || c == '.' })
+                        },
+                        label = "当前价格/净值（选填）",
+                        placeholder = "默认与买入价相同",
+                        keyboardType = KeyboardType.Decimal
+                    )
+                }
+            }
             // 总成本 = 数量 × 买入单价，自动回填
             val previewQty = quantity.toDoubleOrNull() ?: 0.0
             val previewBuy = buyPrice.toDoubleOrNull() ?: 0.0
             if (previewQty > 0 && previewBuy > 0) {
                 Text(
-                    text = "买入总成本：${String.format("%.2f", previewQty * previewBuy)} $selectedCurrency",
+                    text = "买入总成本：${String.format(Locale.US, "%.2f", previewQty * previewBuy)} $selectedCurrency",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                 )
@@ -736,6 +753,9 @@ private fun DynamicAssetFields(
                 val q = quantity.toDoubleOrNull() ?: 0.0
                 val bp = buyPrice.toDoubleOrNull() ?: 0.0
                 onCostChange(if (q > 0 && bp > 0) trimNumber(q * bp) else "")
+                if (autoFillCurrentPrice && !currentPriceManuallyEdited) {
+                    onCurrentPriceChange(if (bp > 0) trimNumber(bp) else "")
+                }
             }
         }
     }
@@ -770,15 +790,8 @@ private fun getNamePlaceholder(assetType: AssetType): String = when (assetType) 
     AssetType.INSURANCE_POLICY -> "如：重疾险"
 }
 
-private fun defaultRiskBucketFor(assetType: AssetType, accountType: AccountType? = null): RiskBucket = when {
-    assetType == AssetType.CASH -> RiskBucket.CASH
-    assetType == AssetType.INSURANCE_POLICY -> RiskBucket.INSURANCE
-    // 保险账户下的资产默认归入"保命的钱"象限
-    accountType == AccountType.INSURANCE -> RiskBucket.INSURANCE
-    assetType == AssetType.TIME_DEPOSIT -> RiskBucket.CONSERVATIVE
-    assetType == AssetType.REAL_ESTATE || assetType == AssetType.VEHICLE -> RiskBucket.CONSERVATIVE
-    else -> RiskBucket.AGGRESSIVE  // STOCK / ETF / FUND
-}
+private fun defaultRiskBucketFor(assetType: AssetType): RiskBucket =
+    assetType.defaultRiskBucket()
 
 private fun allowedAssetTypesFor(accountType: AccountType?, currentType: AssetType?): List<AssetType> {
     val baseAllowed = AccountAssetRules.allowedAssetTypes(accountType)

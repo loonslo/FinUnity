@@ -33,5 +33,6 @@ enum class TransactionOrigin {
     CSV_IMPORT,
     TRADE,
     CASH_FLOW,
-    LEGACY_MIGRATION
+    LEGACY_MIGRATION,
+    RECURRING
 }

@@ -47,7 +47,7 @@ class AssetRecordTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "一年定期",
             quantity = 100000.0,  // 本金
             cost = 100000.0,      // 成本 = 本金
@@ -71,7 +71,7 @@ class AssetRecordTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "活期",
             quantity = 50000.0,
             cost = 50000.0,
@@ -90,7 +90,7 @@ class AssetRecordTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "活期存款",
             quantity = 10000.0,
             cost = 10000.0,
@@ -193,18 +193,18 @@ class AssetRecordTest {
         val timeDeposit = AssetRecord(
             id = "2", accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "定期", quantity = 100000.0, cost = 100000.0, currentPrice = 1.035, currency = "CNY"
         )
-        assertEquals(RiskBucket.CONSERVATIVE, timeDeposit.riskBucket)
+        assertEquals(RiskBucket.BALANCED, timeDeposit.riskBucket)
 
         val cash = AssetRecord(
             id = "3", accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "活期", quantity = 50000.0, cost = 50000.0, currentPrice = 1.0, currency = "CNY"
         )
-        assertEquals(RiskBucket.CASH, cash.riskBucket)
+        assertEquals(RiskBucket.DEFENSIVE, cash.riskBucket)
     }
 
     @Test
@@ -252,7 +252,7 @@ class AssetRecordTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "余额宝",
             quantity = 0.0,
             cost = 0.0,

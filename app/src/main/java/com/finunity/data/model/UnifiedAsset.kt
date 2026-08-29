@@ -6,7 +6,7 @@ import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
 
 /**
- * 风险维度汇总
+ * 三桶汇总
  */
 data class RiskBucketSummary(
     val riskBucket: RiskBucket,
@@ -83,7 +83,7 @@ fun mergeAssets(positions: List<Position>, records: List<AssetRecord>): List<Uni
 }
 
 /**
- * 按风险维度聚合
+ * 按三桶聚合
  */
 fun groupByRiskBucket(assets: List<UnifiedAsset>): Map<RiskBucket, List<UnifiedAsset>> {
     return assets.groupBy { it.riskBucket }
@@ -112,10 +112,9 @@ fun calculateRiskBucketSummaries(
  * 风险维度名称映射
  */
 fun RiskBucket.displayName(): String = when (this) {
-    RiskBucket.CONSERVATIVE -> "稳健"
-    RiskBucket.AGGRESSIVE -> "进取"
-    RiskBucket.INSURANCE -> "保命"
-    RiskBucket.CASH -> "防守"
+    RiskBucket.DEFENSIVE -> "防守"
+    RiskBucket.BALANCED -> "稳健"
+    RiskBucket.AGGRESSIVE -> "进攻"
 }
 
 /**

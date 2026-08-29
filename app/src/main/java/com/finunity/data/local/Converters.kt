@@ -4,11 +4,14 @@ import androidx.room.TypeConverter
 import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.requireThreeBucket
 import com.finunity.data.local.entity.TransactionType
 import com.finunity.data.local.entity.HoldingSourceType
 import com.finunity.data.local.entity.AccountSourceType
 import com.finunity.data.local.entity.SyncState
 import com.finunity.data.local.entity.TransactionOrigin
+import com.finunity.data.local.entity.CashFlowCategory
+import com.finunity.data.local.entity.RecurringRuleType
 
 class Converters {
 
@@ -49,7 +52,7 @@ class Converters {
 
     @TypeConverter
     fun toRiskBucket(value: String): RiskBucket {
-        return RiskBucket.valueOf(value)
+        return requireThreeBucket(value)
     }
 
     @TypeConverter
@@ -75,4 +78,17 @@ class Converters {
 
     @TypeConverter
     fun toTransactionOrigin(value: String): TransactionOrigin = TransactionOrigin.valueOf(value)
+
+    @TypeConverter
+    fun fromCashFlowCategory(value: CashFlowCategory): String = value.name
+
+    @TypeConverter
+    fun toCashFlowCategory(value: String): CashFlowCategory =
+        runCatching { CashFlowCategory.valueOf(value) }.getOrDefault(CashFlowCategory.OTHER)
+
+    @TypeConverter
+    fun fromRecurringRuleType(value: RecurringRuleType): String = value.name
+
+    @TypeConverter
+    fun toRecurringRuleType(value: String): RecurringRuleType = RecurringRuleType.valueOf(value)
 }

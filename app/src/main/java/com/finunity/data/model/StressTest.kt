@@ -17,24 +17,24 @@ data class StressResult(
 
 val DEFAULT_STRESS_SCENARIOS = listOf(
     StressScenario("2022", "2022 股债双杀", mapOf(
-        RiskBucket.AGGRESSIVE to 0.25, RiskBucket.CONSERVATIVE to 0.08,
-        RiskBucket.INSURANCE to 0.0, RiskBucket.CASH to 0.0
+        RiskBucket.AGGRESSIVE to 0.25, RiskBucket.BALANCED to 0.08,
+        RiskBucket.DEFENSIVE to 0.0
     )),
     StressScenario("2020", "2020 疫情冲击", mapOf(
-        RiskBucket.AGGRESSIVE to 0.35, RiskBucket.CONSERVATIVE to 0.08,
-        RiskBucket.INSURANCE to 0.0, RiskBucket.CASH to 0.0
+        RiskBucket.AGGRESSIVE to 0.35, RiskBucket.BALANCED to 0.08,
+        RiskBucket.DEFENSIVE to 0.0
     )),
     StressScenario("2008", "2008 金融危机", mapOf(
-        RiskBucket.AGGRESSIVE to 0.55, RiskBucket.CONSERVATIVE to 0.15,
-        RiskBucket.INSURANCE to 0.02, RiskBucket.CASH to 0.0
+        RiskBucket.AGGRESSIVE to 0.55, RiskBucket.BALANCED to 0.15,
+        RiskBucket.DEFENSIVE to 0.0
     )),
     StressScenario("2000", "2000 科技泡沫", mapOf(
-        RiskBucket.AGGRESSIVE to 0.50, RiskBucket.CONSERVATIVE to 0.10,
-        RiskBucket.INSURANCE to 0.0, RiskBucket.CASH to 0.0
+        RiskBucket.AGGRESSIVE to 0.50, RiskBucket.BALANCED to 0.10,
+        RiskBucket.DEFENSIVE to 0.0
     ))
 )
 
-/** 压力浮亏 = 可投策略盘 × Σ(象限权重 × 情景跌幅)。 */
+/** 压力浮亏 = 可投策略盘 × Σ(三桶权重 × 情景跌幅)。 */
 fun computeStressLoss(
     strategyAssets: Double,
     weights: Map<RiskBucket, Double>,

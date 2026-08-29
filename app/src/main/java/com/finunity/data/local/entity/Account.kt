@@ -20,7 +20,12 @@ data class Account(
     val sourceType: AccountSourceType = AccountSourceType.MANUAL,
     val externalSourceId: String = "",
     val lastSyncedAt: Long? = null,
-    val syncState: SyncState = SyncState.NOT_APPLICABLE
+    val syncState: SyncState = SyncState.NOT_APPLICABLE,
+    /** Liability metadata; ignored for non-liability accounts. */
+    val initialPrincipal: Double = 0.0,
+    val annualInterestRate: Double = 0.0,
+    val dueDayOfMonth: Int = 0,
+    val minimumPayment: Double = 0.0
 )
 
 enum class AccountType {

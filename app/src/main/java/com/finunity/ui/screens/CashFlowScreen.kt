@@ -2,6 +2,7 @@ package com.finunity.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,9 +20,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -50,20 +52,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.model.AccountSummary
+import com.finunity.data.local.entity.AccountType
+import com.finunity.data.local.entity.CashFlowCategory
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.theme.FinColors
+import java.util.Locale
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
 
 enum class CashFlowMode {
     CASH_IN,
     CASH_OUT,
-    TRANSFER
-}
-
-private enum class RecordEntry {
-    CASH,
-    ADJUST
+    TRANSFER,
+    LIABILITY_PAYMENT
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,21 +75,24 @@ fun CashFlowScreen(
     baseCurrency: String = "CNY",
     onBack: () -> Unit,
     onAddAsset: () -> Unit,
-    onSaveCashIn: (Double, String?) -> Unit,
-    onSaveCashOut: (Double, String?) -> Unit,
+    onSaveCashIn: (Double, CashFlowCategory, String?) -> Unit,
+    onSaveCashOut: (Double, CashFlowCategory, String?) -> Unit,
     onSaveTransfer: (String, Double, String?) -> Unit,
+    onSaveLiabilityPayment: (Double, String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val account = accounts.firstOrNull { it.account.id == accountId }?.account
-    var selectedEntry by remember { mutableStateOf<RecordEntry?>(null) }
-    var mode by remember { mutableStateOf(CashFlowMode.CASH_IN) }
+    var mode by remember(accountId) {
+        mutableStateOf(if (account?.type == AccountType.LIABILITY) CashFlowMode.LIABILITY_PAYMENT else CashFlowMode.CASH_IN)
+    }
     var amountInput by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(CashFlowCategory.OTHER_INCOME) }
     var targetExpanded by remember { mutableStateOf(false) }
     var targetAccountId by remember { mutableStateOf("") }
     val transferTargets = accounts
         .map { it.account }
-        .filter { it.id != accountId && it.currency == account?.currency }
+        .filter { it.id != accountId }
     val selectedTarget = transferTargets.firstOrNull { it.id == targetAccountId }
     val amount = amountInput.toDoubleOrNull()
     val canSave = account != null &&
@@ -97,7 +101,7 @@ fun CashFlowScreen(
         (mode != CashFlowMode.TRANSFER || selectedTarget != null)
 
     Scaffold(
-        topBar = { FinTopBar("记一笔", onBack) },
+        topBar = { FinTopBar("记收支", onBack) },
         containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
@@ -116,73 +120,53 @@ fun CashFlowScreen(
                 fontWeight = FontWeight.SemiBold
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                RecordEntryCard(
-                    title = "添加资产",
-                    subtitle = "股票、ETF、基金、定期、现金等持仓",
-                    icon = Icons.Default.Add,
-                    selected = false,
-                    onClick = onAddAsset
-                )
-                RecordEntryCard(
-                    title = "日常收支",
-                    subtitle = "工资、消费、现金增减",
-                    icon = Icons.Default.DateRange,
-                    selected = selectedEntry == RecordEntry.CASH,
-                    onClick = {
-                        selectedEntry = RecordEntry.CASH
-                        mode = CashFlowMode.CASH_IN
-                    }
-                )
-                // 仅当存在可转入的同币种账户时，才显示"资产调整(转账)"入口
-                if (transferTargets.isNotEmpty()) {
-                    RecordEntryCard(
-                        title = "资产调整",
-                        subtitle = "在账户之间转账",
-                        icon = Icons.Default.Person,
-                        selected = selectedEntry == RecordEntry.ADJUST,
-                        onClick = {
-                            selectedEntry = RecordEntry.ADJUST
-                            mode = CashFlowMode.TRANSFER
-                        }
-                    )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (account?.type != AccountType.LIABILITY) {
+                    FinPill(text = "收入", selected = mode == CashFlowMode.CASH_IN, onClick = { mode = CashFlowMode.CASH_IN; category = CashFlowCategory.OTHER_INCOME })
+                    FinPill(text = "支出", selected = mode == CashFlowMode.CASH_OUT, onClick = { mode = CashFlowMode.CASH_OUT; category = CashFlowCategory.OTHER_EXPENSE })
+                } else {
+                    FinPill(text = "记录还款", selected = mode == CashFlowMode.LIABILITY_PAYMENT, onClick = { mode = CashFlowMode.LIABILITY_PAYMENT })
                 }
-                if (accounts.any { it.account.id != accountId && it.account.currency != account?.currency }) {
-                    Text("跨币种转账暂不支持：需先确认成交汇率与手续费，当前仅开放同币种账户。",
-                        style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                if (transferTargets.isNotEmpty() && account?.type != AccountType.LIABILITY) {
+                    FinPill(text = "转账", selected = mode == CashFlowMode.TRANSFER, onClick = { mode = CashFlowMode.TRANSFER })
                 }
             }
+            if (account?.type != AccountType.LIABILITY) TextButton(onClick = onAddAsset, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("这不是收支？直接添加资产")
+            }
 
-
-            if (selectedEntry == RecordEntry.CASH || selectedEntry == RecordEntry.ADJUST) {
-                if (selectedEntry == RecordEntry.CASH) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FinPill(
-                            text = "收入",
-                            selected = mode == CashFlowMode.CASH_IN,
-                            onClick = { mode = CashFlowMode.CASH_IN }
-                        )
-                        FinPill(
-                            text = "支出",
-                            selected = mode == CashFlowMode.CASH_OUT,
-                            onClick = { mode = CashFlowMode.CASH_OUT }
-                        )
+            OutlinedTextField(
+                value = amountInput,
+                onValueChange = { amountInput = it.filter { c -> c.isDigit() || c == '.' } },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("金额") },
+                suffix = { Text(account?.currency ?: "") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                shape = FinShapes.sm
+            )
+            if (mode == CashFlowMode.CASH_IN || mode == CashFlowMode.CASH_OUT) {
+                Text(
+                    if (mode == CashFlowMode.CASH_IN) "收入分类" else "支出分类",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = FinColors.TextSecondary
+                )
+                val categoryOptions = if (mode == CashFlowMode.CASH_IN) {
+                    listOf(CashFlowCategory.SALARY, CashFlowCategory.BONUS, CashFlowCategory.RENTAL_INCOME, CashFlowCategory.INTEREST, CashFlowCategory.DIVIDEND, CashFlowCategory.OTHER_INCOME)
+                } else {
+                    listOf(CashFlowCategory.FOOD, CashFlowCategory.HOUSING, CashFlowCategory.TRANSPORT, CashFlowCategory.INSURANCE, CashFlowCategory.LOAN_REPAYMENT, CashFlowCategory.TAX, CashFlowCategory.HEALTH, CashFlowCategory.SHOPPING, CashFlowCategory.ENTERTAINMENT, CashFlowCategory.EDUCATION, CashFlowCategory.OTHER_EXPENSE)
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    categoryOptions.forEach { item ->
+                        FinPill(text = item.displayName, selected = category == item, onClick = { category = item })
                     }
                 }
-
-                OutlinedTextField(
-                    value = amountInput,
-                    onValueChange = { amountInput = it.filter { c -> c.isDigit() || c == '.' } },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("金额") },
-                    suffix = { Text(account?.currency ?: "") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = FinShapes.sm
-                )
+            }
                 if (amount != null && amount >= 10000) {
                     Text(
-                        text = "约 ${String.format("%.2f", amount / 10000)} 万 ${account?.currency ?: "CNY"}",
+                        text = "约 ${String.format(Locale.US, "%.2f", amount / 10000)} 万 ${account?.currency ?: "CNY"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                     )
@@ -201,7 +185,7 @@ fun CashFlowScreen(
                                 .menuAnchor(),
                             readOnly = true,
                             label = { Text("转入账户") },
-                            placeholder = { Text("选择同币种账户") },
+                            placeholder = { Text("选择转入账户") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
                             shape = FinShapes.sm
                         )
@@ -224,8 +208,9 @@ fun CashFlowScreen(
                     if (selectedTarget != null && amount != null && amount > 0) {
                         val sourceSummary = accounts.firstOrNull { it.account.id == accountId }
                         val targetSummary = accounts.firstOrNull { it.account.id == targetAccountId }
-                        val currency = account?.currency ?: "CNY"
-                        val sameAsBase = currency == baseCurrency
+                         val currency = account?.currency ?: "CNY"
+                         val sameCurrency = currency.equals(selectedTarget.currency, ignoreCase = true)
+                         val sameAsBase = sameCurrency && currency.equals(baseCurrency, ignoreCase = true)
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
@@ -263,6 +248,12 @@ fun CashFlowScreen(
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
+                                } else if (!sameCurrency) {
+                                    Text(
+                                        "转出 ${formatCurrency(amount, currency)}，按最新汇率换算后到账 ${selectedTarget.name}（${selectedTarget.currency}）",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = FinColors.TextSecondary
+                                    )
                                 } else {
                                     Text(
                                         "转出 ${formatCurrency(amount, currency)} 到 ${selectedTarget.name}",
@@ -275,96 +266,39 @@ fun CashFlowScreen(
                     }
                 }
 
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("备注") },
-                    placeholder = { Text(defaultNoteFor(mode)) },
-                    minLines = 2,
-                    shape = FinShapes.sm
-                )
-            }
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("备注") },
+                placeholder = { Text(defaultNoteFor(mode)) },
+                minLines = 2,
+                shape = FinShapes.sm
+            )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            if (selectedEntry == RecordEntry.CASH || selectedEntry == RecordEntry.ADJUST) {
-                Button(
-                    onClick = {
-                        val safeAmount = amount ?: return@Button
-                        val safeNote = note.ifBlank { defaultNoteFor(mode) }
-                        when (mode) {
-                            CashFlowMode.CASH_IN -> onSaveCashIn(safeAmount, safeNote)
-                            CashFlowMode.CASH_OUT -> onSaveCashOut(safeAmount, safeNote)
-                            CashFlowMode.TRANSFER -> onSaveTransfer(targetAccountId, safeAmount, safeNote)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    enabled = canSave,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FinColors.SoftGreen,
-                        contentColor = FinColors.Number
-                    )
-                ) {
-                    Text("保存", color = FinColors.Number)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecordEntryCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = FinShapes.lg,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) Color(0xFFEAF7EF) else Color.White
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+            Button(
+                onClick = {
+                    val safeAmount = amount ?: return@Button
+                    val safeNote = note.ifBlank { defaultNoteFor(mode) }
+                    when (mode) {
+                        CashFlowMode.CASH_IN -> onSaveCashIn(safeAmount, category, safeNote)
+                        CashFlowMode.CASH_OUT -> onSaveCashOut(safeAmount, category, safeNote)
+                        CashFlowMode.TRANSFER -> onSaveTransfer(targetAccountId, safeAmount, safeNote)
+                        CashFlowMode.LIABILITY_PAYMENT -> onSaveLiabilityPayment(safeAmount, safeNote)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                enabled = canSave,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FinColors.SoftGreen,
+                    contentColor = FinColors.Number
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                )
+            ) {
+                Text("保存", color = FinColors.Number)
             }
-            Icon(
-                Icons.Default.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            )
         }
     }
 }
@@ -373,4 +307,5 @@ private fun defaultNoteFor(mode: CashFlowMode): String = when (mode) {
     CashFlowMode.CASH_IN -> "收入"
     CashFlowMode.CASH_OUT -> "支出"
     CashFlowMode.TRANSFER -> "账户转账"
+    CashFlowMode.LIABILITY_PAYMENT -> "负债还款"
 }

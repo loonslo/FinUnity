@@ -1,0 +1,6 @@
+# Copy this file to signing.properties and replace every value before publishing.
+# Keep signing.properties and the keystore outside version control.
+storeFile=keys/finunity-upload.jks
+storePassword=replace-with-keystore-password
+keyAlias=finunity-upload
+keyPassword=replace-with-key-password

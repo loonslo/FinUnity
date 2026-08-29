@@ -6,6 +6,7 @@ import androidx.work.*
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
+import com.finunity.data.model.PortfolioCalculator
 import com.finunity.data.repository.HistoryRepository
 import com.finunity.data.repository.PriceRepository
 import kotlinx.coroutines.flow.first
@@ -91,76 +92,53 @@ class SnapshotWorker(
             val priceRepository = PriceRepository(database.priceDao())
             val historyRepository = HistoryRepository(database)
 
-            // 获取当前资产数据（包含旧 Position 和新 AssetRecord）
+            // 获取当前资产数据；快照与首页共用 PortfolioCalculator，避免两套统计口径。
             val accounts = database.accountDao().getAllAccounts().first()
-            val positions = database.positionDao().getAllPositions().first()
             val assetRecords = database.assetRecordDao().getAllRecords().first()
             val settings = database.settingsDao().getSettingsOnce()
 
-            if (accounts.isEmpty() && positions.isEmpty() && assetRecords.isEmpty()) {
+            if (accounts.isEmpty() && assetRecords.isEmpty()) {
                 Log.d(TAG, "No assets to snapshot")
                 return Result.success()
             }
 
-            // 计算总资产
             val baseCurrency = settings?.baseCurrency ?: "CNY"
-            var totalCash = 0.0
-            var totalStockValue = 0.0
-
-            // 账户只作为资产容器；非负债账户现金由 AssetRecord.CASH 表达，避免重复统计。
-            for (account in accounts) {
-                if (account.type == com.finunity.data.local.entity.AccountType.LIABILITY) {
-                    val rate = priceRepository.getExchangeRate(account.currency, baseCurrency) ?: 1.0
-                    totalCash -= account.balance * rate  // 负债减少总资产
-                }
-            }
-
-            // 计算旧 Position 持仓市值
-            for (position in positions) {
-                val currency = position.currency
-                val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-                val exchangeRate = priceRepository.getExchangeRate(currency, baseCurrency) ?: 1.0
-                totalStockValue += position.shares * currentPrice * exchangeRate
-            }
-
-            // 计算 AssetRecord 市值，按资产类型分类
-            for (record in assetRecords) {
-                val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
-                val valueInBase = record.currentValue * exchangeRate
-                when (record.assetType) {
-                    AssetType.STOCK, AssetType.ETF, AssetType.FUND -> totalStockValue += valueInBase
-                    AssetType.CASH, AssetType.TIME_DEPOSIT,
-                    AssetType.REAL_ESTATE, AssetType.VEHICLE,
-                    AssetType.INSURANCE_POLICY -> totalCash += valueInBase
-                }
-            }
-
-            val totalAssets = totalCash + totalStockValue
-            val stockRatio = if (totalAssets > 0) totalStockValue / totalAssets else 0.0
-
-            // 总成本 = 旧持仓成本 + 资产记录成本（按基准货币汇率换算）
-            val positionsCost = positions.sumOf { position ->
-                val exchangeRate = priceRepository.getExchangeRate(position.currency, baseCurrency) ?: 1.0
-                position.totalCost * exchangeRate
-            }
-            val assetRecordsCost = assetRecords.sumOf { record ->
-                val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
-                record.cost * exchangeRate
-            }
-            val totalCost = positionsCost + assetRecordsCost
+            val calculator = PortfolioCalculator(
+                accounts = accounts,
+                positions = emptyList(),
+                assetRecords = assetRecords,
+                priceRepository = priceRepository,
+                baseCurrency = baseCurrency
+            )
+            val totals = calculator.computePortfolioTotals()
+            val lockedAssets = calculator.computeLockedValue()
+            val totalCost = calculator.computeTotalCost()
+            val defensiveAssets = totals.bucketValues[com.finunity.data.local.entity.RiskBucket.DEFENSIVE] ?: 0.0
+            val balancedAssets = totals.bucketValues[com.finunity.data.local.entity.RiskBucket.BALANCED] ?: 0.0
+            val aggressiveAssets = totals.bucketValues[com.finunity.data.local.entity.RiskBucket.AGGRESSIVE] ?: 0.0
+            val stockRatio = if (totals.grossAssets > 0) aggressiveAssets / totals.grossAssets else 0.0
 
             val snapshot = com.finunity.data.local.entity.AssetSnapshot(
-                totalAssets = totalAssets,
-                cashAssets = totalCash,
-                stockAssets = totalStockValue,
+                totalAssets = totals.grossAssets,
+                cashAssets = defensiveAssets,
+                stockAssets = aggressiveAssets,
                 stockRatio = stockRatio,
                 baseCurrency = baseCurrency,
                 totalCost = totalCost,
-                notes = "自动快照"
+                notes = "自动快照",
+                grossAssets = totals.grossAssets,
+                liabilities = totals.liabilities,
+                netWorth = totals.netWorth,
+                defensiveAssets = defensiveAssets,
+                balancedAssets = balancedAssets,
+                aggressiveAssets = aggressiveAssets,
+                strategyAssets = (totals.grossAssets - lockedAssets).coerceAtLeast(0.0),
+                lockedAssets = lockedAssets,
+                calculationVersion = "three-bucket-v1"
             )
 
             database.assetSnapshotDao().insert(snapshot)
-            Log.d(TAG, "Asset snapshot saved: total=$totalAssets, cost=$totalCost")
+            Log.d(TAG, "Asset snapshot saved: gross=${totals.grossAssets}, net=${totals.netWorth}, cost=$totalCost")
 
             // 清理旧快照（保留2年）
             historyRepository.cleanupOldSnapshots()

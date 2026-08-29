@@ -3,6 +3,13 @@ package com.finunity.data.model
 import com.finunity.data.local.entity.RiskBucket
 import java.util.Locale
 
+/** 证券代码标准化结果；裸 A 股代码无法从文本可靠推断交易所时必须提示确认。 */
+data class NormalizedSecurityCode(
+    val code: String,
+    val needsConfirmation: Boolean = false,
+    val reason: String? = null
+)
+
 /**
  * 进入统一合并管线前的单条持仓输入。
  * value/cost 已经换算为本位币，避免合并层重复处理汇率。
@@ -50,13 +57,47 @@ data class MergedHoldingSummary(
  */
 fun normalizeSecurityCode(value: String): String {
     val trimmed = value.trim()
-    val code = Regex("(?<!\\d)\\d{4,6}(?!\\d)").find(trimmed)?.value
-        ?: Regex("(?i)[A-Z]{1,4}\\d{4,}").find(trimmed)?.value
-    val canonicalCode = code?.let {
-        // 港股常见 0700 / 00700 两种写法，统一去掉前导 0；A 股六位代码保持原样。
-        if (it.length < 6 && it.all { char -> char.isDigit() }) it.trimStart('0').ifBlank { "0" } else it
+    return normalizeSecurityCodeDetailed(trimmed).code
+}
+
+/**
+ * 规范化 OCR、CSV 和手动录入的证券代码。
+ * Yahoo 对 A 股使用六位代码加 .SS/.SZ，对港股使用四位代码加 .HK；
+ * 只有裸六位数字时不猜交易所，交给上层显示“需确认”。
+ */
+fun normalizeSecurityCodeDetailed(value: String): NormalizedSecurityCode {
+    val trimmed = value.trim()
+    if (trimmed.isBlank()) return NormalizedSecurityCode("未命名资产", true, "缺少证券代码")
+
+    val suffix = Regex("(?i)(?:[._-]?(SH|SS|SZ|HK))\\s*$").find(trimmed)?.groupValues?.getOrNull(1)?.uppercase(Locale.ROOT)
+    val numericCode = Regex("(?<!\\d)\\d{4,6}(?!\\d)").findAll(trimmed)
+        .maxByOrNull { it.value.length }
+        ?.value
+    val ticker = Regex("(?i)(?<![A-Z])[A-Z]{1,5}(?:[._-][A-Z]{1,4})?(?![A-Z])").find(trimmed)?.value
+
+    if (numericCode != null && suffix != null) {
+        val normalized = when (suffix) {
+            "SH", "SS", "SZ" -> numericCode.padStart(6, '0') + "." + if (suffix == "SH") "SS" else suffix
+            "HK" -> numericCode.takeLast(4).padStart(4, '0') + ".HK"
+            else -> numericCode
+        }
+        return NormalizedSecurityCode(normalized)
     }
-    return (canonicalCode ?: trimmed).uppercase(Locale.ROOT).ifBlank { "未命名资产" }
+
+    if (numericCode != null) {
+        val normalized = numericCode.uppercase(Locale.ROOT)
+        if (normalized.length in 4..5) {
+            // 港股代码在截图中经常没有 .HK；四位规范形式保留前导零。
+            return NormalizedSecurityCode(normalized.takeLast(4).padStart(4, '0') + ".HK")
+        }
+        return NormalizedSecurityCode(normalized, normalized.length == 6, "裸 A 股代码无法判断上海/深圳交易所")
+    }
+
+    if (ticker != null) {
+        return NormalizedSecurityCode(ticker.uppercase(Locale.ROOT))
+    }
+
+    return NormalizedSecurityCode(trimmed.uppercase(Locale.ROOT).ifBlank { "未命名资产" }, true, "无法识别证券代码")
 }
 
 /**
@@ -81,7 +122,8 @@ fun mergeHoldingInputs(inputs: List<HoldingMergeInput>): List<MergedHoldingSumma
                 displayName = rows.firstOrNull { it.displayName.isNotBlank() }?.displayName ?: code,
                 totalQuantity = totalQuantity,
                 totalCost = totalCost,
-                currentPrice = if (totalQuantity > 0.0) currentValue / totalQuantity else 0.0,
+                // 同码跨币种时不能合成一个“单价”；详情页按来源分别展示。
+                currentPrice = if (currencies.size == 1 && totalQuantity > 0.0) currentValue / totalQuantity else 0.0,
                 currentValue = currentValue,
                 profitLoss = profitLoss,
                 profitLossRatio = if (totalCost > 0.0) profitLoss / totalCost else 0.0,

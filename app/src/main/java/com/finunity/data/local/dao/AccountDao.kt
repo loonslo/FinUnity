@@ -27,4 +27,7 @@ interface AccountDao {
 
     @Query("DELETE FROM accounts")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM accounts WHERE externalSourceId LIKE :prefix || '%'")
+    suspend fun deleteByExternalSourcePrefix(prefix: String): Int
 }

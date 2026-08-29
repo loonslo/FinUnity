@@ -100,8 +100,7 @@ fun PriceHistoryScreen(
                 if (priceHistory.size >= 2) {
                     item {
                         PriceChartCard(
-                            priceHistory = priceHistory,
-                            baseCurrency = baseCurrency
+                            priceHistory = priceHistory
                         )
                     }
                 }
@@ -156,7 +155,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "${String.format("%.2f", latestPrice)} $baseCurrency",
+                        text = "${String.format(Locale.US, "%.2f", latestPrice)} $baseCurrency",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -168,7 +167,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "${String.format("%.2f", latestCost)} $baseCurrency",
+                        text = "${String.format(Locale.US, "%.2f", latestCost)} $baseCurrency",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -188,7 +187,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = "${if (priceChange >= 0) "+" else ""}${String.format("%.2f", priceChange)}",
+                        text = "${if (priceChange >= 0) "+" else ""}${String.format(Locale.US, "%.2f", priceChange)}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = changeColor
@@ -214,7 +213,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = String.format("%.2f", minPrice),
+                    text = String.format(Locale.US, "%.2f", minPrice),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF00A86B)
@@ -227,7 +226,7 @@ fun PriceStatsCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = String.format("%.2f", maxPrice),
+                    text = String.format(Locale.US, "%.2f", maxPrice),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -240,8 +239,7 @@ fun PriceStatsCard(
 
 @Composable
 fun PriceChartCard(
-    priceHistory: List<PriceHistory>,
-    baseCurrency: String
+    priceHistory: List<PriceHistory>
 ) {
     val prices = priceHistory.reversed().map { it.price }
     val minPrice = prices.minOrNull() ?: 0.0
@@ -302,12 +300,12 @@ fun PriceChartCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "低价 ${String.format("%.2f", minPrice)}",
+                    text = "低价 ${String.format(Locale.US, "%.2f", minPrice)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
                 Text(
-                    text = "高价 ${String.format("%.2f", maxPrice)}",
+                    text = "高价 ${String.format(Locale.US, "%.2f", maxPrice)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -357,19 +355,19 @@ fun PriceHistoryItem(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${String.format("%.2f", history.price)} $baseCurrency",
+                    text = "${String.format(Locale.US, "%.2f", history.price)} $baseCurrency",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "成本: ${String.format("%.2f", history.cost)}",
+                    text = "成本: ${String.format(Locale.US, "%.2f", history.cost)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (profitLoss >= 0) "+" else ""}${String.format("%.2f", profitLoss)}",
+                    text = "${if (profitLoss >= 0) "+" else ""}${String.format(Locale.US, "%.2f", profitLoss)}",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = profitColor

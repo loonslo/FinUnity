@@ -19,7 +19,17 @@ data class AssetSnapshot(
     val stockRatio: Double,           // 股票占比
     val baseCurrency: String,         // 基准货币
     val totalCost: Double,            // 总成本（用于计算累计收益）
-    val notes: String? = null         // 备注，如"月末快照"
+    val notes: String? = null,        // 备注，如"月末快照"
+    /** v24 正式口径字段；旧快照迁移后会标记为 legacy-v1。 */
+    val grossAssets: Double = totalAssets,
+    val liabilities: Double = 0.0,
+    val netWorth: Double = grossAssets - liabilities,
+    val defensiveAssets: Double = cashAssets,
+    val balancedAssets: Double = (grossAssets - defensiveAssets - stockAssets).coerceAtLeast(0.0),
+    val aggressiveAssets: Double = stockAssets,
+    val strategyAssets: Double = grossAssets,
+    val lockedAssets: Double = 0.0,
+    val calculationVersion: String = "legacy-v1"
 )
 
 /**

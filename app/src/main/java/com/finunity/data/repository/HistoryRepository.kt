@@ -2,6 +2,7 @@ package com.finunity.data.repository
 
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.AssetSnapshot
+import com.finunity.data.model.PortfolioCalculator
 import com.finunity.data.model.PortfolioSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -21,12 +22,21 @@ class HistoryRepository(private val database: AppDatabase) {
     suspend fun saveSnapshot(portfolio: PortfolioSummary): AssetSnapshot = withContext(Dispatchers.IO) {
         val totalCost = calculateTotalCost(portfolio.baseCurrency)
         val snapshot = AssetSnapshot(
-            totalAssets = portfolio.totalAssets,
-            cashAssets = portfolio.cashAssets,
-            stockAssets = portfolio.stockAssets,
+            totalAssets = portfolio.grossAssets,
+            cashAssets = portfolio.defensiveAssets,
+            stockAssets = portfolio.aggressiveAssets,
             stockRatio = portfolio.stockRatio,
             baseCurrency = portfolio.baseCurrency,
-            totalCost = totalCost
+            totalCost = totalCost,
+            grossAssets = portfolio.grossAssets,
+            liabilities = portfolio.liabilities,
+            netWorth = portfolio.netWorth,
+            defensiveAssets = portfolio.defensiveAssets,
+            balancedAssets = portfolio.balancedAssets,
+            aggressiveAssets = portfolio.aggressiveAssets,
+            strategyAssets = portfolio.strategyAssets,
+            lockedAssets = portfolio.lockedAssets,
+            calculationVersion = "three-bucket-v1"
         )
         database.assetSnapshotDao().insert(snapshot)
         snapshot
@@ -68,8 +78,6 @@ class HistoryRepository(private val database: AppDatabase) {
      */
     suspend fun getMonthlyChange(): MonthlyChange? = withContext(Dispatchers.IO) {
         val calendar = Calendar.getInstance()
-        val now = calendar.timeInMillis
-
         calendar.add(Calendar.MONTH, -1)
         val oneMonthAgo = calendar.timeInMillis
 
@@ -105,17 +113,10 @@ class HistoryRepository(private val database: AppDatabase) {
 
     private suspend fun calculateTotalCost(baseCurrency: String): Double {
         val priceRepository = PriceRepository(database.priceDao())
-        val positions = database.positionDao().getAllPositions().first()
+        val accounts = database.accountDao().getAllAccounts().first()
         val assetRecords = database.assetRecordDao().getAllRecords().first()
-        val positionsCost = positions.sumOf { position ->
-            val exchangeRate = priceRepository.getExchangeRate(position.currency, baseCurrency) ?: 1.0
-            position.totalCost * exchangeRate
-        }
-        val assetRecordsCost = assetRecords.sumOf { record ->
-            val exchangeRate = priceRepository.getExchangeRate(record.currency, baseCurrency) ?: 1.0
-            record.cost * exchangeRate
-        }
-        return positionsCost + assetRecordsCost
+        return PortfolioCalculator(accounts, emptyList(), assetRecords, priceRepository, baseCurrency)
+            .computeTotalCost()
     }
 }
 

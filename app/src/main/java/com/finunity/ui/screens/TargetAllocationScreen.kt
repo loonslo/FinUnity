@@ -23,26 +23,23 @@ import com.finunity.data.local.entity.parseTargetAllocation
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
+import java.util.Locale
 
-/**
- * 标普四象限目标配置模板。
- * 四个维度：进取(生钱) / 稳健(保本) / 保命(保险) / 防守(要花)。
- */
+/** 三桶目标配置模板。 */
 private data class AllocationTemplate(
     val key: String,
     val name: String,
     val desc: String,
-    val aggressive: Int,    // 进取
-    val conservative: Int,  // 稳健
-    val insurance: Int,     // 保命
-    val cash: Int           // 防守
+    val aggressive: Int,    // 进攻
+    val balanced: Int,      // 稳健
+    val defensive: Int      // 防守
 )
 
 private val ALLOCATION_TEMPLATES = listOf(
-    AllocationTemplate("conservative", "保守型", "稳健保本为主，适合风险承受力低", aggressive = 10, conservative = 60, insurance = 20, cash = 10),
-    AllocationTemplate("steady", "稳健型", "兼顾保本与增长，波动可控", aggressive = 20, conservative = 50, insurance = 20, cash = 10),
-    AllocationTemplate("balanced", "平衡型", "标普经典 4·3·2·1 配置", aggressive = 30, conservative = 40, insurance = 20, cash = 10),
-    AllocationTemplate("aggressive", "进取型", "追求长期增长，能承受较大波动", aggressive = 50, conservative = 20, insurance = 20, cash = 10)
+    AllocationTemplate("conservative", "保守型", "稳健保值为主，适合风险承受力低", aggressive = 10, balanced = 80, defensive = 10),
+    AllocationTemplate("steady", "稳健", "兼顾保值与增长，波动可控", aggressive = 20, balanced = 70, defensive = 10),
+    AllocationTemplate("balanced", "平衡型", "默认三桶配置", aggressive = 30, balanced = 60, defensive = 10),
+    AllocationTemplate("aggressive", "进攻", "追求长期增长，能承受较大波动", aggressive = 50, balanced = 40, defensive = 10)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,29 +52,26 @@ fun TargetAllocationScreen(
 ) {
     val initialMap = remember(settings.targetAllocation) { parseTargetAllocation(settings.targetAllocation) }
     var aggressive by remember { mutableStateOf(((initialMap["AGGRESSIVE"] ?: 0.3) * 100).toInt().toString()) }
-    var conservative by remember { mutableStateOf(((initialMap["CONSERVATIVE"] ?: 0.4) * 100).toInt().toString()) }
-    var insurance by remember { mutableStateOf(((initialMap["INSURANCE"] ?: 0.0) * 100).toInt().toString()) }
-    var cash by remember { mutableStateOf(((initialMap["CASH"] ?: 0.1) * 100).toInt().toString()) }
+    var balanced by remember { mutableStateOf(((initialMap["BALANCED"] ?: 0.6) * 100).toInt().toString()) }
+    var defensive by remember { mutableStateOf(((initialMap["DEFENSIVE"] ?: 0.1) * 100).toInt().toString()) }
     var maxAgg by remember { mutableStateOf((settings.maxAggressiveRatio * 100).toInt().toString()) }
 
     val aggressiveV = aggressive.toDoubleOrNull() ?: 0.0
-    val conservativeV = conservative.toDoubleOrNull() ?: 0.0
-    val insuranceV = insurance.toDoubleOrNull() ?: 0.0
-    val cashV = cash.toDoubleOrNull() ?: 0.0
-    val total = aggressiveV + conservativeV + insuranceV + cashV
+    val balancedV = balanced.toDoubleOrNull() ?: 0.0
+    val defensiveV = defensive.toDoubleOrNull() ?: 0.0
+    val total = aggressiveV + balancedV + defensiveV
     val isValid = kotlin.math.abs(total - 100.0) <= 0.001
 
     // 判断当前数值匹配哪个模板
     val activeTemplate = ALLOCATION_TEMPLATES.firstOrNull {
-        it.aggressive.toDouble() == aggressiveV && it.conservative.toDouble() == conservativeV &&
-            it.insurance.toDouble() == insuranceV && it.cash.toDouble() == cashV
+        it.aggressive.toDouble() == aggressiveV && it.balanced.toDouble() == balancedV &&
+            it.defensive.toDouble() == defensiveV
     }?.key
 
     fun applyTemplate(t: AllocationTemplate) {
         aggressive = t.aggressive.toString()
-        conservative = t.conservative.toString()
-        insurance = t.insurance.toString()
-        cash = t.cash.toString()
+        balanced = t.balanced.toString()
+        defensive = t.defensive.toString()
     }
 
     Scaffold(
@@ -99,7 +93,7 @@ fun TargetAllocationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = FinShapes.xl,
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -121,7 +115,7 @@ fun TargetAllocationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = FinShapes.xl,
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -133,22 +127,19 @@ fun TargetAllocationScreen(
                         Text("微调比例", style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
                         Text(
-                            text = "${activeTemplate?.let { "" } ?: "自定义 · "}合计 ${String.format("%.0f", total)}%",
+                            text = "${activeTemplate?.let { "" } ?: "自定义 · "}合计 ${String.format(Locale.US, "%.0f", total)}%",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isValid) FinColors.TextSecondary else MaterialTheme.colorScheme.error
                         )
                     }
-                    PercentRow("进取", "生钱的钱 · 5 年以上", FinColors.Aggressive, aggressive) {
+                    PercentRow("进攻", "生钱的钱 · 5 年以上", FinColors.Aggressive, aggressive) {
                         aggressive = it.filter { c -> c.isDigit() }
                     }
-                    PercentRow("稳健", "保本的钱 · 1-3 年", FinColors.Conservative, conservative) {
-                        conservative = it.filter { c -> c.isDigit() }
+                    PercentRow("稳健", "保障、保值与低波动资产", FinColors.Conservative, balanced) {
+                        balanced = it.filter { c -> c.isDigit() }
                     }
-                    PercentRow("保命", "保命的钱 · 应急与保险", FinColors.Insurance, insurance) {
-                        insurance = it.filter { c -> c.isDigit() }
-                    }
-                    PercentRow("防守", "要花的钱 · 随时要用", FinColors.Cash, cash) {
-                        cash = it.filter { c -> c.isDigit() }
+                    PercentRow("防守", "现金、活期与近期备用金", FinColors.Cash, defensive) {
+                        defensive = it.filter { c -> c.isDigit() }
                     }
                 }
             }
@@ -157,7 +148,7 @@ fun TargetAllocationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = FinShapes.xl,
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -166,9 +157,8 @@ fun TargetAllocationScreen(
                     StackedAllocationBar(
                         segments = listOf(
                             aggressiveV to FinColors.Aggressive,
-                            conservativeV to FinColors.Conservative,
-                            insuranceV to FinColors.Insurance,
-                            cashV to FinColors.Cash
+                            balancedV to FinColors.Conservative,
+                            defensiveV to FinColors.Cash
                         )
                     )
                 }
@@ -178,17 +168,17 @@ fun TargetAllocationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = FinShapes.xl,
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("永不满仓 · 风险仓位上限", style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold, color = FinColors.TextPrimary)
                     Text(
-                        text = "进取（生钱的钱）占比超过此上限时，规划页「风险体检」会提示风险仓位偏高。默认 70%。",
+                        text = "进攻（生钱的钱）占比超过此上限时，规划页「风险体检」会提示风险仓位偏高。默认 70%。",
                         style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary
                     )
-                    PercentRow("风险仓位上限", "进取占比的红线", FinColors.Aggressive, maxAgg) {
+                    PercentRow("风险仓位上限", "进攻占比的红线", FinColors.Aggressive, maxAgg) {
                         maxAgg = it.filter { c -> c.isDigit() }
                     }
                 }
@@ -199,8 +189,8 @@ fun TargetAllocationScreen(
                     val maxAggV = (maxAgg.toIntOrNull() ?: 70).coerceIn(0, 100)
                     onSave(
                         settings.copy(
-                            targetAllocation = "CONSERVATIVE:${conservativeV / 100},AGGRESSIVE:${aggressiveV / 100}," +
-                                "INSURANCE:${insuranceV / 100},CASH:${cashV / 100}",
+                            targetAllocation = "DEFENSIVE:${defensiveV / 100},BALANCED:${balancedV / 100}," +
+                                "AGGRESSIVE:${aggressiveV / 100}",
                             maxAggressiveRatio = maxAggV / 100.0
                         )
                     )
@@ -217,7 +207,7 @@ fun TargetAllocationScreen(
                     fontWeight = FontWeight.SemiBold, color = FinColors.Number)
             }
             if (!isValid) {
-                Text("四项占比之和需等于 100%", style = MaterialTheme.typography.bodySmall,
+                Text("三项占比之和需等于 100%", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error)
             }
 
@@ -248,7 +238,7 @@ private fun TemplateRow(
             Text(template.desc, style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
         }
         Text(
-            text = "进${template.aggressive} 稳${template.conservative} 保${template.insurance} 守${template.cash}",
+            text = "进${template.aggressive} 稳${template.balanced} 守${template.defensive}",
             style = MaterialTheme.typography.labelSmall,
             color = FinColors.TextSecondary
         )

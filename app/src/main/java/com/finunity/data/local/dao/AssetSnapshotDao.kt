@@ -30,4 +30,7 @@ interface AssetSnapshotDao {
 
     @Query("SELECT COUNT(*) FROM asset_snapshots")
     suspend fun getSnapshotCount(): Int
+
+    @Query("DELETE FROM asset_snapshots")
+    suspend fun deleteAll()
 }

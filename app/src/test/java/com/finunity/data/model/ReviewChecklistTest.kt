@@ -20,7 +20,7 @@ class ReviewChecklistTest {
         accounts = emptyList(), riskBuckets = emptyList(), assetRecords = emptyList(),
         holdings = emptyList(), positions = emptyList(),
         landingPoints = listOf(
-            LandingPoint("弹药", com.finunity.data.local.entity.RiskBucket.CASH, 50_000.0, 50_000.0, 60_000.0, "", true)
+            LandingPoint("弹药", com.finunity.data.local.entity.RiskBucket.DEFENSIVE, 50_000.0, 50_000.0, 60_000.0, "", true)
         ),
         lastUpdated = 0L
     )

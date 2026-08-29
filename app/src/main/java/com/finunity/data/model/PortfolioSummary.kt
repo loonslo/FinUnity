@@ -4,16 +4,21 @@ import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.Position
 import com.finunity.data.local.entity.RiskBucket
+import java.util.Locale
 
 /**
  * 资产汇总数据
- * 用于在 MainScreen 显示
+ * 用于在总览页面显示
  */
 data class PortfolioSummary(
-    val totalAssets: Double,           // 总资产（基准货币）
-    val cashAssets: Double,            // 现金资产
-    val stockAssets: Double,          // 股票资产（含基金、ETF）
-    val stockRatio: Double,            // 股票占比 0.0-1.0
+    /** 兼容旧 UI 的别名；正式口径请使用 [grossAssets]。 */
+    val totalAssets: Double,           // 正资产总额（基准货币）
+    /** 兼容旧 UI 的别名；正式口径请使用 [defensiveAssets]。 */
+    val cashAssets: Double,
+    /** 兼容旧 UI 的别名；正式口径请使用 [aggressiveAssets]。 */
+    val stockAssets: Double,
+    /** 兼容旧 UI 的别名；正式口径请使用 aggressiveAssets / grossAssets。 */
+    val stockRatio: Double,
     val baseCurrency: String,          // 基准货币
     val rebalanceThreshold: Double,   // 再平衡阈值
     val needsRebalance: Boolean,        // 是否需要再平衡
@@ -34,15 +39,29 @@ data class PortfolioSummary(
     val lockedAssets: Double = 0.0,    // 锁定专款合计（生存层/嫁妆等），不计入可投策略盘
     val maxAggressiveRatio: Double = 0.70, // 永不满仓 · 风险仓位上限（进取占比）
     val todayChange: Double = 0.0,     // 今日盈亏（基准货币）
-    val lastUpdated: Long             // 最后更新时间
+    val lastUpdated: Long,             // 最后更新时间
+    /** 所有正资产总额，不减负债。 */
+    val grossAssets: Double = totalAssets,
+    /** 负债余额正数合计，不进入任何三桶。 */
+    val liabilities: Double = 0.0,
+    /** 净资产 = grossAssets - liabilities。 */
+    val netWorth: Double = grossAssets - liabilities,
+    val defensiveAssets: Double = cashAssets,
+    val balancedAssets: Double = (grossAssets - defensiveAssets - stockAssets).coerceAtLeast(0.0),
+    val aggressiveAssets: Double = stockAssets,
+    /** 仅用于再平衡的可配置资产，锁定专款仍计入 grossAssets。 */
+    val strategyAssetsValue: Double = (grossAssets - lockedAssets).coerceAtLeast(0.0),
+    /** 有有效昨收价的可跟踪证券昨日市值。 */
+    val trackedYesterdayValue: Double = 0.0,
+    /** 汇率缺失时列出未计入合计的币种。 */
+    val missingExchangeRateCurrencies: Set<String> = emptySet()
 ) {
     /** 可投策略盘 = 总资产 − 锁定专款 */
-    val strategyAssets: Double get() = totalAssets - lockedAssets
+    val strategyAssets: Double get() = strategyAssetsValue
 
     /** 今日盈亏比例：分母为昨日市值（今日市值 − 今日盈亏） */
     val todayChangeRatio: Double get() {
-        val prevValue = totalAssets - todayChange
-        return if (prevValue > 0) todayChange / prevValue else 0.0
+        return if (trackedYesterdayValue > 0) todayChange / trackedYesterdayValue else 0.0
     }
 
     /** 风险仓位 = 进取（生钱的钱）占比 0.0–1.0 */
@@ -109,7 +128,7 @@ fun evaluateHoldingRedlines(
 
     val training = tradable.filter { it.subCategory.trim() == "训练仓" }.sumOf { it.currentValue }
     if (training > HoldingRedlineDefaults.TRAINING_CAP + 0.01) {
-        alerts += RiskAlert(RiskAlertLevel.WARNING, "训练仓：已超 6 万", "当前合计 %.2f 万，建议停止加仓。".format(training / 10_000.0))
+        alerts += RiskAlert(RiskAlertLevel.WARNING, "训练仓：已超 6 万", "当前合计 %.2f 万，建议停止加仓。".format(Locale.US, training / 10_000.0))
     }
 
     val gold = tradable.filter {
@@ -148,7 +167,7 @@ fun evaluateRiskAlerts(
         alerts += RiskAlert(
             RiskAlertLevel.WARNING,
             "风险仓位偏高",
-            "进取（生钱的钱）已占 $cur%，超过上限 $cap%。建议新钱先进防守/稳健，暂不追加进取。"
+            "进攻（生钱的钱）已占 $cur%，超过上限 $cap%。建议新钱先进防守/稳健，暂不追加进攻。"
         )
     }
 
@@ -173,11 +192,11 @@ fun evaluateRiskAlerts(
 
 /**
  * 落点跟踪行（对应方案第三章加仓落点表的一行）
- * 把"四象限之下"的具体落点（标普/纳指/红利/训练仓/弹药…）的目标、现有、缺口、红线汇总。
+ * 把三桶之下的具体落点（标普/纳指/红利/训练仓/弹药…）的目标、现有、缺口、红线汇总。
  */
 data class LandingPoint(
     val subCategory: String,          // 落点名称
-    val riskBucket: RiskBucket,       // 所属象限
+    val riskBucket: RiskBucket,       // 所属三桶
     val currentValue: Double,         // 现有市值（基准货币）
     val targetAmount: Double,         // 目标金额，0 表示未设目标（有持仓但未归落点目标）
     val capAmount: Double,            // 上限红线，0 表示不设

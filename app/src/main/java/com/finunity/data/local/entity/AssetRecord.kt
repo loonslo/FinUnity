@@ -89,16 +89,38 @@ enum class AssetType {
     INSURANCE_POLICY  // 保单/年金
 }
 
-/**
- * 风险维度枚举（标普四象限）
- * - CASH（要花的钱 / 防守）：活期、余额宝等随时可用的钱
- * - INSURANCE（保命的钱 / 保命）：保险、应急保障，专款专用不轻易动用
- * - CONSERVATIVE（保本的钱 / 稳健）：定期、债券、货币基金等低波动资产
- * - AGGRESSIVE（生钱的钱 / 进取）：股票、ETF、股票型基金等高风险资产
- */
+/** 正式产品使用的三桶。旧数据库值通过 [legacyBucketToThreeBucket] 迁移到这里。 */
 enum class RiskBucket {
-    CONSERVATIVE,  // 稳健型：定期存款、债券、货币基金等低风险资产
-    AGGRESSIVE,    // 进取型：股票、ETF、股票型基金等高风险资产
-    INSURANCE,     // 保命型：保险、应急保障资金
-    CASH           // 防守型：活期存款、余额宝等随时可用的资金
+    DEFENSIVE,     // 防守：现金、活期和近期备用金
+    BALANCED,      // 稳健：定期、债券、保险、房产、车辆和低波动资产
+    AGGRESSIVE     // 进攻：股票、ETF、权益基金和训练仓
+}
+
+/**
+ * 将数据库、备份或 CSV 中的旧四桶键转换为正式三桶键。
+ * 返回 null 表示输入不是受支持的桶键，调用方应保留原始值并报告诊断信息。
+ */
+fun legacyBucketToThreeBucket(value: String): RiskBucket? = when (value.trim().uppercase()) {
+    "DEFENSIVE", "防守", "CASH" -> RiskBucket.DEFENSIVE
+    "BALANCED", "稳健", "BALANCE", "CONSERVATIVE", "INSURANCE", "保命" -> RiskBucket.BALANCED
+    "AGGRESSIVE", "进攻" -> RiskBucket.AGGRESSIVE
+    else -> null
+}
+
+/** 对持久化层使用的风险桶做严格解析，未知值必须显式失败。 */
+fun requireThreeBucket(value: String, fieldName: String = "riskBucket"): RiskBucket =
+    legacyBucketToThreeBucket(value) ?: throw IllegalArgumentException(
+        "Unknown $fieldName '$value'; expected DEFENSIVE, BALANCED or AGGRESSIVE"
+    )
+
+/** 资产类型的默认桶。基金没有子类型时归入稳健，避免无提示地承担进攻风险。 */
+fun AssetType.defaultRiskBucket(): RiskBucket = when (this) {
+    AssetType.CASH -> RiskBucket.DEFENSIVE
+    AssetType.TIME_DEPOSIT,
+    AssetType.REAL_ESTATE,
+    AssetType.VEHICLE,
+    AssetType.INSURANCE_POLICY,
+    AssetType.FUND -> RiskBucket.BALANCED
+    AssetType.STOCK,
+    AssetType.ETF -> RiskBucket.AGGRESSIVE
 }

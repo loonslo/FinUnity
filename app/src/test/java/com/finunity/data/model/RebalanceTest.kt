@@ -14,11 +14,11 @@ class RebalanceTest {
 
     @Test
     fun `解析目标资产配置`() {
-        val allocation = parseTargetAllocation("STOCK:0.6,CASH:0.3,LIABILITY:0.1")
+        val allocation = parseTargetAllocation("CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1")
 
-        assertEquals(0.6, allocation.getValue("STOCK"), 0.01)
-        assertEquals(0.3, allocation.getValue("CASH"), 0.01)
-        assertEquals(0.1, allocation.getValue("LIABILITY"), 0.01)
+        assertEquals(0.1, allocation.getValue("DEFENSIVE"), 0.01)
+        assertEquals(0.6, allocation.getValue("BALANCED"), 0.01)
+        assertEquals(0.3, allocation.getValue("AGGRESSIVE"), 0.01)
     }
 
     @Test
@@ -230,7 +230,7 @@ class RebalanceTest {
             threshold
         )
 
-        assertTrue(recommendations.any { it.contains("进取") && it.contains("减配") })
+        assertTrue(recommendations.any { it.contains("进攻") && it.contains("减配") })
         assertTrue(recommendations.any { it.contains("稳健") && it.contains("增配") })
     }
 }

@@ -25,6 +25,7 @@ import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinTopBar
+import java.util.Locale
 
 /**
  * 月度复盘：回顾这段时间资产怎么变、是否偏离目标、要不要调整。
@@ -48,7 +49,7 @@ fun MonthlyReviewScreen(
     val manualChecks = remember { mutableStateMapOf<String, Boolean>() }
     val checklist = remember(summary) { summary?.let(::buildReviewChecklist).orEmpty() }
 
-    val order = listOf(RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH)
+    val order = listOf(RiskBucket.AGGRESSIVE, RiskBucket.BALANCED, RiskBucket.DEFENSIVE)
     val driftItems = order.mapNotNull { bucket ->
         val current = summary?.allocations?.get(bucket.name) ?: 0.0
         val tgt = target[bucket.name] ?: 0.0
@@ -75,7 +76,7 @@ fun MonthlyReviewScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -91,7 +92,7 @@ fun MonthlyReviewScreen(
                             val up = monthlyChange.change >= 0
                             Text(
                                 text = "较上月 ${if (up) "+" else ""}${formatCurrency(monthlyChange.change, baseCurrency)}" +
-                                    " (${if (up) "+" else ""}${String.format("%.1f", monthlyChange.percentageChange)}%)",
+                                    " (${if (up) "+" else ""}${String.format(Locale.US, "%.1f", monthlyChange.percentageChange)}%)",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
                                 color = if (up) FinColors.Profit else FinColors.Loss
@@ -112,7 +113,7 @@ fun MonthlyReviewScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -153,7 +154,7 @@ fun MonthlyReviewScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(), shape = FinShapes.xl,
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -210,7 +211,6 @@ fun MonthlyReviewScreen(
 
 private fun bucketColorReview(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
-    RiskBucket.CONSERVATIVE -> FinColors.Conservative
-    RiskBucket.INSURANCE -> FinColors.Insurance
-    RiskBucket.CASH -> FinColors.Cash
+    RiskBucket.BALANCED -> FinColors.Conservative
+    RiskBucket.DEFENSIVE -> FinColors.Cash
 }

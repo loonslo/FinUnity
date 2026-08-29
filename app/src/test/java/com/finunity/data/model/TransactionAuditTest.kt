@@ -35,9 +35,6 @@ class TransactionAuditTest {
 
         // 卖出40股
         val sellQuantity = 40.0
-        val remainingQty = record.quantity - sellQuantity
-        val costPerUnit = record.cost / record.quantity
-        val remainingCost = remainingQty * costPerUnit
         val sellAmount = sellQuantity * record.currentPrice  // 40 * 180 = 7200
 
         // 验证卖出流水
@@ -175,7 +172,7 @@ class TransactionAuditTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "活期存款",
             quantity = 10000.0,
             cost = 10000.0,
@@ -199,7 +196,7 @@ class TransactionAuditTest {
             id = "1",
             accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "一年定期",
             quantity = 100000.0,
             cost = 100000.0,

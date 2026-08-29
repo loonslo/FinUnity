@@ -96,7 +96,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec1",
             accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "一年定期",
             quantity = 100000.0,
             cost = 100000.0,
@@ -104,7 +104,7 @@ class RiskBucketDetailConsistencyTest {
             currency = "CNY"
         )
 
-        assertEquals(RiskBucket.CONSERVATIVE, depositRecord.riskBucket)
+        assertEquals(RiskBucket.BALANCED, depositRecord.riskBucket)
     }
 
     @Test
@@ -113,7 +113,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec1",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "活期存款",
             quantity = 10000.0,
             cost = 10000.0,
@@ -121,7 +121,7 @@ class RiskBucketDetailConsistencyTest {
             currency = "CNY"
         )
 
-        assertEquals(RiskBucket.CASH, cashRecord.riskBucket)
+        assertEquals(RiskBucket.DEFENSIVE, cashRecord.riskBucket)
     }
 
     @Test
@@ -162,7 +162,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec2",
             accountId = "acc2",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "一年定期",
             quantity = 100000.0,
             cost = 100000.0,
@@ -176,7 +176,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec3",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "活期存款",
             quantity = 10000.0,
             cost = 10000.0,
@@ -201,7 +201,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec1",
             accountId = "acc1",
             assetType = AssetType.TIME_DEPOSIT,
-            riskBucket = RiskBucket.CONSERVATIVE,
+            riskBucket = RiskBucket.BALANCED,
             name = "一年定期",
             quantity = 100000.0,
             cost = 100000.0,
@@ -211,10 +211,10 @@ class RiskBucketDetailConsistencyTest {
         val accountCash = 5000.0
 
         val conservativeValue = listOf(depositRecord)
-            .filter { it.riskBucket == RiskBucket.CONSERVATIVE }
+            .filter { it.riskBucket == RiskBucket.BALANCED }
             .sumOf { it.currentValue }
         val cashValue = accountCash + listOf(depositRecord)
-            .filter { it.riskBucket == RiskBucket.CASH }
+            .filter { it.riskBucket == RiskBucket.DEFENSIVE }
             .sumOf { it.currentValue }
 
         assertEquals(103000.0, conservativeValue, 0.01)
@@ -224,9 +224,9 @@ class RiskBucketDetailConsistencyTest {
     @Test
     fun `recordCount包含AssetRecord和账户现金`() {
         // 假设 riskBucketCounts 计算方式：
-        // - CASH: 非负债有正余额账户数量
+        // - DEFENSIVE: 非负债有正余额账户数量
         // - AGGRESSIVE: 股票/ETF/基金记录数量
-        // - CONSERVATIVE: 定期存款记录数量
+        // - BALANCED: 定期存款记录数量
 
         val accounts = listOf(
             Account(id = "acc1", name = "银行", type = AccountType.BANK, currency = "CNY", balance = 50000.0),
@@ -237,11 +237,11 @@ class RiskBucketDetailConsistencyTest {
 
         val assetRecords = listOf(
             AssetRecord(id = "rec1", accountId = "acc2", assetType = AssetType.STOCK, riskBucket = RiskBucket.AGGRESSIVE, name = "AAPL", quantity = 100.0, cost = 15000.0, currentPrice = 180.0, currency = "USD"),
-            AssetRecord(id = "rec2", accountId = "acc1", assetType = AssetType.TIME_DEPOSIT, riskBucket = RiskBucket.CONSERVATIVE, name = "定期", quantity = 100000.0, cost = 100000.0, currentPrice = 1.035, currency = "CNY"),
-            AssetRecord(id = "rec3", accountId = "acc1", assetType = AssetType.CASH, riskBucket = RiskBucket.CASH, name = "现金", quantity = 5000.0, cost = 5000.0, currentPrice = 1.0, currency = "CNY")
+            AssetRecord(id = "rec2", accountId = "acc1", assetType = AssetType.TIME_DEPOSIT, riskBucket = RiskBucket.BALANCED, name = "定期", quantity = 100000.0, cost = 100000.0, currentPrice = 1.035, currency = "CNY"),
+            AssetRecord(id = "rec3", accountId = "acc1", assetType = AssetType.CASH, riskBucket = RiskBucket.DEFENSIVE, name = "现金", quantity = 5000.0, cost = 5000.0, currentPrice = 1.0, currency = "CNY")
         )
 
-        // CASH 维度计数 = 非负债有正余额账户数量 (acc1, acc2, acc3) = 3
+        // DEFENSIVE 维度计数 = 非负债有正余额账户数量 (acc1, acc2, acc3) = 3
         val cashAccountCount = accounts.count { it.type != AccountType.LIABILITY && it.balance > 0 }
         assertEquals(3, cashAccountCount)
 
@@ -250,7 +250,7 @@ class RiskBucketDetailConsistencyTest {
         assertEquals(1, aggressiveRecordCount)
 
         // CONSERVATIVE 维度计数 = 定期存款记录数量 = 1
-        val conservativeRecordCount = assetRecords.count { it.riskBucket == RiskBucket.CONSERVATIVE }
+        val conservativeRecordCount = assetRecords.count { it.riskBucket == RiskBucket.BALANCED }
         assertEquals(1, conservativeRecordCount)
     }
 
@@ -276,21 +276,21 @@ class RiskBucketDetailConsistencyTest {
     fun `首页风险维度金额等于详情页金额汇总`() {
         // 模拟首页计算
         val riskBucketTotals = mutableMapOf<RiskBucket, Double>()
-        riskBucketTotals[RiskBucket.CASH] = 147000.0 + 10000.0  // 账户现金 + 现金记录
+        riskBucketTotals[RiskBucket.DEFENSIVE] = 147000.0 + 10000.0  // 账户现金 + 现金记录
         riskBucketTotals[RiskBucket.AGGRESSIVE] = 129600.0  // 股票市值
-        riskBucketTotals[RiskBucket.CONSERVATIVE] = 103500.0  // 定期存款本息
+        riskBucketTotals[RiskBucket.BALANCED] = 103500.0  // 定期存款本息
 
         // 详情页汇总应该等于首页
         val cashFromAccounts = 147000.0
         val cashRecords = listOf(AssetRecord(
             id = "rec1", accountId = "acc1", assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH, name = "现金", quantity = 10000.0,
+            riskBucket = RiskBucket.DEFENSIVE, name = "现金", quantity = 10000.0,
             cost = 10000.0, currentPrice = 1.0, currency = "CNY"
         ))
         val cashFromRecords = cashRecords.sumOf { it.currentValue }
         val detailCashTotal = cashFromAccounts + cashFromRecords
 
-        assertEquals(riskBucketTotals[RiskBucket.CASH] ?: 0.0, detailCashTotal, 0.01)
+        assertEquals(riskBucketTotals[RiskBucket.DEFENSIVE] ?: 0.0, detailCashTotal, 0.01)
     }
 
     @Test
@@ -307,14 +307,14 @@ class RiskBucketDetailConsistencyTest {
             ),
             AssetRecord(
                 id = "rec2", accountId = "acc1", assetType = AssetType.CASH,
-                riskBucket = RiskBucket.CASH, name = "现金",
+                riskBucket = RiskBucket.DEFENSIVE, name = "现金",
                 quantity = 10000.0, cost = 10000.0, currentPrice = 1.0, currency = "CNY"
             )
         )
 
         // CASH 维度下该账户的金额
         val cashValue = allRecords
-            .filter { it.accountId == accountId && it.riskBucket == RiskBucket.CASH }
+            .filter { it.accountId == accountId && it.riskBucket == RiskBucket.DEFENSIVE }
             .sumOf { it.currentValue }
 
         // AGGRESSIVE 维度下该账户的金额
@@ -333,7 +333,7 @@ class RiskBucketDetailConsistencyTest {
             id = "rec1",
             accountId = "acc1",
             assetType = AssetType.CASH,
-            riskBucket = RiskBucket.CASH,
+            riskBucket = RiskBucket.DEFENSIVE,
             name = "备用金",
             quantity = 1200.0,
             cost = 1200.0,
@@ -342,7 +342,7 @@ class RiskBucketDetailConsistencyTest {
         )
 
         val recordValueForAccount = listOf(cashRecord)
-            .filter { it.accountId == "acc1" && it.riskBucket == RiskBucket.CASH }
+            .filter { it.accountId == "acc1" && it.riskBucket == RiskBucket.DEFENSIVE }
             .sumOf { it.currentValue }
         val detailAccountValue = accountBalanceInBase + recordValueForAccount
 

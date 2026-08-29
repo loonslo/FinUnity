@@ -4,14 +4,39 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('signing.properties')
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
+def signingValue = { String propertyName, String environmentName ->
+    signingProperties.getProperty(propertyName) ?: System.getenv(environmentName)
+}
+
+def releaseStoreFile = signingValue('storeFile', 'FINUNITY_STORE_FILE')
+def releaseStorePassword = signingValue('storePassword', 'FINUNITY_STORE_PASSWORD')
+def releaseKeyAlias = signingValue('keyAlias', 'FINUNITY_KEY_ALIAS')
+def releaseKeyPassword = signingValue('keyPassword', 'FINUNITY_KEY_PASSWORD')
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+        .every { it != null && !it.toString().trim().isEmpty() }
+
+if (!hasReleaseSigning) {
+    logger.lifecycle('FinUnity release signing is not configured. Add signing.properties locally or set FINUNITY_* environment variables before publishing.')
+}
+
 android {
     namespace 'com.finunity'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.finunity"
         minSdk 26
-        targetSdk 34
+        targetSdk 36
         versionCode 1
         versionName "1.0"
 
@@ -21,10 +46,24 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
@@ -36,6 +75,7 @@ android {
     }
     buildFeatures {
         compose true
+        buildConfig true
     }
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.5'
@@ -45,12 +85,20 @@ android {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
     }
+
+    // MigrationTestHelper loads exported Room schemas from the instrumentation
+    // APK's assets directory. Keep the versioned schemas in source control and
+    // expose them to AndroidTest without copying generated files by hand.
+    sourceSets {
+        androidTest.assets.srcDirs += "$projectDir/schemas"
+    }
 }
 
 dependencies {
     // Core Android
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.2'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.6.2'
     implementation 'androidx.activity:activity-compose:1.8.1'
 
     // Compose
@@ -59,6 +107,7 @@ dependencies {
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2'
     implementation 'androidx.navigation:navigation-compose:2.7.5'
 
@@ -77,6 +126,10 @@ dependencies {
 
     // Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3'
+
+    // On-device Chinese OCR for user-provided holding screenshots
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 
     // Testing
     testImplementation 'junit:junit:4.13.2'
@@ -85,6 +138,7 @@ dependencies {
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    androidTestImplementation 'androidx.room:room-testing:2.6.1'
     androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')
     androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
     debugImplementation 'androidx.compose.ui:ui-tooling'

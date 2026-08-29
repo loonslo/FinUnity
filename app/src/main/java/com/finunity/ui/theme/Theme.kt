@@ -18,13 +18,17 @@ import androidx.core.view.WindowCompat
 
 // 衡仓原型设计令牌：深藏青背景、低对比面板、红涨绿跌。
 private val FinNavy = Color(0xFF12141F)
-private val FinPanel = Color(0xFF1A1E2E)
+// 页面与面板只保留克制的明度差，靠细描边而不是浮夸阴影分层。
+private val FinPanel = Color(0xFF181C2B)
 private val FinPanel2 = Color(0xFF222740)
 private val FinInk = Color(0xFFF2F4F8)
 private val FinSub = Color(0xFF8B93A7)
 private val FinFaint = Color(0xFF5C6478)
 private val FinUp = Color(0xFFE5484D)
 private val FinDown = Color(0xFF3FB68B)
+private val FinSuccess = Color(0xFF3FB68B)
+private val FinWarning = Color(0xFFF0B84B)
+private val FinDanger = Color(0xFFE5484D)
 private val FinPrimary = Color(0xFF5B8DEF)
 private val FinSecondary = Color(0xFF9EC1FF)
 
@@ -54,7 +58,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 val FinTypography = Typography(
-    displayLarge = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = FinInk, letterSpacing = (-0.5).sp),
+    displayLarge = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = FinInk, letterSpacing = 0.sp),
     displayMedium = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold, color = FinInk),
     displaySmall = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold, color = FinInk),
     headlineLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = FinInk),
@@ -73,7 +77,6 @@ val FinTypography = Typography(
 
 @Composable
 fun FinUnityTheme(
-    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val view = LocalView.current
@@ -96,6 +99,10 @@ object FinColors {
     // 中国市场习惯：上涨红、下跌绿。
     val Profit = FinUp
     val Loss = FinDown
+    // 状态色与盈亏色分离：盈亏遵循中国市场红涨绿跌，状态提示遵循成功/警告/错误语义。
+    val Success = FinSuccess
+    val Warning = FinWarning
+    val Danger = FinDanger
     val Muted = FinSub
     val Primary = FinPrimary
     val Secondary = FinSecondary
@@ -111,18 +118,19 @@ object FinColors {
     val Accent = FinPrimary
     val SoftGreen = Color(0xFF26385F)
 
-    // 原型三桶颜色；保命桶在原型展示层并入稳健桶，底层仍保留四象限。
+    // 正式三桶颜色。
+    // 三桶视觉规范：防守蓝、稳健金、进攻橙。
     val Aggressive = Color(0xFFF0883E)
-    val Conservative = Color(0xFF5B8DEF)
+    val Conservative = Color(0xFFD9A441)
     val Insurance = Color(0xFF9E8FBE)
-    val Cash = Color(0xFFD9A441)
+    val Cash = Color(0xFF5B8DEF)
 }
 
 object FinShapes {
-    val sm = RoundedCornerShape(12.dp)
-    val md = RoundedCornerShape(16.dp)
-    val lg = RoundedCornerShape(20.dp)
-    val xl = RoundedCornerShape(24.dp)
+    val sm = RoundedCornerShape(10.dp)
+    val md = RoundedCornerShape(14.dp)
+    val lg = RoundedCornerShape(14.dp)
+    val xl = RoundedCornerShape(14.dp)
 }
 
 object FinSizes {

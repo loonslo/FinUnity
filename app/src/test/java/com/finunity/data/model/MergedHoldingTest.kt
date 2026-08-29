@@ -20,7 +20,7 @@ class MergedHoldingTest {
                     accountId = "broker-a",
                     accountName = "华泰证券",
                     currency = "CNY",
-                    riskBucket = RiskBucket.CONSERVATIVE
+                    riskBucket = RiskBucket.BALANCED
                 ),
                 HoldingMergeInput(
                     codeOrName = "沪深300ETF · 510300",
@@ -48,7 +48,7 @@ class MergedHoldingTest {
         assertEquals(13.0, holding.currentPrice, 0.001)
         assertEquals(2, holding.accountCount)
         assertEquals(2, holding.sourceCount)
-        assertEquals(RiskBucket.CONSERVATIVE, holding.riskBucket)
+        assertEquals(RiskBucket.BALANCED, holding.riskBucket)
     }
 
     @Test
@@ -71,8 +71,8 @@ class MergedHoldingTest {
         assertEquals("现金管理", normalizeSecurityCode("  现金管理  "))
         assertEquals("AAPL", normalizeSecurityCode("aapl"))
         assertEquals("510300", normalizeSecurityCode("沪深300ETF · 510300"))
-        assertEquals("700", normalizeSecurityCode("00700.HK"))
-        assertEquals("700", normalizeSecurityCode("0700.HK"))
+        assertEquals("0700.HK", normalizeSecurityCode("00700.HK"))
+        assertEquals("0700.HK", normalizeSecurityCode("0700.HK"))
     }
 
     private fun input(

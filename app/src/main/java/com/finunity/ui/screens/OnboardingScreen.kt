@@ -15,17 +15,16 @@ import androidx.compose.ui.unit.dp
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 
-private data class QuadrantInfo(val name: String, val desc: String, val color: Color)
+private data class BucketInfo(val name: String, val desc: String, val color: Color)
 
-private val QUADRANTS = listOf(
-    QuadrantInfo("要花的钱", "日常开销和随时要用的活钱，放现金、余额宝", FinColors.Cash),
-    QuadrantInfo("保命的钱", "保险和应急储备，专款专用、不轻易动", FinColors.Insurance),
-    QuadrantInfo("保本的钱", "1-3 年要用，低波动的定期、债券、货基", FinColors.Conservative),
-    QuadrantInfo("生钱的钱", "5 年以上长期钱，股票、ETF、基金", FinColors.Aggressive)
+private val BUCKETS = listOf(
+    BucketInfo("防守", "现金、活期和随时要用的备用金", FinColors.Cash),
+    BucketInfo("稳健", "定期、债券、保险、房产、车辆和低波动资产", FinColors.Conservative),
+    BucketInfo("进攻", "股票、ETF、权益基金和可承受波动的长期资金", FinColors.Aggressive)
 )
 
 /**
- * 新手引导：欢迎 → 标普四象限 → 怎么用 → 开始添加账户。
+ * 新手引导：欢迎 → 三桶理念 → 怎么用 → 开始添加账户。
  * 内部维护步骤状态，最后一步触发 onStart（进入添加账户流程）。
  */
 @Composable
@@ -49,7 +48,7 @@ fun OnboardingScreen(
         ) {
             when (step) {
                 0 -> WelcomeStep()
-                1 -> QuadrantStep()
+        1 -> BucketStep()
                 else -> HowToStep()
             }
 
@@ -120,22 +119,22 @@ private fun WelcomeStep() {
 }
 
 @Composable
-private fun QuadrantStep() {
+private fun BucketStep() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("标普四象限", style = MaterialTheme.typography.headlineSmall,
+        Text("家庭资产三桶", style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold, color = FinColors.TextPrimary)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("把钱按用途分成四格，比只看涨跌更安心", style = MaterialTheme.typography.bodyMedium,
+        Text("把钱按用途分成三桶，比只看涨跌更安心", style = MaterialTheme.typography.bodyMedium,
             color = FinColors.TextSecondary)
         Spacer(modifier = Modifier.height(20.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = FinShapes.xl,
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                QUADRANTS.forEach { q ->
+                BUCKETS.forEach { q ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(q.color))
                         Spacer(modifier = Modifier.width(12.dp))
@@ -156,7 +155,7 @@ private fun HowToStep() {
     val steps = listOf(
         "1" to "添加你的账户：券商、银行、互联网平台、现金等",
         "2" to "在账户下记录资产：股票/ETF 填代码可每日自动更新价格",
-        "3" to "设定四象限目标，每月复盘一次，按建议慢慢调整"
+        "3" to "设定三桶目标，每月复盘一次，按建议慢慢调整"
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("三步开始", style = MaterialTheme.typography.headlineSmall,
@@ -165,7 +164,7 @@ private fun HowToStep() {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = FinShapes.xl,
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

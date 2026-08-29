@@ -39,7 +39,7 @@ class MainViewModelTest {
         val settings = Settings()
         assertEquals("CNY", settings.baseCurrency)
         assertEquals(0.05, settings.rebalanceThreshold, 0.01)
-        assertEquals("CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1", settings.targetAllocation)
+        assertEquals("DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3", settings.targetAllocation)
     }
 
     @Test

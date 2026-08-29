@@ -73,7 +73,7 @@ class LandingPointTest {
     @Test
     fun `无持仓的目标落点现值为零、缺口等于目标`() = runBlocking {
         val targets = listOf(
-            AllocationTarget("红利", RiskBucket.CONSERVATIVE, targetAmount = 90000.0)
+            AllocationTarget("红利", RiskBucket.BALANCED, targetAmount = 90000.0)
         )
         val points = calculator(emptyList()).computeLandingPoints(targets)
 
@@ -118,7 +118,7 @@ class LandingPointTest {
     fun `锁定专款计入 lockedValue`() = runBlocking {
         val records = listOf(
             record("标普500", 40000.0),
-            record("生存层", 60000.0, bucket = RiskBucket.CASH, locked = true, type = AssetType.CASH)
+            record("生存层", 60000.0, bucket = RiskBucket.DEFENSIVE, locked = true, type = AssetType.CASH)
         )
         assertEquals(60000.0, calculator(records).computeLockedValue(), 0.01)
     }
@@ -127,17 +127,17 @@ class LandingPointTest {
     fun `策略盘风险配置排除锁定专款但总览仍包含`() = runBlocking {
         val records = listOf(
             record("标普500", 40000.0),
-            record("稳健债基", 60000.0, bucket = RiskBucket.CONSERVATIVE, type = AssetType.FUND),
-            record("生存层", 100000.0, bucket = RiskBucket.CASH, locked = true, type = AssetType.CASH)
+            record("稳健债基", 60000.0, bucket = RiskBucket.BALANCED, type = AssetType.FUND),
+            record("生存层", 100000.0, bucket = RiskBucket.DEFENSIVE, locked = true, type = AssetType.CASH)
         )
         val calc = calculator(records)
 
         val overview = calc.computeRiskBucketSummaries(totalAssets = 200000.0)
         val strategy = calc.computeRiskBucketSummaries(totalAssets = 100000.0, excludeLocked = true)
 
-        assertEquals(100000.0, overview.first { it.riskBucket == RiskBucket.CASH }.totalValue, 0.01)
-        assertEquals(0.0, strategy.first { it.riskBucket == RiskBucket.CASH }.totalValue, 0.01)
+        assertEquals(100000.0, overview.first { it.riskBucket == RiskBucket.DEFENSIVE }.totalValue, 0.01)
+        assertEquals(0.0, strategy.first { it.riskBucket == RiskBucket.DEFENSIVE }.totalValue, 0.01)
         assertEquals(0.4, strategy.first { it.riskBucket == RiskBucket.AGGRESSIVE }.percentage, 0.0001)
-        assertEquals(0.6, strategy.first { it.riskBucket == RiskBucket.CONSERVATIVE }.percentage, 0.0001)
+        assertEquals(0.6, strategy.first { it.riskBucket == RiskBucket.BALANCED }.percentage, 0.0001)
     }
 }

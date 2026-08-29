@@ -10,11 +10,13 @@ import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionOrigin
 import com.finunity.data.local.entity.TransactionType
+import com.finunity.data.local.entity.CashFlowCategory
 import com.finunity.data.model.HoldingCostState
 import com.finunity.data.model.HoldingTradeCalculation
 import com.finunity.data.model.calculateHoldingTrade
 import com.finunity.data.model.normalizeSecurityCode
 import kotlinx.coroutines.flow.first
+import java.util.Locale
 import java.util.UUID
 
 /** A persisted holding snapshot from an import or a manual declaration. */
@@ -28,6 +30,17 @@ data class HoldingSnapshotCommand(
     val syncedAt: Long? = null
 )
 
+data class SnapshotBatchRowResult(
+    val rowIndex: Int,
+    val recordId: String? = null,
+    val error: String? = null
+)
+
+data class SnapshotBatchResult(
+    val rows: List<SnapshotBatchRowResult>,
+    val committed: Boolean
+)
+
 /** A user-initiated trade. All trades mutate holdings, cash and their audit row atomically. */
 data class HoldingTradeCommand(
     val accountId: String,
@@ -38,11 +51,15 @@ data class HoldingTradeCommand(
     val isBuy: Boolean,
     val quantity: Double,
     val price: Double,
+    /** Currency of the traded instrument and its matching cash bucket. */
+    val currency: String? = null,
     val fee: Double = 0.0,
     val timestamp: Long = System.currentTimeMillis(),
     val note: String? = null,
     val origin: TransactionOrigin = TransactionOrigin.TRADE,
-    val sourceFingerprint: String = ""
+    val sourceFingerprint: String = "",
+    val category: CashFlowCategory = CashFlowCategory.INVESTMENT,
+    val importBatchId: String = ""
 )
 
 sealed interface LedgerResult {
@@ -58,20 +75,28 @@ sealed interface LedgerResult {
  * transaction and write a TRADE audit event. This avoids the old split between a free-standing
  * transaction list and an unrelated holding table.
  */
-class HoldingLedgerRepository(private val database: AppDatabase) {
+class HoldingLedgerRepository(
+    private val database: AppDatabase,
+    private val priceRepository: PriceRepository? = null
+) {
 
     suspend fun upsertSnapshot(command: HoldingSnapshotCommand): LedgerResult = database.withTransaction {
+        upsertSnapshotInTransaction(command)
+    }
+
+    private suspend fun upsertSnapshotInTransaction(command: HoldingSnapshotCommand): LedgerResult {
         val input = command.record
-        if (input.accountId.isBlank()) return@withTransaction LedgerResult.Error("请选择归属账户")
+        if (input.accountId.isBlank()) return LedgerResult.Error("请选择归属账户")
         if (input.quantity < 0.0 || input.cost < 0.0 || input.currentPrice < 0.0) {
-            return@withTransaction LedgerResult.Error("数量、成本和当前价不能为负数")
+            return LedgerResult.Error("数量、成本和当前价不能为负数")
         }
         if (input.assetType != AssetType.CASH && input.name.isBlank()) {
-            return@withTransaction LedgerResult.Error("请填写资产名称")
+            return LedgerResult.Error("请填写资产名称")
         }
 
         val account = database.accountDao().getAccountById(input.accountId)
-            ?: return@withTransaction LedgerResult.Error("归属账户不存在")
+            ?: return LedgerResult.Error("归属账户不存在")
+        val inputCurrency = normalizeCurrency(input.currency, account.currency)
         val code = input.securityCode.trim().ifBlank { input.name.trim() }
         val normalizedCode = normalizeSecurityCode(code)
         val sourceAccountId = command.sourceAccountId.ifBlank { input.accountId }
@@ -91,7 +116,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
             quantity = input.quantity,
             cost = input.cost,
             currentPrice = input.currentPrice,
-            currency = input.currency.ifBlank { account.currency },
+            currency = inputCurrency,
             subCategory = input.subCategory,
             industryTag = input.industryTag,
             purchaseRestricted = input.purchaseRestricted,
@@ -102,7 +127,9 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
             sourceType = command.sourceType,
             sourceAccountId = sourceAccountId,
             sourceRecordId = command.sourceRecordId,
-            importBatchId = command.importBatchId,
+            // Updating an existing fingerprint must not make the old record look like a
+            // newly-created row; otherwise rolling back a later import could delete it.
+            importBatchId = existing.importBatchId,
             sourceFingerprint = fingerprint,
             syncedAt = command.syncedAt,
             updatedAt = now
@@ -110,7 +137,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
             id = if (input.id.isBlank()) UUID.randomUUID().toString() else input.id,
             name = input.name.trim(),
             securityCode = code,
-            currency = input.currency.ifBlank { account.currency },
+            currency = inputCurrency,
             sourceType = command.sourceType,
             sourceAccountId = sourceAccountId,
             sourceRecordId = command.sourceRecordId,
@@ -121,8 +148,9 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
             updatedAt = now
         ))
 
+        val previousPrice = existing?.currentPrice
         if (existing == null) database.assetRecordDao().insert(saved) else database.assetRecordDao().update(saved)
-        writePriceHistoryIfTradable(saved, existing?.currentPrice)
+        writeValuationHistory(saved, previousPrice)
 
         // Snapshot rows are audit events, not trading events. They must never be replayed as buys.
         if (existing == null && saved.assetType != AssetType.CASH) {
@@ -138,12 +166,41 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                     note = "${command.sourceType.name} 快照录入 ${saved.name}",
                     recordId = saved.id,
                     origin = TransactionOrigin.SNAPSHOT_IMPORT,
-                    sourceFingerprint = "SNAPSHOT:${saved.sourceFingerprint}"
+                    sourceFingerprint = "SNAPSHOT:${saved.sourceFingerprint}",
+                    importBatchId = command.importBatchId,
+                    category = CashFlowCategory.INVESTMENT
                 )
             )
         }
-        LedgerResult.Success(listOf(saved.id))
+        return LedgerResult.Success(listOf(saved.id))
     }
+
+    /**
+     * 批量快照导入的唯一入口。任何一行失败都会回滚整个批次，避免 UI 把部分成功报成全量成功。
+     * 已存在的 sourceFingerprint 会更新原记录而不会创建重复流水，因而重复导入保持幂等。
+     */
+    suspend fun upsertSnapshotBatch(commands: List<HoldingSnapshotCommand>): SnapshotBatchResult {
+        if (commands.isEmpty()) return SnapshotBatchResult(emptyList(), committed = true)
+        val completed = mutableListOf<SnapshotBatchRowResult>()
+        return try {
+            database.withTransaction {
+                commands.forEachIndexed { index, command ->
+                    when (val result = upsertSnapshotInTransaction(command)) {
+                        is LedgerResult.Success -> completed += SnapshotBatchRowResult(index, result.recordIds.singleOrNull())
+                        is LedgerResult.Error -> {
+                            completed += SnapshotBatchRowResult(index, error = result.message)
+                            throw BatchImportRollbackException
+                        }
+                    }
+                }
+            }
+            SnapshotBatchResult(completed, committed = true)
+        } catch (_: BatchImportRollbackException) {
+            SnapshotBatchResult(completed, committed = false)
+        }
+    }
+
+    private object BatchImportRollbackException : RuntimeException()
 
     suspend fun recordTrade(command: HoldingTradeCommand): LedgerResult = database.withTransaction {
         if (command.sourceFingerprint.isNotBlank() &&
@@ -161,17 +218,25 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         val account = database.accountDao().getAccountById(command.accountId)
             ?: return@withTransaction LedgerResult.Error("成交账户不存在")
         val normalizedCode = normalizeSecurityCode(code)
-        val records = database.assetRecordDao().getAllRecords().first()
+        val allMatchingRecords = database.assetRecordDao().getAllRecords().first()
             .filter {
                 it.accountId == command.accountId &&
                     normalizeSecurityCode(it.securityCode.ifBlank { it.name }) == normalizedCode
             }
             .sortedBy { it.createdAt }
+
+        val currencies = allMatchingRecords
+            .map { normalizeCurrency(it.currency, account.currency) }
+            .distinct()
+        if (command.currency.isNullOrBlank() && currencies.size > 1) {
+            return@withTransaction LedgerResult.Error("同一编码存在多个币种，请从对应币种资产发起交易")
+        }
+        val tradeCurrency = normalizeCurrency(command.currency, currencies.singleOrNull() ?: account.currency)
+        val records = allMatchingRecords.filter {
+            normalizeCurrency(it.currency, account.currency) == tradeCurrency
+        }
         if (!command.isBuy && records.isEmpty()) {
             return@withTransaction LedgerResult.Error("该账户没有编码 $code 的可卖持仓")
-        }
-        if (records.any { it.currency != account.currency }) {
-            return@withTransaction LedgerResult.Error("该账户下同码持仓币种不一致，请先完成数据校正")
         }
 
         val totalQuantity = records.sumOf { it.quantity }
@@ -194,8 +259,11 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         if (command.fee > amount) return@withTransaction LedgerResult.Error("费用不能大于成交金额")
 
         val cashDelta = if (command.isBuy) -amount - command.fee else amount - command.fee
-        val cashResult = adjustCash(command.accountId, cashDelta, account.currency)
+        val cashResult = adjustCash(command.accountId, cashDelta, tradeCurrency)
         if (cashResult is LedgerResult.Error) return@withTransaction cashResult
+        val cashBalanceAfter = database.assetRecordDao().getRecordsByAccount(command.accountId).first()
+            .filter { it.assetType == AssetType.CASH && it.currency.equals(tradeCurrency, ignoreCase = true) }
+            .sumOf { it.currentValue }
 
         val changedIds = mutableListOf<String>()
         val recordId: String?
@@ -211,7 +279,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                     quantity = next!!.quantity,
                     cost = next.totalCost,
                     currentPrice = command.price,
-                    currency = account.currency,
+                    currency = tradeCurrency,
                     sourceType = HoldingSourceType.TRADE,
                     sourceAccountId = command.accountId,
                     sourceRecordId = UUID.randomUUID().toString(),
@@ -229,7 +297,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                 ).also { database.assetRecordDao().update(it) }
             }
             changedIds += saved.id
-            writePriceHistoryIfTradable(saved, target?.currentPrice)
+            writeValuationHistory(saved, target?.currentPrice)
             recordId = saved.id
         } else {
             val totalRemaining = next?.quantity ?: 0.0
@@ -253,7 +321,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                     )
                     database.assetRecordDao().update(updated)
                     changedIds += updated.id
-                    writePriceHistoryIfTradable(updated, record.currentPrice)
+                    writeValuationHistory(updated, record.currentPrice)
                 }
             }
             recordId = records.singleOrNull()?.id
@@ -267,12 +335,15 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                 shares = command.quantity,
                 price = command.price,
                 amount = amount,
-                currency = account.currency,
+                currency = tradeCurrency,
                 timestamp = command.timestamp,
                 note = command.note ?: "${if (command.isBuy) "买入" else "卖出"} $name · $code",
                 recordId = recordId,
+                balanceAfter = cashBalanceAfter + command.fee,
                 origin = command.origin,
-                sourceFingerprint = command.sourceFingerprint
+                sourceFingerprint = command.sourceFingerprint,
+                category = command.category,
+                importBatchId = command.importBatchId
             )
         )
         if (command.fee > 0.0) {
@@ -284,12 +355,15 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                     shares = null,
                     price = null,
                     amount = command.fee,
-                    currency = account.currency,
+                    currency = tradeCurrency,
                     timestamp = command.timestamp,
                     note = "${if (command.isBuy) "买入" else "卖出"} $name 费用",
                     recordId = recordId,
+                    balanceAfter = cashBalanceAfter,
                     origin = command.origin,
-                    sourceFingerprint = command.sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":fee") ?: ""
+                    sourceFingerprint = command.sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":fee") ?: "",
+                    category = CashFlowCategory.FEE,
+                    importBatchId = command.importBatchId
                 )
             )
         }
@@ -301,9 +375,11 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         amount: Double,
         type: TransactionType,
         note: String? = null,
-        counterpartyAccountId: String? = null,
         origin: TransactionOrigin = TransactionOrigin.CASH_FLOW,
-        sourceFingerprint: String = ""
+        sourceFingerprint: String = "",
+        category: CashFlowCategory = CashFlowCategory.OTHER,
+        importBatchId: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ): LedgerResult = database.withTransaction {
         if (sourceFingerprint.isNotBlank() && database.transactionDao().getBySourceFingerprint(sourceFingerprint) != null) {
             return@withTransaction LedgerResult.Success(emptyList())
@@ -318,6 +394,9 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         }
         val cashResult = adjustCash(accountId, delta, account.currency)
         if (cashResult is LedgerResult.Error) return@withTransaction cashResult
+        val balanceAfter = database.assetRecordDao().getRecordsByAccount(accountId).first()
+            .filter { it.assetType == AssetType.CASH && it.currency.equals(account.currency, ignoreCase = true) }
+            .sumOf { it.currentValue }
         database.transactionDao().insert(
             Transaction(
                 accountId = accountId,
@@ -327,10 +406,56 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                 price = null,
                 amount = amount,
                 currency = account.currency,
+                timestamp = timestamp,
                 note = note,
                 recordId = null,
+                balanceAfter = balanceAfter,
                 origin = origin,
-                sourceFingerprint = sourceFingerprint
+                sourceFingerprint = sourceFingerprint,
+                category = normalizeCategory(type, category),
+                importBatchId = importBatchId
+            )
+        )
+        LedgerResult.Success(emptyList())
+    }
+
+    /** Record a repayment against a liability account without inventing a cash asset. */
+    suspend fun recordLiabilityPayment(
+        accountId: String,
+        amount: Double,
+        note: String? = null,
+        origin: TransactionOrigin = TransactionOrigin.CASH_FLOW,
+        sourceFingerprint: String = "",
+        importBatchId: String = ""
+    ): LedgerResult = database.withTransaction {
+        if (sourceFingerprint.isNotBlank() && database.transactionDao().getBySourceFingerprint(sourceFingerprint) != null) {
+            return@withTransaction LedgerResult.Success(emptyList())
+        }
+        if (amount <= 0.0) return@withTransaction LedgerResult.Error("还款金额必须大于 0")
+        val account = database.accountDao().getAccountById(accountId)
+            ?: return@withTransaction LedgerResult.Error("负债账户不存在")
+        if (account.type != com.finunity.data.local.entity.AccountType.LIABILITY) {
+            return@withTransaction LedgerResult.Error("只能对负债账户记录还款")
+        }
+        if (amount > account.balance + 0.01) {
+            return@withTransaction LedgerResult.Error("还款金额不能超过当前待还金额")
+        }
+        database.accountDao().update(account.copy(balance = (account.balance - amount).coerceAtLeast(0.0)))
+        database.transactionDao().insert(
+            Transaction(
+                accountId = accountId,
+                symbol = null,
+                type = TransactionType.LIABILITY_PAYMENT,
+                shares = null,
+                price = null,
+                amount = amount,
+                currency = account.currency,
+                note = note?.ifBlank { "负债还款" } ?: "负债还款",
+                origin = origin,
+                sourceFingerprint = sourceFingerprint,
+                category = CashFlowCategory.LOAN_REPAYMENT,
+                importBatchId = importBatchId,
+                balanceAfter = (account.balance - amount).coerceAtLeast(0.0)
             )
         )
         LedgerResult.Success(emptyList())
@@ -343,54 +468,107 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         note: String? = null,
         origin: TransactionOrigin = TransactionOrigin.CASH_FLOW,
         sourceFingerprint: String = ""
-    ): LedgerResult = database.withTransaction {
-        if (sourceFingerprint.isNotBlank() && database.transactionDao().getBySourceFingerprint("$sourceFingerprint:out") != null) {
-            return@withTransaction LedgerResult.Success(emptyList())
+    ): LedgerResult {
+        if (amount <= 0.0) return LedgerResult.Error("金额必须大于 0")
+        if (sourceFingerprint.isNotBlank() &&
+            database.transactionDao().getBySourceFingerprint("$sourceFingerprint:out") != null
+        ) {
+            return LedgerResult.Success(emptyList())
         }
-        if (amount <= 0.0) return@withTransaction LedgerResult.Error("金额必须大于 0")
+
         val from = database.accountDao().getAccountById(fromAccountId)
-            ?: return@withTransaction LedgerResult.Error("转出账户不存在")
+            ?: return LedgerResult.Error("转出账户不存在")
         val to = database.accountDao().getAccountById(toAccountId)
-            ?: return@withTransaction LedgerResult.Error("转入账户不存在")
-        if (from.currency != to.currency) return@withTransaction LedgerResult.Error("暂不支持不同币种账户转账")
-        val outResult = adjustCash(fromAccountId, -amount, from.currency)
-        if (outResult is LedgerResult.Error) return@withTransaction outResult
-        adjustCash(toAccountId, amount, to.currency)
-        database.transactionDao().insert(
-            Transaction(
-                accountId = fromAccountId,
-                symbol = null,
-                type = TransactionType.TRANSFER_OUT,
-                shares = null,
-                price = null,
-                amount = amount,
-                currency = from.currency,
-                note = note,
-                origin = origin,
-                sourceFingerprint = sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":out") ?: ""
+            ?: return LedgerResult.Error("转入账户不存在")
+        if (fromAccountId == toAccountId) return LedgerResult.Error("转入账户不能与转出账户相同")
+
+        val fromCurrency = normalizeCurrency(from.currency, "CNY")
+        val toCurrency = normalizeCurrency(to.currency, "CNY")
+        val rate = if (fromCurrency == toCurrency) {
+            1.0
+        } else {
+            resolveExchangeRate(fromCurrency, toCurrency)
+                ?: return LedgerResult.Error("无法获取 $fromCurrency→$toCurrency 汇率，请联网后重试")
+        }
+        val receivedAmount = amount * rate
+        if (!receivedAmount.isFinite() || receivedAmount <= 0.0) {
+            return LedgerResult.Error("汇率无效，请稍后重试")
+        }
+
+        return database.withTransaction {
+            if (sourceFingerprint.isNotBlank() &&
+                database.transactionDao().getBySourceFingerprint("$sourceFingerprint:out") != null
+            ) {
+                return@withTransaction LedgerResult.Success(emptyList())
+            }
+
+            val currentFrom = database.accountDao().getAccountById(fromAccountId)
+                ?: return@withTransaction LedgerResult.Error("转出账户不存在")
+            val currentTo = database.accountDao().getAccountById(toAccountId)
+                ?: return@withTransaction LedgerResult.Error("转入账户不存在")
+            val outResult = adjustCash(fromAccountId, -amount, fromCurrency)
+            if (outResult is LedgerResult.Error) return@withTransaction outResult
+            val inResult = adjustCash(toAccountId, receivedAmount, toCurrency)
+            if (inResult is LedgerResult.Error) return@withTransaction inResult
+
+            val rateNote = if (fromCurrency == toCurrency) {
+                ""
+            } else {
+                "，汇率 ${String.format(Locale.US, "%.6f", rate)}，到账 ${formatAmount(receivedAmount)} $toCurrency"
+            }
+            val transferNote = note?.ifBlank { null }
+                ?: "${currentFrom.name} 转入 ${currentTo.name}$rateNote"
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = fromAccountId,
+                    symbol = null,
+                    type = TransactionType.TRANSFER_OUT,
+                    shares = null,
+                    price = null,
+                    amount = amount,
+                    currency = fromCurrency,
+                    note = transferNote,
+                    origin = origin,
+                    sourceFingerprint = sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":out") ?: "",
+                    category = CashFlowCategory.TRANSFER,
+                    importBatchId = ""
+                )
             )
-        )
-        database.transactionDao().insert(
-            Transaction(
-                accountId = toAccountId,
-                symbol = null,
-                type = TransactionType.TRANSFER_IN,
-                shares = null,
-                price = null,
-                amount = amount,
-                currency = to.currency,
-                note = note,
-                origin = origin,
-                sourceFingerprint = sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":in") ?: ""
+            database.transactionDao().insert(
+                Transaction(
+                    accountId = toAccountId,
+                    symbol = null,
+                    type = TransactionType.TRANSFER_IN,
+                    shares = null,
+                    price = null,
+                    amount = receivedAmount,
+                    currency = toCurrency,
+                    note = transferNote,
+                    origin = origin,
+                    sourceFingerprint = sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":in") ?: "",
+                    category = CashFlowCategory.TRANSFER,
+                    importBatchId = ""
+                )
             )
-        )
-        LedgerResult.Success(emptyList())
+            LedgerResult.Success(emptyList())
+        }
+    }
+
+    private suspend fun resolveExchangeRate(fromCurrency: String, toCurrency: String): Double? {
+        val repository = priceRepository ?: return null
+        val direct = repository.getExchangeRate(fromCurrency, toCurrency)
+        if (direct != null && direct.isFinite() && direct > 0.0) return direct
+        val inverse = repository.getExchangeRate(toCurrency, fromCurrency)
+        return inverse?.takeIf { it.isFinite() && it > 0.0 }?.let { 1.0 / it }
     }
 
     private suspend fun adjustCash(accountId: String, delta: Double, currency: String): LedgerResult {
         val records = database.assetRecordDao().getAllRecords().first()
         val existing = records.firstOrNull {
-            it.accountId == accountId && it.assetType == AssetType.CASH && it.currency == currency && it.name == "现金"
+            it.accountId == accountId &&
+                it.assetType == AssetType.CASH &&
+                it.currency.equals(currency, ignoreCase = true) &&
+                it.name == "现金"
         }
         val current = existing?.currentValue ?: 0.0
         val next = current + delta
@@ -400,7 +578,7 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
                 AssetRecord(
                     accountId = accountId,
                     assetType = AssetType.CASH,
-                    riskBucket = RiskBucket.CASH,
+                    riskBucket = RiskBucket.DEFENSIVE,
                     name = "现金",
                     quantity = next,
                     cost = next,
@@ -421,8 +599,9 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         return LedgerResult.Success(emptyList())
     }
 
-    private suspend fun writePriceHistoryIfTradable(record: AssetRecord, oldPrice: Double?) {
-        if (record.assetType !in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) return
+    private suspend fun writeValuationHistory(record: AssetRecord, oldPrice: Double?) {
+        // Manual valuation history also matters for deposits, property, vehicles and policies.
+        if (record.assetType == AssetType.CASH) return
         if (oldPrice == null || oldPrice != record.currentPrice) {
             database.priceHistoryDao().insert(
                 PriceHistory(recordId = record.id, price = record.currentPrice, cost = record.averageCost)
@@ -430,6 +609,25 @@ class HoldingLedgerRepository(private val database: AppDatabase) {
         }
     }
 
+    private fun normalizeCategory(type: TransactionType, category: CashFlowCategory): CashFlowCategory =
+        if (category != CashFlowCategory.OTHER) category else when (type) {
+            TransactionType.DEPOSIT -> CashFlowCategory.OTHER_INCOME
+            TransactionType.WITHDRAW -> CashFlowCategory.OTHER_EXPENSE
+            TransactionType.DIVIDEND -> CashFlowCategory.DIVIDEND
+            TransactionType.FEE -> CashFlowCategory.FEE
+            TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT -> CashFlowCategory.TRANSFER
+            else -> category
+        }
+
     private fun formatQuantity(quantity: Double): String =
         String.format(java.util.Locale.US, "%.4f", quantity).trimEnd('0').trimEnd('.')
+
+    private fun formatAmount(amount: Double): String =
+        String.format(Locale.US, "%.2f", amount)
+
+    private fun normalizeCurrency(value: String?, fallback: String): String {
+        return value.orEmpty().trim().uppercase().ifBlank {
+            fallback.trim().uppercase().ifBlank { "CNY" }
+        }
+    }
 }

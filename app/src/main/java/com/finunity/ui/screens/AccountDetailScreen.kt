@@ -1,6 +1,8 @@
 package com.finunity.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,9 +12,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +33,8 @@ import com.finunity.data.model.displayName
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
+import java.util.Locale
+import com.finunity.ui.components.FinBucketTag
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,7 +53,13 @@ fun AccountDetailScreen(
     val recordsForAccount = assetRecords.filter { it.record.accountId == account.id }
 
     Scaffold(
-        topBar = { FinTopBar(account.name, onBack) },
+        topBar = {
+            FinTopBar(account.name, onBack, actions = {
+                IconButton(onClick = onEditAccount) {
+                    Icon(Icons.Default.Edit, contentDescription = "编辑账户")
+                }
+            })
+        },
         containerColor = FinColors.PageBg,
         modifier = modifier
     ) { padding ->
@@ -57,7 +68,7 @@ fun AccountDetailScreen(
                 .fillMaxSize()
                 .background(FinColors.PageBg)
                 .padding(padding)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -74,9 +85,9 @@ fun AccountDetailScreen(
 
             item {
                 AccountActionRow(
+                    onAddRecord = onAddRecord,
                     onRecordCashFlow = onRecordCashFlow,
-                    onViewTransactions = onViewTransactions,
-                    onEditAccount = onEditAccount
+                    onViewTransactions = onViewTransactions
                 )
             }
 
@@ -109,10 +120,11 @@ fun AccountDetailScreen(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = FinShapes.md,
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        )
+                        ),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
                     ) {
                         Box(
                             modifier = Modifier
@@ -152,75 +164,47 @@ fun AccountDetailScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AccountActionRow(
+    onAddRecord: () -> Unit,
     onRecordCashFlow: () -> Unit,
-    onViewTransactions: () -> Unit,
-    onEditAccount: () -> Unit
+    onViewTransactions: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Button(
-            onClick = onRecordCashFlow,
+            onClick = onAddRecord,
             modifier = Modifier
                 .weight(1f)
                 .height(54.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = FinColors.SoftGreen,
                 contentColor = FinColors.Number
             )
         ) {
-            Icon(
-                Icons.Default.Add,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = FinColors.Number
-            )
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp), tint = FinColors.Number)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("记一笔", color = FinColors.TextPrimary)
+            Text("添加资产", color = FinColors.TextPrimary)
         }
-        Box {
-            Surface(
-                onClick = { expanded = true },
-                modifier = Modifier.size(54.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "更多",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
-                    )
-                }
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("交易流水") },
-                    leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                    onClick = {
-                        expanded = false
-                        onViewTransactions()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("编辑账户") },
-                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                    onClick = {
-                        expanded = false
-                        onEditAccount()
-                    }
-                )
-            }
+        Button(
+            onClick = onRecordCashFlow,
+            modifier = Modifier.weight(1f).height(54.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = FinColors.SurfaceElevated, contentColor = FinColors.TextPrimary)
+        ) {
+            Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("记收支")
         }
+    }
+    TextButton(onClick = onViewTransactions, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("查看账户流水")
     }
 }
 
@@ -234,10 +218,11 @@ fun AccountInfoCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = FinShapes.md,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -285,6 +270,29 @@ fun AccountInfoCard(
                     color = if (isLiability) MaterialTheme.colorScheme.error else FinColors.TextPrimary
                 )
             }
+
+            if (isLiability) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = buildString {
+                        if (account.initialPrincipal > 0) append("初始本金 ${formatCurrency(account.initialPrincipal, account.currency)}")
+                        if (account.annualInterestRate > 0) {
+                            if (isNotEmpty()) append(" · ")
+                            append("年利率 ${String.format(Locale.US, "%.2f", account.annualInterestRate * 100)}%")
+                        }
+                        if (account.dueDayOfMonth > 0) {
+                            if (isNotEmpty()) append(" · ")
+                            append("每月${account.dueDayOfMonth}日还款")
+                        }
+                        if (account.minimumPayment > 0) {
+                            if (isNotEmpty()) append(" · ")
+                            append("最低 ${formatCurrency(account.minimumPayment, account.currency)}")
+                        }
+                    }.ifBlank { "可在编辑账户中补充利率、还款日和最低还款额" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FinColors.TextSecondary
+                )
+            }
         }
     }
 }
@@ -300,30 +308,39 @@ fun AccountStatsRow(
     val totalProfitLoss = incomeRecords.sumOf { it.profitLoss }
     val profitLossRatio = if (totalCost > 0) totalProfitLoss / totalCost else 0.0
 
-    Row(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        shape = FinShapes.md,
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        StatCard(
-            modifier = Modifier.weight(1f),
-            label = "市值",
-            value = formatCurrency(totalValue, baseCurrency),
-            color = MaterialTheme.colorScheme.primary
-        )
-        if (incomeRecords.isNotEmpty()) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                label = "盈亏",
-                value = "${if (totalProfitLoss >= 0) "+" else ""}${formatCurrency(totalProfitLoss, baseCurrency)}",
-                color = if (totalProfitLoss >= 0) FinColors.Profit else FinColors.Loss
-            )
-            StatCard(
-                modifier = Modifier.weight(1f),
-                label = "收益率",
-                value = formatSignedPercent(profitLossRatio),
-                color = if (profitLossRatio >= 0) FinColors.Profit else FinColors.Loss
-            )
+        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            StatCell("市值", formatCurrency(totalValue, baseCurrency), FinColors.TextPrimary)
+            if (incomeRecords.isNotEmpty()) {
+                Box(Modifier.width(1.dp).height(34.dp).background(Color.White.copy(alpha = 0.08f)))
+                StatCell("盈亏", formatSignedMoney(totalProfitLoss, baseCurrency), when {
+                    totalProfitLoss > 0 -> FinColors.Profit
+                    totalProfitLoss < 0 -> FinColors.Loss
+                    else -> FinColors.TextSecondary
+                })
+                Box(Modifier.width(1.dp).height(34.dp).background(Color.White.copy(alpha = 0.08f)))
+                StatCell("收益率", formatSignedPercent(profitLossRatio), when {
+                    profitLossRatio > 0 -> FinColors.Profit
+                    profitLossRatio < 0 -> FinColors.Loss
+                    else -> FinColors.TextSecondary
+                })
+            }
         }
+    }
+}
+
+@Composable
+private fun RowScope.StatCell(label: String, value: String, color: Color) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = FinColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(4.dp))
+        Text(value, color = color, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -336,10 +353,11 @@ fun StatCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = FinShapes.md,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = FinColors.Surface
         ),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -349,7 +367,7 @@ fun StatCard(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = FinColors.TextSecondary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -368,17 +386,22 @@ fun AccountRecordItem(
     baseCurrency: String,
     onClick: () -> Unit
 ) {
-    val profitColor = if (summary.profitLoss >= 0) FinColors.Profit else FinColors.Loss
+    val profitColor = when {
+        summary.profitLoss > 0 -> FinColors.Profit
+        summary.profitLoss < 0 -> FinColors.Loss
+        else -> FinColors.TextSecondary
+    }
     val isCash = summary.record.assetType == AssetType.CASH
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = FinShapes.md,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
@@ -412,14 +435,17 @@ fun AccountRecordItem(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    text = listOfNotNull(
-                        summary.record.assetType.displayName(),
-                        summary.record.riskBucket.displayName().takeIf { summary.record.assetType != AssetType.CASH }
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(summary.record.assetType.displayName(), style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                    if (!isCash) {
+                        val bucketColor = when (summary.record.riskBucket) {
+                            com.finunity.data.local.entity.RiskBucket.DEFENSIVE -> FinColors.Cash
+                            com.finunity.data.local.entity.RiskBucket.BALANCED -> FinColors.Conservative
+                            com.finunity.data.local.entity.RiskBucket.AGGRESSIVE -> FinColors.Aggressive
+                        }
+                        FinBucketTag(summary.record.riskBucket.displayName(), bucketColor)
+                    }
+                }
             }
 
             Column(horizontalAlignment = Alignment.End) {

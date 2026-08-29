@@ -30,3 +30,8 @@ Thumbs.db
 # Sensitive files
 *.keystore
 *.jks
+signing.properties
+keys/
+
+# Local demo/runtime databases
+*.db

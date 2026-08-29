@@ -34,6 +34,7 @@ fun BackupScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showRestoreConfirm by remember { mutableStateOf(false) }
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingSummary by remember { mutableStateOf<com.finunity.data.repository.BackupSummary?>(null) }
 
     // 导出：创建文件
     val exportLauncher = rememberLauncherForActivityResult(
@@ -59,8 +60,19 @@ fun BackupScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            pendingImportUri = uri
-            showRestoreConfirm = true
+            scope.launch {
+                val summary = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }.orEmpty()
+                }.getOrElse { "" }
+                repo.summarize(summary).fold(
+                    onSuccess = {
+                        pendingImportUri = uri
+                        pendingSummary = it
+                        showRestoreConfirm = true
+                    },
+                    onFailure = { snackbarHostState.showSnackbar("备份文件无法识别：${it.message.orEmpty()}") }
+                )
+            }
         }
     }
 
@@ -70,15 +82,26 @@ fun BackupScreen(
             onDismissRequest = {
                 showRestoreConfirm = false
                 pendingImportUri = null
+                pendingSummary = null
             },
             title = { Text("恢复数据") },
-            text = { Text("恢复将覆盖当前所有数据，确定要继续吗？") },
+            text = {
+                val summary = pendingSummary
+                Text(
+                    if (summary == null) "正在读取备份摘要…"
+                    else "这是覆盖恢复，将替换当前本地数据。\n\n" +
+                        "备份时间：${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(summary.exportedAt))}\n" +
+                        "账户 ${summary.accountCount} · 资产 ${summary.assetCount} · 流水 ${summary.transactionCount}\n" +
+                        "快照 ${summary.snapshotCount} · 周期规则 ${summary.recurringRuleCount}\n\n确定继续吗？"
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showRestoreConfirm = false
                         val uri = pendingImportUri
                         pendingImportUri = null
+                        pendingSummary = null
                         if (uri != null) {
                             scope.launch {
                                 try {
@@ -107,6 +130,7 @@ fun BackupScreen(
                 TextButton(onClick = {
                     showRestoreConfirm = false
                     pendingImportUri = null
+                    pendingSummary = null
                 }) {
                     Text("取消")
                 }
@@ -147,7 +171,7 @@ fun BackupScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "将所有账户、资产、持仓、交易记录和设置导出为一个 JSON 文件。",
+                        text = "将所有账户、资产、持仓、交易记录、价格缓存和设置导出为一个 JSON 文件。导出文件是明文财务数据，请妥善保管。",
                         style = MaterialTheme.typography.bodySmall,
                         color = FinColors.TextSecondary
                     )
@@ -158,7 +182,7 @@ fun BackupScreen(
                                 "yyyyMMdd_HHmmss",
                                 java.util.Locale.getDefault()
                             ).format(java.util.Date())
-                            exportLauncher.launch("FinUnity_backup_$timestamp.json")
+                        exportLauncher.launch("衡仓_backup_$timestamp.json")
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -190,7 +214,7 @@ fun BackupScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "选择一个之前导出的 JSON 备份文件来恢复数据。恢复会覆盖当前所有数据，请谨慎操作。",
+                        text = "选择一个之前导出的 JSON 备份文件来恢复数据。恢复会覆盖当前所有数据，并会自动兼容旧版 Position 持仓，请谨慎操作。",
                         style = MaterialTheme.typography.bodySmall,
                         color = FinColors.TextSecondary
                     )

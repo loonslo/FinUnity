@@ -54,3 +54,41 @@ enum class PriceConfidence {
     DELAYED,       // 2小时内，有延迟但可用
     STALE          // 超过2小时，仅展示不用于决策
 }
+
+/** 首页展示的整体行情健康状态，按最差一项汇总。 */
+enum class PriceStatus {
+    NORMAL,
+    DELAYED,
+    EXPIRED,
+    CACHE_FALLBACK,
+    PARTIAL_FAILURE
+}
+
+data class PriceHealth(
+    val status: PriceStatus,
+    val lastUpdatedAt: Long? = null,
+    val unavailableSymbols: Set<String> = emptySet(),
+    val fallbackSymbols: Set<String> = emptySet()
+)
+
+/** 纯函数便于 Worker、ViewModel 和测试共用同一套状态判定。 */
+fun evaluatePriceHealth(
+    prices: List<Price>,
+    requestedSymbols: Set<String> = emptySet(),
+    partialFailure: Boolean = false,
+    now: Long = System.currentTimeMillis()
+): PriceHealth {
+    val bySymbol = prices.associateBy { it.symbol }
+    val unavailable = requestedSymbols.filter { bySymbol[it] == null }.toSet()
+    val fallbacks = prices.filter { it.isFallback }.map { it.symbol }.toSet()
+    val hasExpired = prices.any { now - it.updatedAt > 3L * 24 * 60 * 60 * 1000 } || unavailable.isNotEmpty()
+    val hasDelayed = prices.any { now - it.updatedAt > Price.STALE_THRESHOLD_MS }
+    val status = when {
+        partialFailure -> PriceStatus.PARTIAL_FAILURE
+        fallbacks.isNotEmpty() -> PriceStatus.CACHE_FALLBACK
+        hasExpired -> PriceStatus.EXPIRED
+        hasDelayed -> PriceStatus.DELAYED
+        else -> PriceStatus.NORMAL
+    }
+    return PriceHealth(status, prices.maxOfOrNull { it.updatedAt }, unavailable, fallbacks)
+}

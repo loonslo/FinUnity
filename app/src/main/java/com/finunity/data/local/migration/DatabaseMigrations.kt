@@ -1,6 +1,7 @@
 package com.finunity.data.local.migration
 
 import androidx.room.migration.Migration
+import com.finunity.data.local.entity.legacyBucketToThreeBucket
 
 /**
  * Database migration from version 3 to 4.
@@ -256,6 +257,166 @@ object Migration17To18 {
     }
 }
 
+/** v18 -> v19: structured cash-flow category. */
+object Migration18To19 {
+    val migration: Migration = object : Migration(18, 19) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE transactions ADD COLUMN category TEXT NOT NULL DEFAULT 'OTHER'")
+        }
+    }
+}
+
+/** v19 -> v20: liability metadata for outstanding debt tracking. */
+object Migration19To20 {
+    val migration: Migration = object : Migration(19, 20) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE accounts ADD COLUMN initialPrincipal REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE accounts ADD COLUMN annualInterestRate REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE accounts ADD COLUMN dueDayOfMonth INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE accounts ADD COLUMN minimumPayment REAL NOT NULL DEFAULT 0")
+        }
+    }
+}
+
+/** v20 -> v21: recurring personal cash-flow rules. */
+object Migration20To21 {
+    val migration: Migration = object : Migration(20, 21) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS recurring_rules (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    accountId TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    currency TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    dayOfMonth INTEGER NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    lastGeneratedAt INTEGER,
+                    createdAt INTEGER NOT NULL,
+                    FOREIGN KEY (accountId) REFERENCES accounts(id) ON DELETE CASCADE
+                )
+            """.trimIndent())
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_recurring_rules_accountId ON recurring_rules(accountId)")
+        }
+    }
+}
+
+/** v21 -> v22: import batch id for safe rollback. */
+object Migration21To22 {
+    val migration: Migration = object : Migration(21, 22) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE transactions ADD COLUMN importBatchId TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
+/**
+ * v22 -> v23: persist the product's three-bucket vocabulary.
+ *
+ * The migration deliberately fails on an unknown bucket instead of guessing. Room will then
+ * leave the old database untouched and the app can surface the migration error to diagnostics.
+ */
+object Migration22To23 {
+    val migration: Migration = object : Migration(22, 23) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("""
+                UPDATE asset_records
+                SET riskBucket = CASE riskBucket
+                    WHEN 'CASH' THEN 'DEFENSIVE'
+                    WHEN 'CONSERVATIVE' THEN 'BALANCED'
+                    WHEN 'INSURANCE' THEN 'BALANCED'
+                    WHEN 'DEFENSIVE' THEN 'DEFENSIVE'
+                    WHEN 'BALANCED' THEN 'BALANCED'
+                    WHEN 'AGGRESSIVE' THEN 'AGGRESSIVE'
+                    ELSE riskBucket
+                END
+                WHERE riskBucket IN ('CASH', 'CONSERVATIVE', 'INSURANCE')
+            """.trimIndent())
+            database.execSQL("""
+                UPDATE allocation_targets
+                SET riskBucket = CASE riskBucket
+                    WHEN 'CASH' THEN 'DEFENSIVE'
+                    WHEN 'CONSERVATIVE' THEN 'BALANCED'
+                    WHEN 'INSURANCE' THEN 'BALANCED'
+                    WHEN 'DEFENSIVE' THEN 'DEFENSIVE'
+                    WHEN 'BALANCED' THEN 'BALANCED'
+                    WHEN 'AGGRESSIVE' THEN 'AGGRESSIVE'
+                    ELSE riskBucket
+                END
+                WHERE riskBucket IN ('CASH', 'CONSERVATIVE', 'INSURANCE')
+            """.trimIndent())
+
+            database.query("SELECT id, targetAllocation FROM settings").use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow("id")
+                val allocationColumn = cursor.getColumnIndexOrThrow("targetAllocation")
+                while (cursor.moveToNext()) {
+                    val id = cursor.getInt(idColumn)
+                    val allocation = cursor.getString(allocationColumn).orEmpty()
+                    val normalized = normalizeAllocationForMigration(allocation)
+                    database.execSQL(
+                        "UPDATE settings SET targetAllocation = ? WHERE id = ?",
+                        arrayOf(normalized, id)
+                    )
+                }
+            }
+
+            // Validate all persisted bucket values after the rewrite. This catches malformed data
+            // that was not covered by the known legacy values above.
+            database.query("SELECT riskBucket FROM asset_records UNION ALL SELECT riskBucket FROM allocation_targets").use { cursor ->
+                val bucketColumn = cursor.getColumnIndexOrThrow("riskBucket")
+                while (cursor.moveToNext()) {
+                    val value = cursor.getString(bucketColumn)
+                    legacyBucketToThreeBucket(value)
+                        ?: throw IllegalStateException("Unknown risk bucket '$value' during v22->v23 migration")
+                }
+            }
+        }
+    }
+
+    private fun normalizeAllocationForMigration(allocation: String): String {
+        if (allocation.isBlank()) return allocation
+        val merged = linkedMapOf<String, Double>()
+        allocation.split(',').forEachIndexed { index, pair ->
+            val parts = pair.split(':', limit = 2)
+            if (parts.size != 2) {
+                throw IllegalStateException("Invalid target allocation item ${index + 1}: '$pair'")
+            }
+            val bucket = legacyBucketToThreeBucket(parts[0])
+                ?: throw IllegalStateException("Unknown target bucket '${parts[0].trim()}' during v22->v23 migration")
+            val ratio = parts[1].trim().toDoubleOrNull()
+                ?.takeIf { it.isFinite() && it >= 0.0 }
+                ?: throw IllegalStateException("Invalid target ratio '${parts[1].trim()}' during v22->v23 migration")
+            merged[bucket.name] = (merged[bucket.name] ?: 0.0) + ratio
+        }
+        return listOf("DEFENSIVE", "BALANCED", "AGGRESSIVE")
+            .mapNotNull { key -> merged[key]?.let { "$key:$it" } }
+            .joinToString(",")
+    }
+}
+
+/** v23 -> v24: add explicit three-bucket and net-worth snapshot fields. */
+object Migration23To24 {
+    val migration: Migration = object : Migration(23, 24) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN grossAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN liabilities REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN netWorth REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN defensiveAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN balancedAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN aggressiveAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN strategyAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN lockedAssets REAL NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE asset_snapshots ADD COLUMN calculationVersion TEXT NOT NULL DEFAULT 'legacy-v1'")
+
+            // Old columns cannot reveal the original liability or three-bucket split. Preserve the
+            // old values and explicitly mark the rows as legacy instead of inventing history.
+            database.execSQL("UPDATE asset_snapshots SET grossAssets = totalAssets, netWorth = totalAssets, defensiveAssets = cashAssets, balancedAssets = MAX(totalAssets - cashAssets - stockAssets, 0), aggressiveAssets = stockAssets, strategyAssets = totalAssets, calculationVersion = 'legacy-v1'")
+        }
+    }
+}
+
 /**
  * Provider for all database migrations.
  */
@@ -275,6 +436,12 @@ object DatabaseMigrations {
         Migration14To15.migration,
         Migration15To16.migration,
         Migration16To17.migration,
-        Migration17To18.migration
+        Migration17To18.migration,
+        Migration18To19.migration,
+        Migration19To20.migration,
+        Migration20To21.migration,
+        Migration21To22.migration,
+        Migration22To23.migration,
+        Migration23To24.migration
     )
 }

@@ -39,6 +39,7 @@ import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
 import com.finunity.ui.components.FinCard
 import com.finunity.ui.theme.FinColors
+import java.util.Locale
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -321,7 +322,7 @@ private fun PriceSparkline(
 
 private fun formatNumber(value: Double): String {
     if (value.isNaN() || value.isInfinite()) return "0.00"
-    return String.format("%.2f", value)
+    return String.format(Locale.US, "%.2f", value)
 }
 
 private fun holdingDailyChange(

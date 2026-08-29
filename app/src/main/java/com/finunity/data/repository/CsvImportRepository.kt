@@ -1,6 +1,7 @@
 package com.finunity.data.repository
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Account
 import com.finunity.data.local.entity.AccountSourceType
@@ -9,8 +10,10 @@ import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetType
 import com.finunity.data.local.entity.HoldingSourceType
 import com.finunity.data.local.entity.RiskBucket
+import com.finunity.data.local.entity.defaultRiskBucket
 import com.finunity.data.local.entity.TransactionOrigin
 import com.finunity.data.local.entity.TransactionType
+import com.finunity.data.local.entity.CashFlowCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -28,6 +31,15 @@ data class CsvImportResult(
     val transactionsImported: Int,
     val errors: List<String>
 )
+
+data class CsvPreview(
+    val rowCount: Int,
+    val header: String,
+    val sampleRows: List<String>,
+    val repeatedRows: Int
+)
+
+enum class CsvImportKind { ACCOUNTS, POSITIONS, ASSET_RECORDS, TRANSACTIONS }
 
 /**
  * CSV 导入仓库
@@ -97,26 +109,61 @@ private fun parseAssetType(value: String): AssetType? = when (value.trim().upper
     "基金", "FUND" -> AssetType.FUND
     "现金", "CASH" -> AssetType.CASH
     "定期", "定期存款", "TIME_DEPOSIT" -> AssetType.TIME_DEPOSIT
+    "房产", "REAL_ESTATE" -> AssetType.REAL_ESTATE
+    "车辆", "VEHICLE" -> AssetType.VEHICLE
+    "保险", "保单", "INSURANCE_POLICY" -> AssetType.INSURANCE_POLICY
     else -> null
 }
 
 private fun parseRiskBucket(value: String, assetType: AssetType): RiskBucket? = when (value.trim().uppercase()) {
-    "稳健", "CONSERVATIVE" -> RiskBucket.CONSERVATIVE
+    "", "AUTO" -> assetType.defaultRiskBucket()
+    "稳健", "BALANCED", "CONSERVATIVE" -> RiskBucket.BALANCED
     "进取", "AGGRESSIVE" -> RiskBucket.AGGRESSIVE
-    "保命", "INSURANCE" -> RiskBucket.INSURANCE
-    "防守", "CASH", "" -> if (assetType == AssetType.CASH) RiskBucket.CASH else null
+    "保命", "INSURANCE" -> RiskBucket.BALANCED
+    "防守", "DEFENSIVE", "CASH" -> RiskBucket.DEFENSIVE
     else -> null
 }
 
+private fun parseCashFlowCategory(value: String): CashFlowCategory =
+    runCatching { CashFlowCategory.valueOf(value.trim().uppercase()) }.getOrDefault(CashFlowCategory.OTHER)
+
 class CsvImportRepository(private val database: AppDatabase) {
     private val holdingLedger = HoldingLedgerRepository(database)
+
+    suspend fun preview(context: Context, fileName: String): CsvPreview = withContext(Dispatchers.IO) {
+        val lines = File(context.cacheDir, fileName).readLines(Charsets.UTF_8)
+            .filter { it.isNotBlank() }
+        val rows = lines.drop(1)
+        CsvPreview(
+            rowCount = rows.size,
+            header = lines.firstOrNull().orEmpty(),
+            sampleRows = rows.take(3),
+            repeatedRows = rows.groupingBy { it }.eachCount().values.count { it > 1 }
+        )
+    }
+
+    /** Roll back only rows created by the selected import batch. Existing rows are preserved. */
+    suspend fun rollback(importType: CsvImportKind, batchId: String): Int = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            when (importType) {
+                CsvImportKind.ACCOUNTS -> database.accountDao().deleteByExternalSourcePrefix("CSV:$batchId:")
+                CsvImportKind.POSITIONS,
+                CsvImportKind.ASSET_RECORDS -> {
+                    val assets = database.assetRecordDao().deleteByImportBatchId(batchId)
+                    val auditRows = database.transactionDao().deleteImported(batchId)
+                    assets + auditRows
+                }
+                CsvImportKind.TRANSACTIONS -> database.transactionDao().deleteImported(batchId)
+            }
+        }
+    }
 
     /**
      * 从 CSV 导入账户
      * 格式：name,type,currency[,liabilityAmount]
      * 非负债账户只作为容器，金额应导入为账户下的资产记录。
      */
-    suspend fun importAccounts(context: Context, fileName: String): CsvImportResult = withContext(Dispatchers.IO) {
+    suspend fun importAccounts(context: Context, fileName: String, batchId: String = fileName): CsvImportResult = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         var accountsImported = 0
 
@@ -164,7 +211,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                     currency = currency,
                                     balance = balance,
                                     sourceType = AccountSourceType.CSV,
-                                    externalSourceId = "CSV:$name:$currency"
+                                    externalSourceId = "CSV:$batchId:$name:$currency"
                                 )
 
                                 // 检查是否已存在同名账户（防止重复导入）
@@ -202,7 +249,7 @@ class CsvImportRepository(private val database: AppDatabase) {
      * 格式：accountName,symbol,shares,totalCost,currency
      * 例如：我的券商,AAPL,100,15000,USD
      */
-    suspend fun importPositions(context: Context, fileName: String): CsvImportResult = withContext(Dispatchers.IO) {
+    suspend fun importPositions(context: Context, fileName: String, batchId: String = fileName): CsvImportResult = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         var positionsImported = 0
 
@@ -263,7 +310,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                             sourceType = HoldingSourceType.CSV,
                                             sourceAccountId = accountId,
                                             sourceRecordId = "$fileName:${index + 2}",
-                                            importBatchId = fileName,
+                                            importBatchId = batchId,
                                             sourceFingerprint = "CSV:$accountId:STOCK:$symbol"
                                         )
                                     )
@@ -300,9 +347,9 @@ class CsvImportRepository(private val database: AppDatabase) {
      * 格式：accountName,assetType,riskBucket,name,quantity,cost,currentPrice,currency
      * 例如：我的券商,STOCK,AGGRESSIVE,AAPL,100,15000,18000,USD
      * assetType: STOCK, ETF, FUND, CASH, TIME_DEPOSIT
-     * riskBucket: CONSERVATIVE, AGGRESSIVE, CASH
+     * riskBucket: DEFENSIVE, BALANCED, AGGRESSIVE；留空时按资产类型自动归桶
      */
-    suspend fun importAssetRecords(context: Context, fileName: String): CsvImportResult = withContext(Dispatchers.IO) {
+    suspend fun importAssetRecords(context: Context, fileName: String, batchId: String = fileName): CsvImportResult = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         var recordsImported = 0
 
@@ -381,7 +428,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                             sourceType = HoldingSourceType.CSV,
                                             sourceAccountId = accountId,
                                             sourceRecordId = "$fileName:${index + 2}",
-                                            importBatchId = fileName,
+                                            importBatchId = batchId,
                                             sourceFingerprint = "CSV:$accountId:${assetType.name}:$code"
                                         )
                                     )
@@ -418,7 +465,7 @@ class CsvImportRepository(private val database: AppDatabase) {
      * 格式：accountName,symbol,type,shares,price,amount,currency,note
      * type: BUY, SELL, DIVIDEND, FEE, TRANSFER_IN, TRANSFER_OUT, DEPOSIT, WITHDRAW
      */
-    suspend fun importTransactions(context: Context, fileName: String): CsvImportResult = withContext(Dispatchers.IO) {
+    suspend fun importTransactions(context: Context, fileName: String, batchId: String = fileName): CsvImportResult = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         var transactionsImported = 0
 
@@ -459,6 +506,7 @@ class CsvImportRepository(private val database: AppDatabase) {
                                 }
 
                                 val note = if (parts.size > 7 && parts[7].isNotEmpty()) parts[7] else null
+                                val category = if (parts.size > 8) parseCashFlowCategory(parts[8]) else CashFlowCategory.OTHER
 
                                 // 查找对应账户
                                 val accounts = database.accountDao().getAllAccounts().first()
@@ -486,7 +534,8 @@ class CsvImportRepository(private val database: AppDatabase) {
                                                         price = price,
                                                         note = note ?: "CSV 导入交易",
                                                         origin = TransactionOrigin.CSV_IMPORT,
-                                                        sourceFingerprint = fingerprint
+                                                        sourceFingerprint = fingerprint,
+                                                        importBatchId = batchId
                                                     )
                                                 )
                                             }
@@ -502,7 +551,17 @@ class CsvImportRepository(private val database: AppDatabase) {
                                             type = type,
                                             note = note ?: "CSV 导入${type.name}",
                                             origin = TransactionOrigin.CSV_IMPORT,
-                                            sourceFingerprint = fingerprint
+                                            sourceFingerprint = fingerprint,
+                                            importBatchId = batchId,
+                                            category = category
+                                        )
+                                        TransactionType.LIABILITY_PAYMENT -> holdingLedger.recordLiabilityPayment(
+                                            accountId = accountId,
+                                            amount = amount,
+                                            note = note ?: "CSV 导入还款",
+                                            origin = TransactionOrigin.CSV_IMPORT,
+                                            sourceFingerprint = fingerprint,
+                                            importBatchId = batchId
                                         )
                                     }
                                     if (result is LedgerResult.Error) {

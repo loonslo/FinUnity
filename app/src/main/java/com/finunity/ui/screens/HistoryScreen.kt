@@ -185,7 +185,7 @@ fun MonthlyChangeCard(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "$changeSymbol${formatCurrency(kotlin.math.abs(change.change), baseCurrency)} (${changeSymbol}${String.format("%.1f", change.percentageChange)}%)",
+                    text = "$changeSymbol${formatCurrency(kotlin.math.abs(change.change), baseCurrency)} (${changeSymbol}${String.format(Locale.US, "%.1f", change.percentageChange)}%)",
                     style = MaterialTheme.typography.titleMedium,
                     color = changeColor
                 )
@@ -249,7 +249,7 @@ fun CumulativeReturnCard(
 
             val symbol = if (isPositive) "+" else ""
             Text(
-                text = "$symbol${String.format("%.2f", totalReturn)}%",
+                text = "$symbol${String.format(Locale.US, "%.2f", totalReturn)}%",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = returnColor
@@ -398,7 +398,7 @@ fun SnapshotItem(
                     val color = if (return_pct >= 0) FinColors.Profit else FinColors.Loss
                     val symbol = if (return_pct >= 0) "+" else ""
                     Text(
-                        text = "$symbol${String.format("%.1f", return_pct)}%",
+                        text = "$symbol${String.format(Locale.US, "%.1f", return_pct)}%",
                         style = MaterialTheme.typography.bodySmall,
                         color = color
                     )

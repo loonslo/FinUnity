@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.repository.CsvImportRepository
+import com.finunity.data.repository.CsvImportKind
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.components.FinTopBar
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,12 @@ fun ImportCsvScreen(
     var pendingTemplate by remember { mutableStateOf<ImportType?>(null) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf<String?>(null) }
+    var pendingFileName by remember { mutableStateOf<String?>(null) }
+    var pendingPreview by remember { mutableStateOf<com.finunity.data.repository.CsvPreview?>(null) }
+    var showImportConfirm by remember { mutableStateOf(false) }
+    var lastImportedType by remember { mutableStateOf<ImportType?>(null) }
+    var lastImportedBatchId by remember { mutableStateOf<String?>(null) }
+    val csvRepo = remember { CsvImportRepository(database) }
 
     val templateLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -71,72 +78,75 @@ fun ImportCsvScreen(
     ) { uri: Uri? ->
         uri?.let {
             scope.launch {
-                isImporting = true
                 importResult = null
-
                 try {
-                    val result = withContext(Dispatchers.IO) {
+                    val fileName = "temp_import.csv"
+                    withContext(Dispatchers.IO) {
                         val inputStream = context.contentResolver.openInputStream(uri)
-                        if (inputStream == null) {
-                            "无法读取文件"
-                        } else {
-                            val fileName = "temp_import.csv"
-                            val cacheFile = java.io.File(context.cacheDir, fileName)
-                            cacheFile.outputStream().use { output ->
-                                inputStream.copyTo(output)
-                            }
-                            inputStream.close()
-
-                            val csvRepo = CsvImportRepository(database)
-                            val csvImportResult = when (selectedImportType) {
-                                ImportType.ACCOUNTS -> csvRepo.importAccounts(context, fileName)
-                                ImportType.POSITIONS -> csvRepo.importPositions(context, fileName)
-                                ImportType.ASSET_RECORDS -> csvRepo.importAssetRecords(context, fileName)
-                                ImportType.TRANSACTIONS -> csvRepo.importTransactions(context, fileName)
-                                null -> return@withContext "未选择导入类型"
-                            }
-                            val errors = csvImportResult.errors
-                            when (selectedImportType) {
-                                ImportType.ACCOUNTS -> {
-                                    if (errors.isEmpty()) {
-                                        "导入成功：${csvImportResult.accountsImported} 个账户"
-                                    } else {
-                                        "导入完成：${csvImportResult.accountsImported} 个账户，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
-                                    }
-                                }
-                                ImportType.POSITIONS -> {
-                                    if (errors.isEmpty()) {
-                                        "导入成功：${csvImportResult.positionsImported} 条持仓"
-                                    } else {
-                                        "导入完成：${csvImportResult.positionsImported} 条持仓，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
-                                    }
-                                }
-                                ImportType.ASSET_RECORDS -> {
-                                    if (errors.isEmpty()) {
-                                        "导入成功：${csvImportResult.assetRecordsImported} 条持仓"
-                                    } else {
-                                        "导入完成：${csvImportResult.assetRecordsImported} 条持仓，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
-                                    }
-                                }
-                                ImportType.TRANSACTIONS -> {
-                                    if (errors.isEmpty()) {
-                                        "导入成功：${csvImportResult.transactionsImported} 条交易流水"
-                                    } else {
-                                        "导入完成：${csvImportResult.transactionsImported} 条交易流水，${errors.size} 个错误\n\n${errors.take(5).joinToString("\n")}"
-                                    }
-                                }
-                                null -> "未选择导入类型"
-                            }
-                        }
+                            ?: throw IllegalStateException("无法读取文件")
+                        java.io.File(context.cacheDir, fileName).outputStream().use { output -> inputStream.use { it.copyTo(output) } }
                     }
-                    importResult = result
+                    pendingFileName = fileName
+                    pendingPreview = csvRepo.preview(context, fileName)
+                    showImportConfirm = true
                 } catch (e: Exception) {
-                    importResult = "导入失败: ${e.message}"
-                } finally {
-                    isImporting = false
+                    importResult = "预览失败: ${e.message}"
                 }
             }
         }
+    }
+
+    fun resultText(type: ImportType?, result: com.finunity.data.repository.CsvImportResult): String {
+        val count = when (type) {
+            ImportType.ACCOUNTS -> "${result.accountsImported} 个账户"
+            ImportType.POSITIONS -> "${result.positionsImported} 条持仓"
+            ImportType.ASSET_RECORDS -> "${result.assetRecordsImported} 条资产"
+            ImportType.TRANSACTIONS -> "${result.transactionsImported} 条流水"
+            null -> "0 条记录"
+        }
+        return if (result.errors.isEmpty()) "导入成功：$count" else "导入完成：$count，${result.errors.size} 个错误\n\n${result.errors.take(5).joinToString("\n")}"
+    }
+
+    if (showImportConfirm && selectedImportType != null && pendingPreview != null) {
+        AlertDialog(
+            onDismissRequest = { showImportConfirm = false },
+            title = { Text("确认导入") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("类型：${selectedImportType} · ${pendingPreview!!.rowCount} 行")
+                    if (pendingPreview!!.repeatedRows > 0) Text("文件内有 ${pendingPreview!!.repeatedRows} 组重复行，重复记录会按指纹跳过。", color = MaterialTheme.colorScheme.error)
+                    Text("表头：${pendingPreview!!.header}", style = MaterialTheme.typography.bodySmall)
+                    pendingPreview!!.sampleRows.forEach { Text(it.take(160), style = MaterialTheme.typography.bodySmall) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImportConfirm = false
+                    val type = selectedImportType
+                    val fileName = pendingFileName
+                    if (type != null && fileName != null) scope.launch {
+                        isImporting = true
+                        val batchId = "CSV_${System.currentTimeMillis()}"
+                        try {
+                            val result = withContext(Dispatchers.IO) {
+                                when (type) {
+                                    ImportType.ACCOUNTS -> csvRepo.importAccounts(context, fileName, batchId)
+                                    ImportType.POSITIONS -> csvRepo.importPositions(context, fileName, batchId)
+                                    ImportType.ASSET_RECORDS -> csvRepo.importAssetRecords(context, fileName, batchId)
+                                    ImportType.TRANSACTIONS -> csvRepo.importTransactions(context, fileName, batchId)
+                                }
+                            }
+                            importResult = resultText(type, result)
+                            lastImportedType = type
+                            lastImportedBatchId = batchId
+                        } catch (e: Exception) {
+                            importResult = "导入失败：${e.message}"
+                        } finally { isImporting = false }
+                    }
+                }) { Text("确认导入") }
+            },
+            dismissButton = { TextButton(onClick = { showImportConfirm = false }) { Text("取消") } }
+        )
     }
 
     fun launchPicker(importType: ImportType) {
@@ -170,17 +180,17 @@ fun ImportCsvScreen(
                 // 首页：展示导入类型列表
                 ImportTypeItem(
                     title = "导入账户",
-                    description = "支持 CSV / Excel",
+                    description = "支持 CSV（Excel 可打开）",
                     onClick = { selectedImportType = ImportType.ACCOUNTS }
                 )
                 ImportTypeItem(
                     title = "导入持仓",
-                    description = "支持 CSV / Excel",
+                    description = "支持 CSV（Excel 可打开）",
                     onClick = { selectedImportType = ImportType.ASSET_RECORDS }
                 )
                 ImportTypeItem(
                     title = "导入交易流水",
-                    description = "支持 CSV / Excel",
+                    description = "支持 CSV（Excel 可打开）",
                     onClick = { selectedImportType = ImportType.TRANSACTIONS }
                 )
             } else {
@@ -214,6 +224,16 @@ fun ImportCsvScreen(
                         )
                     }
                 }
+            }
+            if (lastImportedType != null && lastImportedBatchId != null) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val count = csvRepo.rollback(lastImportedType!!.toCsvImportKind(), lastImportedBatchId!!)
+                        importResult = "已撤销本次导入：$count 条记录"
+                        lastImportedType = null
+                        lastImportedBatchId = null
+                    }
+                }, enabled = !isImporting, modifier = Modifier.fillMaxWidth()) { Text("撤销上次导入") }
             }
         }
     }
@@ -267,10 +287,10 @@ private fun ImportDetailCard(
     onSelectFile: () -> Unit
 ) {
     val fieldDescription = when (importType) {
-        ImportType.ACCOUNTS -> "字段顺序：账户名、账户类型、币种"
+                ImportType.ACCOUNTS -> "字段顺序：账户名、账户类型、币种"
         ImportType.POSITIONS -> "字段顺序：账户名、代码、数量、总成本、币种"
         ImportType.ASSET_RECORDS -> "字段顺序：账户名、资产类型、风险维度、名称、数量、成本、当前价、币种"
-        ImportType.TRANSACTIONS -> "字段顺序：账户名、代码、交易类型、数量、价格、金额、币种、备注"
+        ImportType.TRANSACTIONS -> "字段顺序：账户名、代码、交易类型、数量、价格、金额、币种、备注、分类（可选）"
     }
 
     Card(
@@ -330,6 +350,13 @@ private fun importTypeTitle(importType: ImportType): String = when (importType) 
     ImportType.TRANSACTIONS -> "导入交易流水"
 }
 
+private fun ImportType.toCsvImportKind(): CsvImportKind = when (this) {
+    ImportType.ACCOUNTS -> CsvImportKind.ACCOUNTS
+    ImportType.POSITIONS -> CsvImportKind.POSITIONS
+    ImportType.ASSET_RECORDS -> CsvImportKind.ASSET_RECORDS
+    ImportType.TRANSACTIONS -> CsvImportKind.TRANSACTIONS
+}
+
 private fun templateFileName(importType: ImportType): String = when (importType) {
     ImportType.ACCOUNTS -> "finunity_accounts_template.csv"
     ImportType.POSITIONS -> "finunity_positions_template.csv"
@@ -355,7 +382,7 @@ private fun templateCsv(importType: ImportType): String = when (importType) {
         工商银行,现金,防守,活期余额,5000,5000,1,人民币
     """.trimIndent()
     ImportType.TRANSACTIONS -> """
-        账户名,代码,交易类型,数量,价格,金额,币种,备注
-        我的券商,AAPL,BUY,100,150,15000,美元,首次买入
+        账户名,代码,交易类型,数量,价格,金额,币种,备注,分类
+        我的券商,AAPL,BUY,100,150,15000,美元,首次买入,INVESTMENT
     """.trimIndent()
 }

@@ -16,7 +16,9 @@ data class RefreshResult(
     val symbolsFailed: List<String>,
     val ratesRefreshed: Int,
     val ratesFailed: List<String>,
-    val isPartialFailure: Boolean = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty()
+    val isPartialFailure: Boolean = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty(),
+    val successfulSymbols: Set<String> = emptySet(),
+    val successfulRates: Set<String> = emptySet()
 )
 
 /**
@@ -34,36 +36,41 @@ enum class CircuitState {
  * 支持熔断器、批处理、过期回退
  */
 class PriceRepository(
-    private val priceDao: PriceDao
+    private val priceDao: PriceDao,
+    private val api: com.finunity.data.remote.YahooFinanceApi = NetworkModule.yahooFinanceApi
 ) {
-    private val api = NetworkModule.yahooFinanceApi
-
     companion object {
         private const val TAG = "PriceRepository"
         private const val CIRCUIT_FAILURE_THRESHOLD = 5
         private const val CIRCUIT_RESET_TIMEOUT_MS = 5 * 60 * 1000L // 5分钟
     }
 
-    // 熔断器状态
+    // 熔断器状态。半开时只发出一个探测请求，避免恢复窗口被批量请求再次打穿。
     private var circuitFailureCount = 0
     private var circuitOpenedAt = 0L
+    private var halfOpenProbeInFlight = false
 
     /**
      * 熔断器是否允许请求
      */
+    @Synchronized
     private fun isCircuitAllowingRequest(): Boolean {
         if (circuitFailureCount < CIRCUIT_FAILURE_THRESHOLD) return true
 
-        // 检查是否超过恢复超时
+        // 检查是否超过恢复超时；半开窗口只允许一个探测请求。
         val elapsed = System.currentTimeMillis() - circuitOpenedAt
-        return elapsed > CIRCUIT_RESET_TIMEOUT_MS
+        if (elapsed <= CIRCUIT_RESET_TIMEOUT_MS || halfOpenProbeInFlight) return false
+        halfOpenProbeInFlight = true
+        return true
     }
 
     /**
      * 记录熔断失败
      */
+    @Synchronized
     private fun recordCircuitFailure() {
         circuitFailureCount++
+        halfOpenProbeInFlight = false
         if (circuitFailureCount >= CIRCUIT_FAILURE_THRESHOLD) {
             circuitOpenedAt = System.currentTimeMillis()
             Log.w(TAG, "Circuit breaker opened after $circuitFailureCount failures")
@@ -73,8 +80,11 @@ class PriceRepository(
     /**
      * 重置熔断器
      */
+    @Synchronized
     private fun resetCircuit() {
         circuitFailureCount = 0
+        circuitOpenedAt = 0L
+        halfOpenProbeInFlight = false
     }
 
     /**
@@ -120,6 +130,7 @@ class PriceRepository(
             } else {
                 val errorDesc = result?.meta?.currency ?: "unknown"
                 Log.w(TAG, "No price data for $symbol, currency: $errorDesc")
+                recordCircuitFailure()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch price for $symbol: ${e.message}")
@@ -173,6 +184,11 @@ class PriceRepository(
                 priceDao.insert(price)
                 resetCircuit()
                 return@withContext rate
+            } else {
+                recordCircuitFailure()
+                if (cached != null) {
+                    return@withContext cached.price
+                }
             }
         } catch (e: Exception) {
             recordCircuitFailure()
@@ -188,7 +204,7 @@ class PriceRepository(
      * 批量获取股票价格
      */
     suspend fun getPrices(symbols: List<String>): Map<String, Price> = withContext(Dispatchers.IO) {
-        symbols.associateWith { symbol ->
+        symbols.distinct().associateWith { symbol ->
             getPrice(symbol)
         }.mapNotNull { (symbol, price) ->
             price?.let { symbol to it }
@@ -203,11 +219,18 @@ class PriceRepository(
         val symbolsFailed = mutableListOf<String>()
         var symbolsRefreshed = 0
 
+        val uniqueSymbols = symbols.map(String::trim).filter(String::isNotBlank).distinct()
+        val uniqueRates = rates.keys.map(String::trim).filter(String::isNotBlank).distinct()
+
         // 分批处理：每批 5 个符号，避免触发速率限制
         val batchSize = 5
-        for (i in symbols.indices step batchSize) {
-            val batch = symbols.subList(i, minOf(i + batchSize, symbols.size))
+        for (i in uniqueSymbols.indices step batchSize) {
+            val batch = uniqueSymbols.subList(i, minOf(i + batchSize, uniqueSymbols.size))
             for (symbol in batch) {
+                if (!isCircuitAllowingRequest()) {
+                    symbolsFailed.add(symbol)
+                    continue
+                }
                 try {
                     val response = api.getStockPrice(symbol)
                     val result = response.chart?.result?.firstOrNull()
@@ -225,8 +248,10 @@ class PriceRepository(
                         )
                         priceDao.insert(price)
                         symbolsRefreshed++
+                        resetCircuit()
                     } else {
                         symbolsFailed.add(symbol)
+                        recordCircuitFailure()
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to refresh price for $symbol: ${e.message}")
@@ -239,7 +264,11 @@ class PriceRepository(
         // 刷新汇率
         val ratesFailed = mutableListOf<String>()
         var ratesRefreshed = 0
-        for ((currencyPair, _) in rates) {
+        for (currencyPair in uniqueRates) {
+            if (!isCircuitAllowingRequest()) {
+                ratesFailed.add(currencyPair)
+                continue
+            }
             try {
                 val symbol = "${currencyPair}=X"
                 val response = api.getExchangeRate(symbol)
@@ -256,8 +285,10 @@ class PriceRepository(
                     )
                     priceDao.insert(price)
                     ratesRefreshed++
+                    resetCircuit()
                 } else {
                     ratesFailed.add(currencyPair)
+                    recordCircuitFailure()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh rate for $currencyPair: ${e.message}")
@@ -271,7 +302,9 @@ class PriceRepository(
             symbolsFailed = symbolsFailed,
             ratesRefreshed = ratesRefreshed,
             ratesFailed = ratesFailed,
-            isPartialFailure = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty()
+            isPartialFailure = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty(),
+            successfulSymbols = uniqueSymbols.filterNot { it in symbolsFailed }.toSet(),
+            successfulRates = uniqueRates.filterNot { it in ratesFailed }.toSet()
         )
     }
 

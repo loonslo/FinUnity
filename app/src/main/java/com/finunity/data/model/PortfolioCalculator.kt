@@ -22,6 +22,11 @@ class PortfolioCalculator(
     private val baseCurrency: String
 ) {
     private val accountNamesById: Map<String, String> = accounts.associate { it.id to it.name }
+    private val rateCache = mutableMapOf<Pair<String, String>, Double?>()
+    private val missingExchangeRates = linkedSetOf<String>()
+
+    val missingExchangeRateCurrencies: Set<String>
+        get() = missingExchangeRates.toSet()
 
     /**
      * 获取汇率（统一入口，避免 ?: 1.0 静默降级）
@@ -29,8 +34,18 @@ class PortfolioCalculator(
      */
     private suspend fun getRate(fromCurrency: String, toCurrency: String): Double? = withContext(Dispatchers.IO) {
         if (fromCurrency == toCurrency) return@withContext 1.0
-        priceRepository.getExchangeRate(fromCurrency, toCurrency)
+        val key = fromCurrency.uppercase() to toCurrency.uppercase()
+        if (rateCache.containsKey(key)) return@withContext rateCache[key]
+        val rate = priceRepository.getExchangeRate(fromCurrency, toCurrency)
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        rateCache[key] = rate
+        if (rate == null) missingExchangeRates += fromCurrency.uppercase()
+        rate
     }
+
+    /** Missing FX must not be treated as a 1:1 conversion. The caller also receives the consistency warning. */
+    private suspend fun getRateOrZero(fromCurrency: String, toCurrency: String): Double =
+        getRate(fromCurrency, toCurrency) ?: 0.0
 
     /**
      * 计算账户级现金。非负债账户只作为资产容器，现金应作为 AssetRecord 录入。
@@ -39,7 +54,7 @@ class PortfolioCalculator(
         var total = 0.0
         for (account in accounts) {
             if (account.type == AccountType.LIABILITY) {
-                val rate = getRate(account.currency, baseCurrency) ?: 1.0
+                val rate = getRateOrZero(account.currency, baseCurrency)
                 total -= account.balance * rate
             }
         }
@@ -64,7 +79,7 @@ class PortfolioCalculator(
                 }
             }
             val liabilityValue = if (account.type == AccountType.LIABILITY) {
-                val rate = getRate(account.currency, baseCurrency) ?: 1.0
+                val rate = getRateOrZero(account.currency, baseCurrency)
                 account.balance * rate
             } else {
                 0.0
@@ -80,7 +95,7 @@ class PortfolioCalculator(
      * 计算资产记录市值（已按基准货币换算）
      */
     suspend fun computeAssetRecordValue(record: AssetRecord): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(record.currency, baseCurrency) ?: 1.0
+        val rate = getRateOrZero(record.currency, baseCurrency)
         record.currentValue * rate
     }
 
@@ -88,7 +103,7 @@ class PortfolioCalculator(
      * 计算资产记录成本（已按基准货币换算）
      */
     suspend fun computeAssetRecordCost(record: AssetRecord): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(record.currency, baseCurrency) ?: 1.0
+        val rate = getRateOrZero(record.currency, baseCurrency)
         record.cost * rate
     }
 
@@ -117,7 +132,7 @@ class PortfolioCalculator(
      */
     private suspend fun computeHoldingCurrentPrice(position: Position): Double = withContext(Dispatchers.IO) {
         val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
-        val rate = getRate(position.currency, baseCurrency) ?: 1.0
+        val rate = getRateOrZero(position.currency, baseCurrency)
         currentPrice * rate
     }
 
@@ -133,7 +148,7 @@ class PortfolioCalculator(
      * 计算单条持仓的成本（已按基准货币换算）
      */
     private suspend fun computeHoldingCost(position: Position): Double = withContext(Dispatchers.IO) {
-        val rate = getRate(position.currency, baseCurrency) ?: 1.0
+        val rate = getRateOrZero(position.currency, baseCurrency)
         position.totalCost * rate
     }
 
@@ -168,7 +183,7 @@ class PortfolioCalculator(
         val inputs = mutableListOf<HoldingMergeInput>()
 
         for (record in assetRecords) {
-            val rate = getRate(record.currency, baseCurrency) ?: 1.0
+            val rate = getRateOrZero(record.currency, baseCurrency)
             inputs += HoldingMergeInput(
                 codeOrName = record.securityCode.ifBlank { record.name },
                 displayName = record.name,
@@ -183,7 +198,7 @@ class PortfolioCalculator(
         }
 
         for (position in positions) {
-            val rate = getRate(position.currency, baseCurrency) ?: 1.0
+            val rate = getRateOrZero(position.currency, baseCurrency)
             val currentPrice = priceRepository.getPrice(position.symbol)?.price ?: position.averageCost
             inputs += HoldingMergeInput(
                 codeOrName = position.symbol,
@@ -212,7 +227,7 @@ class PortfolioCalculator(
             val averageCost = if (totalShares > 0) totalCost / totalShares else 0.0
             val currency = symbolPositions.firstOrNull()?.currency ?: "USD"
             val currentPrice = priceRepository.getPrice(symbol)?.price ?: averageCost
-            val rate = getRate(currency, baseCurrency) ?: 1.0
+            val rate = getRateOrZero(currency, baseCurrency)
             val currentPriceInBase = currentPrice * rate
             val currentValue = totalShares * currentPriceInBase
             val costInBase = totalCost * rate
@@ -307,7 +322,7 @@ class PortfolioCalculator(
         val allKeys = (currentBySubCategory.keys + targetBySubCategory.keys).toMutableSet()
 
         val bucketOrder = listOf(
-            RiskBucket.AGGRESSIVE, RiskBucket.CONSERVATIVE, RiskBucket.INSURANCE, RiskBucket.CASH
+            RiskBucket.AGGRESSIVE, RiskBucket.BALANCED, RiskBucket.BALANCED, RiskBucket.DEFENSIVE
         )
 
         allKeys.map { key ->
@@ -323,7 +338,7 @@ class PortfolioCalculator(
                 hasTarget = target != null
             )
         }.sortedWith(
-            // 已设目标的优先，其次按象限固定顺序，再按缺口从大到小
+             // 已设目标的优先，其次按三桶固定顺序，再按缺口从大到小
             compareByDescending<LandingPoint> { it.hasTarget }
                 .thenBy { bucketOrder.indexOf(it.riskBucket).let { i -> if (i < 0) Int.MAX_VALUE else i } }
                 .thenByDescending { it.gap }
@@ -333,64 +348,52 @@ class PortfolioCalculator(
     /**
      * 计算总资产（基准货币）
      */
-    suspend fun computeTotalAssets(): Double = withContext(Dispatchers.IO) {
-        var totalStockValue = 0.0
-        var totalCash = 0.0
+    suspend fun computeTotalAssets(): Double = computePortfolioTotals().grossAssets
 
-        // 账户级金额只统计负债；非负债账户只作为资产容器，现金由 AssetRecord.CASH 表达。
-        for (account in accounts) {
-            if (account.type == AccountType.LIABILITY) {
-                val rate = getRate(account.currency, baseCurrency) ?: 1.0
-                totalCash -= account.balance * rate
-            }
-        }
-
-        // 资产记录市值
+    /** 正资产、负债和三桶金额的唯一计算入口，首页、快照和报表应复用它。 */
+    suspend fun computePortfolioTotals(): PortfolioTotals = withContext(Dispatchers.IO) {
+        val bucketTotals = RiskBucket.entries.associateWith { 0.0 }.toMutableMap()
         for (record in assetRecords) {
-            val currentValue = computeAssetRecordValue(record)
-            when (record.assetType) {
-                AssetType.STOCK, AssetType.ETF, AssetType.FUND -> totalStockValue += currentValue
-                AssetType.CASH, AssetType.TIME_DEPOSIT,
-                AssetType.REAL_ESTATE, AssetType.VEHICLE,
-                AssetType.INSURANCE_POLICY -> totalCash += currentValue
-            }
+            val value = computeAssetRecordValue(record).coerceAtLeast(0.0)
+            bucketTotals[record.riskBucket] = (bucketTotals[record.riskBucket] ?: 0.0) + value
         }
-
-        // 旧持仓市值
         for (position in positions) {
-            totalStockValue += computeHoldingCurrentValue(position)
+            val value = computeHoldingCurrentValue(position).coerceAtLeast(0.0)
+            bucketTotals[RiskBucket.AGGRESSIVE] =
+                (bucketTotals[RiskBucket.AGGRESSIVE] ?: 0.0) + value
         }
+        val grossAssets = bucketTotals.values.sum()
+        var liabilities = 0.0
+        for (account in accounts.filter { it.type == AccountType.LIABILITY }) {
+            liabilities += (account.balance * getRateOrZero(account.currency, baseCurrency))
+                .coerceAtLeast(0.0)
+        }
+        PortfolioTotals(
+            grossAssets = grossAssets,
+            liabilities = liabilities,
+            netWorth = grossAssets - liabilities,
+            bucketValues = bucketTotals.toMap()
+        )
+    }
 
-        totalCash + totalStockValue
+    /** 成本统一按本位币换算，汇率缺失时该项不伪造为 1:1。 */
+    suspend fun computeTotalCost(): Double = withContext(Dispatchers.IO) {
+        positions.sumOf { it.totalCost * getRateOrZero(it.currency, baseCurrency) } +
+            assetRecords.sumOf { it.cost * getRateOrZero(it.currency, baseCurrency) }
     }
 
     /**
      * 计算股票资产总值（基准货币）
      */
     suspend fun computeStockValue(): Double = withContext(Dispatchers.IO) {
-        var total = 0.0
-        for (record in assetRecords) {
-            if (record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
-                total += computeAssetRecordValue(record)
-            }
-        }
-        for (position in positions) {
-            total += computeHoldingCurrentValue(position)
-        }
-        total
+        computePortfolioTotals().bucketValues[RiskBucket.AGGRESSIVE] ?: 0.0
     }
 
     /**
      * 计算现金资产总值（基准货币）
      */
     suspend fun computeCashValue(): Double = withContext(Dispatchers.IO) {
-        var total = 0.0
-        for (record in assetRecords) {
-            if (record.assetType in listOf(AssetType.CASH, AssetType.TIME_DEPOSIT)) {
-                total += computeAssetRecordValue(record)
-            }
-        }
-        total
+        computePortfolioTotals().bucketValues[RiskBucket.DEFENSIVE] ?: 0.0
     }
 
     /**
@@ -398,8 +401,11 @@ class PortfolioCalculator(
      * 今日盈亏 = Σ (现价 − 昨收) × 数量 × 汇率，仅统计有昨收价的可交易标的。
      * 昨收未知（previousClose<=0，如休市/停牌/接口未返回）的标的记 0，不参与、不报错。
      */
-    suspend fun computeTodayChange(): Double = withContext(Dispatchers.IO) {
+    suspend fun computeTodayChange(): Double = computeTodayChangeMetrics().amount
+
+    suspend fun computeTodayChangeMetrics(): TodayChangeMetrics = withContext(Dispatchers.IO) {
         var total = 0.0
+        var trackedYesterdayValue = 0.0
         val tradableTypes = listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
 
         // 新资产记录：现价取 record.currentPrice（与市值口径一致），昨收取价格缓存
@@ -407,19 +413,21 @@ class PortfolioCalculator(
             if (record.assetType !in tradableTypes) continue
             val prevClose = priceRepository.getPrice(record.securityCode.ifBlank { record.name })?.previousClose ?: 0.0
             if (prevClose <= 0.0) continue
-            val rate = getRate(record.currency, baseCurrency) ?: 1.0
+            val rate = getRateOrZero(record.currency, baseCurrency)
             total += (record.currentPrice - prevClose) * record.quantity * rate
+            trackedYesterdayValue += record.quantity * prevClose * rate
         }
 
         // 旧持仓：现价取价格缓存（与市值口径一致）
         for (position in positions) {
             val cached = priceRepository.getPrice(position.symbol) ?: continue
             if (cached.previousClose <= 0.0) continue
-            val rate = getRate(position.currency, baseCurrency) ?: 1.0
+            val rate = getRateOrZero(position.currency, baseCurrency)
             total += (cached.price - cached.previousClose) * position.shares * rate
+            trackedYesterdayValue += position.shares * cached.previousClose * rate
         }
 
-        total
+        TodayChangeMetrics(total, trackedYesterdayValue)
     }
 
     /**
@@ -469,4 +477,16 @@ class PortfolioCalculator(
 data class ConsistencyResult(
     val isConsistent: Boolean,
     val issues: List<String>
+)
+
+data class PortfolioTotals(
+    val grossAssets: Double,
+    val liabilities: Double,
+    val netWorth: Double,
+    val bucketValues: Map<RiskBucket, Double>
+)
+
+data class TodayChangeMetrics(
+    val amount: Double,
+    val trackedYesterdayValue: Double
 )
