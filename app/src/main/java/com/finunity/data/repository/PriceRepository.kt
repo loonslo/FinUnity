@@ -1,16 +1,21 @@
 package com.finunity.data.repository
 
-import android.util.Log
 import com.finunity.data.local.dao.PriceDao
 import com.finunity.data.local.entity.Price
 import com.finunity.data.local.entity.PriceConfidence
+import com.finunity.data.remote.ApiEnvelope
+import com.finunity.data.remote.FxPairRequest
+import com.finunity.data.remote.MarketSyncData
+import com.finunity.data.remote.MarketSyncInstrumentRequest
+import com.finunity.data.remote.MarketSyncRequest
 import com.finunity.data.remote.NetworkModule
+import com.finunity.data.remote.requireData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.util.Locale
+import java.util.UUID
 
-/**
- * 批量刷新结果
- */
 data class RefreshResult(
     val symbolsRefreshed: Int,
     val symbolsFailed: List<String>,
@@ -18,301 +23,236 @@ data class RefreshResult(
     val ratesFailed: List<String>,
     val isPartialFailure: Boolean = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty(),
     val successfulSymbols: Set<String> = emptySet(),
-    val successfulRates: Set<String> = emptySet()
+    val successfulRates: Set<String> = emptySet(),
+    val failureCodes: Map<String, String> = emptyMap(),
+    val requestId: String = ""
 )
 
-/**
- * 熔断器状态
- */
-enum class CircuitState {
-    CLOSED,   // 正常，允许请求
-    OPEN,     // 熔断，拒绝请求（连续失败）
-    HALF_OPEN // 半开，允许一个请求测试恢复
+data class MarketAssetRequest(
+    val clientRef: String,
+    val code: String,
+    val assetType: String,
+    val instrumentId: String? = null
+)
+
+fun interface MarketSyncSource {
+    suspend fun sync(request: MarketSyncRequest): ApiEnvelope<MarketSyncData>
+}
+
+object FinUnityMarketSyncSource : MarketSyncSource {
+    override suspend fun sync(request: MarketSyncRequest): ApiEnvelope<MarketSyncData> =
+        NetworkModule.authorized { it.syncMarket(request) }
 }
 
 /**
- * 价格仓库
- * 统一管理价格数据：缓存优先，网络获取最新
- * 支持熔断器、批处理、过期回退
+ * FinUnity 专属服务行情仓库。
+ *
+ * 缓存读取不会隐式发起网络请求；只有显式刷新才调用 /market/sync。
+ * 服务报错直接向上抛出，绝不生成 0、成本价或 1:1 汇率作为假数据。
  */
 class PriceRepository(
     private val priceDao: PriceDao,
-    private val api: com.finunity.data.remote.YahooFinanceApi = NetworkModule.yahooFinanceApi
+    private val source: MarketSyncSource = FinUnityMarketSyncSource
 ) {
-    companion object {
-        private const val TAG = "PriceRepository"
-        private const val CIRCUIT_FAILURE_THRESHOLD = 5
-        private const val CIRCUIT_RESET_TIMEOUT_MS = 5 * 60 * 1000L // 5分钟
-    }
-
-    // 熔断器状态。半开时只发出一个探测请求，避免恢复窗口被批量请求再次打穿。
-    private var circuitFailureCount = 0
-    private var circuitOpenedAt = 0L
-    private var halfOpenProbeInFlight = false
-
-    /**
-     * 熔断器是否允许请求
-     */
-    @Synchronized
-    private fun isCircuitAllowingRequest(): Boolean {
-        if (circuitFailureCount < CIRCUIT_FAILURE_THRESHOLD) return true
-
-        // 检查是否超过恢复超时；半开窗口只允许一个探测请求。
-        val elapsed = System.currentTimeMillis() - circuitOpenedAt
-        if (elapsed <= CIRCUIT_RESET_TIMEOUT_MS || halfOpenProbeInFlight) return false
-        halfOpenProbeInFlight = true
-        return true
-    }
-
-    /**
-     * 记录熔断失败
-     */
-    @Synchronized
-    private fun recordCircuitFailure() {
-        circuitFailureCount++
-        halfOpenProbeInFlight = false
-        if (circuitFailureCount >= CIRCUIT_FAILURE_THRESHOLD) {
-            circuitOpenedAt = System.currentTimeMillis()
-            Log.w(TAG, "Circuit breaker opened after $circuitFailureCount failures")
-        }
-    }
-
-    /**
-     * 重置熔断器
-     */
-    @Synchronized
-    private fun resetCircuit() {
-        circuitFailureCount = 0
-        circuitOpenedAt = 0L
-        halfOpenProbeInFlight = false
-    }
-
-    /**
-     * 获取股票价格
-     * 优先返回缓存，缓存过期或不存在则从网络获取
-     * 过期缓存会标记 isFallback=true
-     */
     suspend fun getPrice(symbol: String): Price? = withContext(Dispatchers.IO) {
-        // 1. 先查缓存
-        val cached = priceDao.getPrice(symbol)
-        if (cached != null && !cached.isStale()) {
-            return@withContext cached
+        priceDao.getPrice(symbol)?.let { cached ->
+            if (cached.isStale()) cached.copy(isFallback = true) else cached
         }
-
-        // 2. 缓存过期或不存在，检查熔断器
-        if (!isCircuitAllowingRequest()) {
-            Log.w(TAG, "Circuit breaker open, returning stale cache for $symbol")
-            if (cached != null) {
-                return@withContext cached.copy(isFallback = true)
-            }
-            return@withContext null
-        }
-
-        // 3. 从网络获取
-        try {
-            val response = api.getStockPrice(symbol)
-            val result = response.chart?.result?.firstOrNull()
-            val marketPrice = result?.meta?.regularMarketPrice
-
-            if (marketPrice != null) {
-                val price = Price(
-                    symbol = symbol,
-                    price = marketPrice,
-                    previousClose = result.meta.regularMarketPreviousClose
-                        ?: result.meta.chartPreviousClose ?: 0.0,
-                    currency = result.meta.currency ?: "USD",
-                    updatedAt = System.currentTimeMillis(),
-                    isFallback = false
-                )
-                priceDao.insert(price)
-                resetCircuit() // 成功则重置熔断器
-                return@withContext price
-            } else {
-                val errorDesc = result?.meta?.currency ?: "unknown"
-                Log.w(TAG, "No price data for $symbol, currency: $errorDesc")
-                recordCircuitFailure()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch price for $symbol: ${e.message}")
-            recordCircuitFailure()
-        }
-
-        // 4. 网络失败，返回过期缓存（标记为回退）
-        if (cached != null) {
-            Log.d(TAG, "Using stale cache for $symbol (isFallback=true)")
-            return@withContext cached.copy(isFallback = true)
-        }
-
-        return@withContext null
     }
 
-    /**
-     * 获取汇率
-     */
-    suspend fun getExchangeRate(fromCurrency: String, toCurrency: String): Double? = withContext(Dispatchers.IO) {
-        if (fromCurrency == toCurrency) {
-            return@withContext 1.0
+    suspend fun getExchangeRate(fromCurrency: String, toCurrency: String): Double? =
+        withContext(Dispatchers.IO) {
+            val from = fromCurrency.trim().uppercase(Locale.ROOT)
+            val to = toCurrency.trim().uppercase(Locale.ROOT)
+            if (from == to) return@withContext 1.0
+            val cached = priceDao.getPrice("${from}${to}=X") ?: return@withContext null
+            if (cached.isStale() || cached.errorCode != null || cached.isFallback) return@withContext null
+            cached.price
         }
 
-        val symbol = "${fromCurrency}${toCurrency}=X"
-
-        // 检查熔断器
-        if (!isCircuitAllowingRequest()) {
-            val cached = priceDao.getPrice(symbol)
-            if (cached != null) return@withContext cached.price
-            return@withContext null
-        }
-
-        val cached = priceDao.getPrice(symbol)
-        if (cached != null && !cached.isStale()) {
-            return@withContext cached.price
-        }
-
-        try {
-            val response = api.getExchangeRate(symbol)
-            val result = response.chart?.result?.firstOrNull()
-            val rate = result?.meta?.regularMarketPrice
-
-            if (rate != null) {
-                val price = Price(
-                    symbol = symbol,
-                    price = rate,
-                    currency = "${fromCurrency}/${toCurrency}",
-                    updatedAt = System.currentTimeMillis(),
-                    isFallback = false
-                )
-                priceDao.insert(price)
-                resetCircuit()
-                return@withContext rate
-            } else {
-                recordCircuitFailure()
-                if (cached != null) {
-                    return@withContext cached.price
-                }
-            }
-        } catch (e: Exception) {
-            recordCircuitFailure()
-            if (cached != null) {
-                return@withContext cached.price
-            }
-        }
-
-        return@withContext null
-    }
-
-    /**
-     * 批量获取股票价格
-     */
     suspend fun getPrices(symbols: List<String>): Map<String, Price> = withContext(Dispatchers.IO) {
-        symbols.distinct().associateWith { symbol ->
-            getPrice(symbol)
-        }.mapNotNull { (symbol, price) ->
-            price?.let { symbol to it }
-        }.toMap()
+        symbols.distinct().mapNotNull { symbol -> getPrice(symbol)?.let { symbol to it } }.toMap()
     }
 
-    /**
-     * 批量刷新所有价格（用于 WorkManager）
-     * 分批处理，每个符号独立重试
-     */
-    suspend fun refreshAllPrices(symbols: List<String>, rates: Map<String, Double>): RefreshResult = withContext(Dispatchers.IO) {
-        val symbolsFailed = mutableListOf<String>()
-        var symbolsRefreshed = 0
+    suspend fun refreshMarketData(
+        instruments: List<MarketAssetRequest>,
+        currencyPairs: Set<String>,
+        baseCurrency: String
+    ): RefreshResult = withContext(Dispatchers.IO) {
+        val uniqueInstruments = instruments
+            .filter { it.code.isNotBlank() }
+            .distinctBy { listOf(it.instrumentId.orEmpty(), it.code, it.assetType).joinToString("|") }
+        val normalizedPairs = currencyPairs.map { it.trim().uppercase(Locale.ROOT) }
+            .filter { it.length == 6 }
+            .distinct()
 
-        val uniqueSymbols = symbols.map(String::trim).filter(String::isNotBlank).distinct()
-        val uniqueRates = rates.keys.map(String::trim).filter(String::isNotBlank).distinct()
-
-        // 分批处理：每批 5 个符号，避免触发速率限制
-        val batchSize = 5
-        for (i in uniqueSymbols.indices step batchSize) {
-            val batch = uniqueSymbols.subList(i, minOf(i + batchSize, uniqueSymbols.size))
-            for (symbol in batch) {
-                if (!isCircuitAllowingRequest()) {
-                    symbolsFailed.add(symbol)
-                    continue
-                }
-                try {
-                    val response = api.getStockPrice(symbol)
-                    val result = response.chart?.result?.firstOrNull()
-                    val marketPrice = result?.meta?.regularMarketPrice
-
-                    if (marketPrice != null) {
-                        val price = Price(
-                            symbol = symbol,
-                            price = marketPrice,
-                            previousClose = result.meta.regularMarketPreviousClose
-                                ?: result.meta.chartPreviousClose ?: 0.0,
-                            currency = result.meta.currency ?: "USD",
-                            updatedAt = System.currentTimeMillis(),
-                            isFallback = false
-                        )
-                        priceDao.insert(price)
-                        symbolsRefreshed++
-                        resetCircuit()
-                    } else {
-                        symbolsFailed.add(symbol)
-                        recordCircuitFailure()
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to refresh price for $symbol: ${e.message}")
-                    symbolsFailed.add(symbol)
-                    recordCircuitFailure()
-                }
-            }
+        if (uniqueInstruments.isEmpty() && normalizedPairs.isEmpty()) {
+            return@withContext RefreshResult(0, emptyList(), 0, emptyList())
         }
 
-        // 刷新汇率
-        val ratesFailed = mutableListOf<String>()
-        var ratesRefreshed = 0
-        for (currencyPair in uniqueRates) {
-            if (!isCircuitAllowingRequest()) {
-                ratesFailed.add(currencyPair)
-                continue
+        val request = MarketSyncRequest(
+            clientRequestId = UUID.randomUUID().toString(),
+            baseCurrency = baseCurrency.uppercase(Locale.ROOT),
+            instruments = uniqueInstruments.map {
+                MarketSyncInstrumentRequest(
+                    clientRef = it.clientRef,
+                    instrumentId = it.instrumentId?.takeIf(String::isNotBlank),
+                    inputCode = it.code,
+                    assetType = it.assetType
+                )
+            },
+            fxPairs = normalizedPairs.map {
+                FxPairRequest(clientRef = it, base = it.take(3), quote = it.drop(3))
             }
-            try {
-                val symbol = "${currencyPair}=X"
-                val response = api.getExchangeRate(symbol)
-                val result = response.chart?.result?.firstOrNull()
-                val exchangeRate = result?.meta?.regularMarketPrice
+        )
 
-                if (exchangeRate != null) {
-                    val price = Price(
-                        symbol = symbol,
-                        price = exchangeRate,
-                        currency = currencyPair,
-                        updatedAt = System.currentTimeMillis(),
-                        isFallback = false
-                    )
-                    priceDao.insert(price)
-                    ratesRefreshed++
-                    resetCircuit()
-                } else {
-                    ratesFailed.add(currencyPair)
-                    recordCircuitFailure()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to refresh rate for $currencyPair: ${e.message}")
-                ratesFailed.add(currencyPair)
-                recordCircuitFailure()
+        val envelope = source.sync(request)
+        val data = envelope.requireData()
+        val failureCodes = linkedMapOf<String, String>()
+        val successfulSymbols = linkedSetOf<String>()
+        val requestedByRef = uniqueInstruments.associateBy { it.clientRef }
+        val returnedInstrumentRefs = mutableSetOf<String>()
+
+        data.instruments.forEach { result ->
+            returnedInstrumentRefs += result.clientRef
+            val requested = requestedByRef[result.clientRef] ?: return@forEach
+            val serviceValue = result.value
+            val numericValue = serviceValue?.current.toStrictPositiveDecimal()
+            val sourceTime = parseInstant(serviceValue?.sourceTime)
+            val receivedAt = parseInstant(serviceValue?.receivedAt)
+            val previousClose = serviceValue?.previousClose.toNullableDecimal()
+            val contractError = when {
+                result.status != "OK" -> result.error?.code ?: result.status
+                result.instrument == null -> "MISSING_INSTRUMENT"
+                numericValue == null -> "INVALID_VALUE"
+                serviceValue?.previousClose != null && previousClose == null -> "INVALID_PREVIOUS_CLOSE"
+                sourceTime == null -> "INVALID_SOURCE_TIME"
+                receivedAt == null -> "INVALID_RECEIVED_AT"
+                result.instrument.currency.isBlank() -> "MISSING_CURRENCY"
+                serviceValue?.valueType.isNullOrBlank() -> "MISSING_VALUE_TYPE"
+                serviceValue?.quality.isNullOrBlank() -> "MISSING_QUALITY"
+                serviceValue?.source.isNullOrBlank() -> "MISSING_SOURCE"
+                else -> null
             }
+            if (contractError != null) {
+                val code = result.error?.code
+                    ?: contractError
+                failureCodes[requested.code] = code
+                markCachedFailure(requested.code, code)
+                return@forEach
+            }
+
+            val price = Price(
+                symbol = requested.code,
+                price = numericValue!!,
+                previousClose = previousClose ?: 0.0,
+                currency = result.instrument!!.currency.uppercase(Locale.ROOT),
+                updatedAt = receivedAt!!,
+                isFallback = false,
+                instrumentId = result.instrument.instrumentId,
+                source = serviceValue!!.source,
+                sourceTime = sourceTime,
+                receivedAt = receivedAt,
+                quality = serviceValue.quality,
+                valueType = serviceValue.valueType,
+                errorCode = null
+            )
+            priceDao.insert(price)
+            successfulSymbols += requested.code
         }
 
+        uniqueInstruments.filter { it.clientRef !in returnedInstrumentRefs }.forEach {
+            failureCodes[it.code] = "MISSING_ITEM"
+            markCachedFailure(it.code, "MISSING_ITEM")
+        }
+
+        val successfulRates = linkedSetOf<String>()
+        val returnedRateRefs = mutableSetOf<String>()
+        data.fxRates.forEach { result ->
+            returnedRateRefs += result.clientRef
+            val numericRate = result.rate.toStrictPositiveDecimal()
+            val sourceTime = parseInstant(result.sourceTime)
+            val receivedAt = parseInstant(result.receivedAt)
+            val contractError = when {
+                result.status != "OK" -> result.error?.code ?: result.status
+                numericRate == null -> "INVALID_VALUE"
+                sourceTime == null -> "INVALID_SOURCE_TIME"
+                receivedAt == null -> "INVALID_RECEIVED_AT"
+                result.pair.isBlank() -> "MISSING_PAIR"
+                result.quality.isBlank() -> "MISSING_QUALITY"
+                result.source.isBlank() -> "MISSING_SOURCE"
+                else -> null
+            }
+            if (contractError != null) {
+                val code = result.error?.code
+                    ?: contractError
+                failureCodes[result.clientRef] = code
+                markCachedFailure("${result.clientRef}=X", code)
+                return@forEach
+            }
+            priceDao.insert(
+                Price(
+                    symbol = "${result.clientRef}=X",
+                    price = numericRate!!,
+                    currency = result.pair,
+                    updatedAt = receivedAt!!,
+                    isFallback = false,
+                    source = result.source,
+                    sourceTime = sourceTime,
+                    receivedAt = receivedAt,
+                    quality = result.quality,
+                    valueType = "FX_RATE",
+                    errorCode = null
+                )
+            )
+            successfulRates += result.clientRef
+        }
+        normalizedPairs.filter { it !in returnedRateRefs }.forEach {
+            failureCodes[it] = "MISSING_ITEM"
+            markCachedFailure("${it}=X", "MISSING_ITEM")
+        }
+
+        val symbolFailures = uniqueInstruments.map { it.code }.filter { it !in successfulSymbols }
+        val rateFailures = normalizedPairs.filter { it !in successfulRates }
         RefreshResult(
-            symbolsRefreshed = symbolsRefreshed,
-            symbolsFailed = symbolsFailed,
-            ratesRefreshed = ratesRefreshed,
-            ratesFailed = ratesFailed,
-            isPartialFailure = symbolsFailed.isNotEmpty() || ratesFailed.isNotEmpty(),
-            successfulSymbols = uniqueSymbols.filterNot { it in symbolsFailed }.toSet(),
-            successfulRates = uniqueRates.filterNot { it in ratesFailed }.toSet()
+            symbolsRefreshed = successfulSymbols.size,
+            symbolsFailed = symbolFailures,
+            ratesRefreshed = successfulRates.size,
+            ratesFailed = rateFailures,
+            successfulSymbols = successfulSymbols,
+            successfulRates = successfulRates,
+            failureCodes = failureCodes,
+            requestId = envelope.requestId
         )
     }
 
-    /**
-     * 获取价格置信度
-     */
+    /** Compatibility entry for callers without asset type metadata. */
+    suspend fun refreshAllPrices(symbols: List<String>, rates: Map<String, Double>): RefreshResult =
+        refreshMarketData(
+            instruments = symbols.distinct().map { MarketAssetRequest(it, it, "STOCK") },
+            currencyPairs = rates.keys,
+            baseCurrency = rates.keys.firstOrNull()?.takeLast(3) ?: "CNY"
+        )
+
     suspend fun getPriceConfidence(symbol: String): PriceConfidence? = withContext(Dispatchers.IO) {
-        val cached = priceDao.getPrice(symbol)
-        cached?.confidence()
+        priceDao.getPrice(symbol)?.confidence()
+    }
+
+    private suspend fun markCachedFailure(symbol: String, errorCode: String) {
+        priceDao.getPrice(symbol)?.let { cached ->
+            priceDao.insert(cached.copy(isFallback = true, errorCode = errorCode))
+        }
+    }
+
+    private fun String?.toStrictPositiveDecimal(): Double? = this?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it > 0.0 }
+
+    private fun String?.toNullableDecimal(): Double? = this?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it >= 0.0 }
+
+    private fun parseInstant(value: String?): Long? = try {
+        value?.let { Instant.parse(it).toEpochMilli() }
+    } catch (_: Exception) {
+        null
     }
 }

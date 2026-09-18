@@ -62,7 +62,7 @@ fun normalizeSecurityCode(value: String): String {
 
 /**
  * 规范化 OCR、CSV 和手动录入的证券代码。
- * Yahoo 对 A 股使用六位代码加 .SS/.SZ，对港股使用四位代码加 .HK；
+ * 兼容旧记录中的 .SS/.SZ/.HK 展示代码；新的稳定身份由专属服务 instrument_id 提供；
  * 只有裸六位数字时不猜交易所，交给上层显示“需确认”。
  */
 fun normalizeSecurityCodeDetailed(value: String): NormalizedSecurityCode {

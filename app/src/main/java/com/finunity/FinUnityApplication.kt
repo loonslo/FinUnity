@@ -2,12 +2,15 @@ package com.finunity
 
 import android.app.Application
 import android.util.Log
+import com.finunity.data.remote.NetworkModule
 import com.finunity.worker.PriceSyncWorker
 
 class FinUnityApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        NetworkModule.initialize(this)
 
         // 初始化 WorkManager 价格同步
         // 注意：这里只负责调度，实际执行在 PriceSyncWorker 中

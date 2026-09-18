@@ -417,6 +417,23 @@ object Migration23To24 {
     }
 }
 
+/** v24 -> v25: persist FinUnity service identity, provenance and data-quality metadata. */
+object Migration24To25 {
+    val migration: Migration = object : Migration(24, 25) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE asset_records ADD COLUMN instrumentId TEXT NOT NULL DEFAULT ''")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_asset_records_instrumentId ON asset_records(instrumentId)")
+            database.execSQL("ALTER TABLE prices ADD COLUMN instrumentId TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE prices ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE prices ADD COLUMN sourceTime INTEGER")
+            database.execSQL("ALTER TABLE prices ADD COLUMN receivedAt INTEGER")
+            database.execSQL("ALTER TABLE prices ADD COLUMN quality TEXT NOT NULL DEFAULT 'UNKNOWN'")
+            database.execSQL("ALTER TABLE prices ADD COLUMN valueType TEXT NOT NULL DEFAULT 'MARKET_PRICE'")
+            database.execSQL("ALTER TABLE prices ADD COLUMN errorCode TEXT")
+        }
+    }
+}
+
 /**
  * Provider for all database migrations.
  */
@@ -442,6 +459,7 @@ object DatabaseMigrations {
         Migration20To21.migration,
         Migration21To22.migration,
         Migration22To23.migration,
-        Migration23To24.migration
+        Migration23To24.migration,
+        Migration24To25.migration
     )
 }

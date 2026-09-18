@@ -20,7 +20,7 @@ import java.util.UUID
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["accountId"]), Index(value = ["assetType"]), Index(value = ["securityCode"])]
+    indices = [Index(value = ["accountId"]), Index(value = ["assetType"]), Index(value = ["securityCode"]), Index(value = ["instrumentId"])]
 )
 data class AssetRecord(
     @PrimaryKey
@@ -30,6 +30,7 @@ data class AssetRecord(
     val riskBucket: RiskBucket,               // 风险维度：稳健、进取、防守
     val name: String,                          // 展示名称，如"沪深300ETF"或"余额宝"
     val securityCode: String = "",            // 证券编码；同码归集和交易流水匹配的稳定键
+    val instrumentId: String = "",             // FinUnity 专属服务的稳定证券 ID
     val quantity: Double,                      // 数量/份额
     val cost: Double,                         // 买入成本
     val currentPrice: Double,                 // 当前价格/净值

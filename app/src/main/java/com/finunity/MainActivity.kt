@@ -540,6 +540,7 @@ fun FinUnityApp(
                                     riskBucket = assetType.defaultRiskBucket(),
                                     name = row.name.trim(),
                                     securityCode = code,
+                                    instrumentId = row.instrumentId,
                                     quantity = row.quantityValue!!,
                                     cost = row.costValue!!,
                                     currentPrice = row.currentPriceValue!!,

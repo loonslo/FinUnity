@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -160,7 +161,8 @@ data class OcrHolding(
     val rawText: String = "",
     val rawSecurityCode: String = securityCode,
     val confidence: String = "HIGH",
-    val reviewReason: String = ""
+    val reviewReason: String = "",
+    val instrumentId: String = ""
 ) {
     val quantityValue: Double? get() = ocrNumber(quantity)
     val currentPriceValue: Double? get() = ocrNumber(currentPrice)
@@ -1568,7 +1570,7 @@ fun PrototypeAddSourceScreen(
                 PrototypeCard(color = FinColors.SurfaceElevated) {
                     Text("识别方式与隐私", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                     Spacer(Modifier.height(3.dp))
-                    Text("衡仓不连接券商、不会索取登录信息或交易权限。截图仅在本机进行文字识别；识别结果需由你确认后才会保存。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp)
+                    Text("衡仓不连接券商、不会索取登录信息或交易权限。只有经你确认，所选截图才会发送到 FinUnity 专属服务解析；返回结果需再次确认后才会保存。", color = FinColors.TextSecondary, fontSize = 10.sp, lineHeight = 16.sp)
                 }
             }
         }
@@ -1611,9 +1613,27 @@ fun PrototypeOcrImportScreen(
     var rows by remember { mutableStateOf(emptyList<OcrHolding>()) }
     var isRecognizing by remember { mutableStateOf(false) }
     var recognitionError by remember { mutableStateOf<String?>(null) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { selectedUri = it }
-    LaunchedEffect(selectedUri) {
+    var uploadApproved by remember { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        selectedUri = uri
+        uploadApproved = false
+    }
+    if (selectedUri != null && !uploadApproved) {
+        AlertDialog(
+            onDismissRequest = { selectedUri = null },
+            title = { Text("发送图片进行解析") },
+            text = { Text("所选持仓截图将通过加密连接发送到 FinUnity 专属服务。服务端返回结构化结果后仍需你逐项确认，解析错误会直接显示，不会填充模拟数据。") },
+            confirmButton = {
+                TextButton(onClick = { uploadApproved = true }) { Text("同意并解析") }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedUri = null }) { Text("取消") }
+            }
+        )
+    }
+    LaunchedEffect(selectedUri, uploadApproved) {
         val uri = selectedUri ?: return@LaunchedEffect
+        if (!uploadApproved) return@LaunchedEffect
         isRecognizing = true
         recognitionError = null
         rows = emptyList()
@@ -1626,12 +1646,14 @@ fun PrototypeOcrImportScreen(
                     securityCode = it.securityCode,
                     quantity = ocrNumberText(it.quantity),
                     currentPrice = ocrNumberText(it.currentPrice),
+                    cost = it.totalCost?.let(::ocrNumberText).orEmpty(),
                     currency = it.currency,
                     needsReview = it.needsReview,
                     rawText = it.rawText,
                     rawSecurityCode = it.rawSecurityCode,
                     confidence = it.confidence.name,
-                    reviewReason = it.reviewReason.orEmpty()
+                    reviewReason = it.reviewReason.orEmpty(),
+                    instrumentId = it.instrumentId
                 )
             }
             selectedRows = rows.indices.toSet()
@@ -1653,12 +1675,12 @@ fun PrototypeOcrImportScreen(
                         Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF26385F)), contentAlignment = Alignment.Center) { Icon(Icons.Default.CropFree, contentDescription = "扫描截图", tint = FinColors.Secondary, modifier = Modifier.size(24.dp)) }
                         Spacer(Modifier.height(6.dp))
                         Text(if (selectedUri == null) "选择持仓截图" else "重新选择截图", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                        Text("仅从你选择的图片中本地读取文字", color = FinColors.TextSecondary, fontSize = 9.sp)
+                        Text("图片将发送到 FinUnity 专属服务解析", color = FinColors.TextSecondary, fontSize = 9.sp)
                     }
                 }
             }
             if (isRecognizing) {
-                item { Text("正在本地识别截图中的文字…", color = FinColors.TextSecondary, fontSize = 10.sp) }
+                item { Text("正在通过 FinUnity 专属服务解析截图…", color = FinColors.TextSecondary, fontSize = 10.sp) }
             }
             recognitionError?.let { error -> item { Text(error, color = FinColors.Danger, fontSize = 10.sp) } }
             if (selectedUri != null && !isRecognizing && recognitionError == null && rows.isEmpty()) {

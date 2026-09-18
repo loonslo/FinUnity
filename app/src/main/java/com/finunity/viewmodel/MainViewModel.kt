@@ -30,6 +30,7 @@ import com.finunity.data.local.entity.evaluatePriceHealth
 import com.finunity.data.local.entity.parseTargetAllocationOrDefault
 import com.finunity.data.local.entity.calculateRebalanceRecommendations
 import com.finunity.data.repository.PriceRepository
+import com.finunity.data.repository.MarketAssetRequest
 import com.finunity.data.repository.RefreshResult
 import com.finunity.data.repository.HoldingLedgerRepository
 import com.finunity.data.repository.HoldingSnapshotCommand
@@ -660,35 +661,48 @@ class MainViewModel(
                     allAssetRecords.map { it.currency })
                 .distinct()
                 .filter { it != baseCurrency }
-            val rates = currencies.associate { "${it}${baseCurrency}" to 1.0 }
+            val currencyPairs = currencies.map { "${it}${baseCurrency}" }.toSet()
+            val tradableTypes = setOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
+            val marketRequests = allAssetRecords
+                .filter { it.assetType in tradableTypes }
+                .map { record ->
+                    MarketAssetRequest(
+                        clientRef = record.id,
+                        code = normalizeSecurityCode(record.securityCode.ifBlank { record.name }),
+                        assetType = record.assetType.name,
+                        instrumentId = record.instrumentId.takeIf(String::isNotBlank)
+                    )
+                }
+            val allSymbols = marketRequests.map { it.code }.distinct()
 
-            // 基金净值来源不稳定且通常不受 Yahoo 代码接口支持；保留用户手动价格，不在每日刷新中制造错误噪音。
-            val tradableTypes = setOf(AssetType.STOCK.name, AssetType.ETF.name)
-            val assetRecordCodes = allAssetRecords
-                .filter { it.assetType.name in tradableTypes }
-                .map { record -> normalizeSecurityCode(record.securityCode.ifBlank { record.name }) }
-                .distinct()
-
-            // 合并所有需要刷新的代码
-            val allSymbols = assetRecordCodes
-
-            // 批量刷新价格
-            val result = priceRepository.refreshAllPrices(allSymbols, rates)
+            // 单次请求 FinUnity 专属服务；服务端负责股票、ETF、基金净值和汇率聚合。
+            val result = priceRepository.refreshMarketData(marketRequests, currencyPairs, baseCurrency)
             _lastPriceRefreshPartial.value = result.isPartialFailure
             val requestedSymbols = allSymbols.toSet()
             _priceHealth.value = evaluatePriceHealth(
                 database.priceDao().getAllPrices(),
-                requestedSymbols = requestedSymbols + rates.keys.map { "${it}=X" },
+                requestedSymbols = requestedSymbols + currencyPairs.map { "${it}=X" },
                 partialFailure = result.isPartialFailure
             )
 
             // 如果有失败，记录部分失败信息
             val failureMessages = mutableListOf<String>()
             if (result.symbolsFailed.isNotEmpty()) {
-                failureMessages.add("价格失败: ${result.symbolsFailed.joinToString(", ")}")
+                failureMessages.add(
+                    "行情/净值失败: " + result.symbolsFailed.joinToString(", ") { symbol ->
+                        "$symbol(${result.failureCodes[symbol] ?: "UNKNOWN"})"
+                    }
+                )
             }
             if (result.ratesFailed.isNotEmpty()) {
-                failureMessages.add("汇率失败: ${result.ratesFailed.joinToString(", ")}")
+                failureMessages.add(
+                    "汇率失败: " + result.ratesFailed.joinToString(", ") { pair ->
+                        "$pair(${result.failureCodes[pair] ?: "UNKNOWN"})"
+                    }
+                )
+            }
+            if (failureMessages.isNotEmpty() && result.requestId.isNotBlank()) {
+                failureMessages.add("requestId=${result.requestId}")
             }
 
             // 回写 AssetRecord 当前价格（更新所有持有该股票的记录）
@@ -698,11 +712,12 @@ class MainViewModel(
                 if (price != null && price.price > 0 && !price.isFallback) {
                     val matchingRecords = allAssetRecords.filter { record ->
                         normalizeSecurityCode(record.securityCode.ifBlank { record.name }) == code &&
-                            record.assetType in listOf(AssetType.STOCK, AssetType.ETF)
+                            record.assetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
                     }
                     for (existing in matchingRecords) {
                         val updated = existing.copy(
                             currentPrice = price.price,
+                            instrumentId = price.instrumentId.ifBlank { existing.instrumentId },
                             updatedAt = System.currentTimeMillis()
                         )
                         database.assetRecordDao().update(updated)

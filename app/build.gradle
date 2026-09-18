@@ -25,6 +25,11 @@ def releaseKeyPassword = signingValue('keyPassword', 'FINUNITY_KEY_PASSWORD')
 def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
         .every { it != null && !it.toString().trim().isEmpty() }
 
+def finUnityApiBaseUrl = providers.gradleProperty('FINUNITY_API_BASE_URL')
+        .orElse(providers.environmentVariable('FINUNITY_API_BASE_URL'))
+        .getOrElse('')
+def escapedFinUnityApiBaseUrl = finUnityApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')
+
 if (!hasReleaseSigning) {
     logger.lifecycle('FinUnity release signing is not configured. Add signing.properties locally or set FINUNITY_* environment variables before publishing.')
 }
@@ -39,6 +44,8 @@ android {
         targetSdk 36
         versionCode 1
         versionName "1.0"
+
+        buildConfigField "String", "FINUNITY_API_BASE_URL", "\"${escapedFinUnityApiBaseUrl}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -119,7 +126,7 @@ dependencies {
     // WorkManager
     implementation 'androidx.work:work-runtime-ktx:2.9.0'
 
-    // Retrofit for Yahoo Finance API
+    // Retrofit client for the dedicated FinUnity service
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
@@ -127,9 +134,6 @@ dependencies {
     // Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3'
-
-    // On-device Chinese OCR for user-provided holding screenshots
-    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 
     // Testing
     testImplementation 'junit:junit:4.13.2'

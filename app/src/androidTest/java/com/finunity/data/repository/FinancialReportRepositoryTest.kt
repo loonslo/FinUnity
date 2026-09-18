@@ -8,12 +8,6 @@ import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.CashFlowCategory
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
-import com.finunity.data.remote.ChartData
-import com.finunity.data.remote.ChartError
-import com.finunity.data.remote.ChartResult
-import com.finunity.data.remote.StockMeta
-import com.finunity.data.remote.YahooFinanceApi
-import com.finunity.data.remote.YahooFinanceResponse
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,7 +36,7 @@ class FinancialReportRepositoryTest {
     fun missingExchangeRateExcludesForeignCurrencyFromTotals() = runBlocking {
         val repository = FinancialReportRepository(
             database = db,
-            priceRepositoryOverride = PriceRepository(db.priceDao(), FakeYahooFinanceApi())
+            priceRepositoryOverride = PriceRepository(db.priceDao())
         )
         val transactions = listOf(
             transaction("usd-income", "USD", 100.0, CashFlowCategory.SALARY),
@@ -60,12 +54,19 @@ class FinancialReportRepositoryTest {
 
     @Test
     fun validExchangeRateIsAppliedAndTimestampIsExposed() = runBlocking {
+        db.priceDao().insert(
+            com.finunity.data.local.entity.Price(
+                symbol = "USDCNY=X",
+                price = 7.2,
+                currency = "USD/CNY",
+                source = "FINUNITY",
+                quality = "EOD",
+                valueType = "FX_RATE"
+            )
+        )
         val repository = FinancialReportRepository(
             database = db,
-            priceRepositoryOverride = PriceRepository(
-                db.priceDao(),
-                FakeYahooFinanceApi(exchangeRates = mapOf("USDCNY=X" to 7.2))
-            )
+            priceRepositoryOverride = PriceRepository(db.priceDao())
         )
 
         val report = repository.build(
@@ -95,44 +96,4 @@ class FinancialReportRepositoryTest {
         category = category
     )
 
-    private class FakeYahooFinanceApi(
-        private val exchangeRates: Map<String, Double> = emptyMap()
-    ) : YahooFinanceApi {
-        override suspend fun getStockPrice(
-            symbol: String,
-            interval: String,
-            range: String
-        ): YahooFinanceResponse = failureResponse()
-
-        override suspend fun getExchangeRate(
-            symbol: String,
-            interval: String,
-            range: String
-        ): YahooFinanceResponse {
-            val rate = exchangeRates[symbol]
-            return if (rate == null) failureResponse() else YahooFinanceResponse(
-                chart = ChartResult(
-                    result = listOf(
-                        ChartData(
-                            meta = StockMeta(
-                                symbol = symbol,
-                                regularMarketPrice = rate,
-                                regularMarketPreviousClose = null,
-                                chartPreviousClose = null,
-                                currency = "CNY"
-                            )
-                        )
-                    ),
-                    error = null
-                )
-            )
-        }
-
-        private fun failureResponse() = YahooFinanceResponse(
-            chart = ChartResult(
-                result = null,
-                error = ChartError("NOT_FOUND", "not found in test")
-            )
-        )
-    }
 }

@@ -30,7 +30,7 @@ import com.finunity.data.local.migration.DatabaseMigrations
 
 @Database(
     entities = [Account::class, Position::class, Price::class, Settings::class, Transaction::class, AssetSnapshot::class, AssetRecord::class, PriceHistory::class, AllocationTarget::class, RecurringRule::class],
-    version = 24,
+    version = 25,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

@@ -29,9 +29,12 @@ import com.finunity.data.local.entity.defaultRiskBucket
 import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountAssetRules
 import com.finunity.data.model.displayName
+import com.finunity.data.remote.ServiceInstrument
+import com.finunity.data.repository.InstrumentRepository
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.theme.FinColors
 import java.util.Locale
+import kotlinx.coroutines.launch
 import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinBucketTag
 import com.finunity.ui.components.FinSoftButton
@@ -54,6 +57,7 @@ fun AssetRecordScreen(
     }
     var name by remember { mutableStateOf(record?.name ?: "") }
     var securityCode by remember { mutableStateOf(record?.securityCode ?: "") }
+    var instrumentId by remember { mutableStateOf(record?.instrumentId ?: "") }
     var selectedAssetType by remember { mutableStateOf(record?.assetType ?: allowedAssetTypes.firstOrNull() ?: AssetType.CASH) }
     var selectedRiskBucket by remember { mutableStateOf(record?.riskBucket ?: defaultRiskBucketFor(selectedAssetType)) }
     var quantity by remember { mutableStateOf(record?.quantity?.toString() ?: "") }
@@ -70,6 +74,11 @@ fun AssetRecordScreen(
     var showAdvancedOptions by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var showRiskBucketSheet by remember { mutableStateOf(false) }
+    var instrumentResults by remember { mutableStateOf(emptyList<ServiceInstrument>()) }
+    var isSearchingInstrument by remember { mutableStateOf(false) }
+    var instrumentSearchError by remember { mutableStateOf<String?>(null) }
+    val instrumentRepository = remember { InstrumentRepository() }
+    val scope = rememberCoroutineScope()
 
     val currencies = listOf("CNY", "USD", "HKD")
     val currencyLabels = mapOf("CNY" to "人民币", "USD" to "美元", "HKD" to "港币")
@@ -89,7 +98,7 @@ fun AssetRecordScreen(
     }
 
     // 检测是否有未保存的修改
-    val hasUnsavedChanges = remember(name, securityCode, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked) {
+    val hasUnsavedChanges = remember(name, securityCode, instrumentId, quantity, cost, currentPrice, selectedCurrency, selectedAssetType, selectedRiskBucket, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked) {
         if (record == null) {
             // 新建时只要有输入就有改动
             name.isNotBlank() || securityCode.isNotBlank() || quantity.isNotBlank() || cost.isNotBlank() || currentPrice.isNotBlank() ||
@@ -98,6 +107,7 @@ fun AssetRecordScreen(
             // 编辑时对比原始值
             name != record.name ||
             securityCode != record.securityCode ||
+            instrumentId != record.instrumentId ||
             quantity != record.quantity.toString() ||
             cost != record.cost.toString() ||
             currentPrice != record.currentPrice.toString() ||
@@ -231,6 +241,9 @@ fun AssetRecordScreen(
                                 if (selectedAssetType != type) {
                                     name = ""
                                     securityCode = ""
+                                    instrumentId = ""
+                                    instrumentResults = emptyList()
+                                    instrumentSearchError = null
                                     quantity = ""
                                     cost = ""
                                     currentPrice = ""
@@ -256,13 +269,75 @@ fun AssetRecordScreen(
                         },
                         placeholder = getNamePlaceholder(selectedAssetType)
                     )
-                    if (!isNewRecord && selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
+                    if (selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)) {
                         FinInlineField(
                             value = securityCode,
-                            onValueChange = { securityCode = it },
+                            onValueChange = {
+                                securityCode = it
+                                instrumentId = ""
+                                instrumentResults = emptyList()
+                            },
                             label = "证券编码",
                             placeholder = "如 510300.SS、AAPL、0700.HK"
                         )
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    isSearchingInstrument = true
+                                    instrumentSearchError = null
+                                    instrumentResults = emptyList()
+                                    try {
+                                        instrumentResults = instrumentRepository.search(
+                                            query = securityCode.ifBlank { name },
+                                            assetType = selectedAssetType.name
+                                        )
+                                        if (instrumentResults.isEmpty()) {
+                                            instrumentSearchError = "专属服务未返回匹配证券"
+                                        }
+                                    } catch (error: Exception) {
+                                        instrumentSearchError = error.message ?: "证券搜索失败"
+                                    } finally {
+                                        isSearchingInstrument = false
+                                    }
+                                }
+                            },
+                            enabled = !isSearchingInstrument && (securityCode.isNotBlank() || name.isNotBlank())
+                        ) {
+                            Text(if (isSearchingInstrument) "正在查询专属服务…" else "从专属服务查找并确认")
+                        }
+                        instrumentSearchError?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                        instrumentResults.forEach { candidate ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    instrumentId = candidate.instrumentId
+                                    securityCode = candidate.canonicalSymbol
+                                    name = candidate.name
+                                    if (candidate.currency in currencies) selectedCurrency = candidate.currency
+                                    instrumentResults = emptyList()
+                                    instrumentSearchError = null
+                                }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(candidate.name, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "${candidate.canonicalSymbol} · ${candidate.market} · ${candidate.currency}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = FinColors.TextSecondary
+                                    )
+                                }
+                                Text("选择", color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        if (instrumentId.isNotBlank()) {
+                            Text(
+                                "已确认：$instrumentId",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
@@ -530,7 +605,10 @@ fun AssetRecordScreen(
             val c = cost.toDoubleOrNull() ?: 0.0
             val price = currentPrice.toDoubleOrNull() ?: 0.0
             val isTradableType = selectedAssetType in listOf(AssetType.STOCK, AssetType.ETF, AssetType.FUND)
-            val isValidForTradable = !isTradableType || (c > 0 && price > 0)
+            val isValidForTradable = !isTradableType || (
+                c > 0 && price > 0 && securityCode.isNotBlank() &&
+                    (!isNewRecord || instrumentId.isNotBlank())
+                )
             val isFormValid = (selectedAssetType == AssetType.CASH || name.isNotBlank()) &&
                     qty > 0 &&
                     isValidForTradable &&
@@ -546,9 +624,9 @@ fun AssetRecordScreen(
                         name = if (selectedAssetType == AssetType.CASH) "现金" else name.trim(),
                         securityCode = when {
                             selectedAssetType == AssetType.CASH -> ""
-                            isNewRecord && isTradableType -> name.trim()
                             else -> securityCode.trim()
                         },
+                        instrumentId = if (selectedAssetType == AssetType.CASH) "" else instrumentId,
                         quantity = qty,
                         cost = c,
                         currentPrice = price,

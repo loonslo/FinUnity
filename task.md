@@ -1,643 +1,810 @@
-# FinUnity 三桶正式化与发布前修复清单
+# FinUnity 专属服务项目：接口需求清单
 
-> 适用范围：当前工作树（Room v22、深色三桶原型 UI、本地 OCR、备份/报表/周期规则等新增功能）。  
-> 产品决策：正式采用三桶，不再以“四象限”为产品口径。  
-> 执行方式：严格按 Task 顺序推进；每个 Task 完成后先通过该 Task 的验证点，再进入下一项。  
-> 状态约定：`[ ]` 待做，`[~]` 进行中，`[x]` 已完成，`[!]` 阻塞。
+> 审计日期：2026-08-30
+> 使用方：FinUnity Android App（衡仓）
+> 提供方：独立的 FinUnity 专属服务项目
+> 本文件只描述专属服务需要提供的接口，以及 Android 替换旧接口所需的联调任务；不保留已经完成的 App 功能任务。
 
-## 本轮执行记录（2026-08-28，模拟器重跑）
+## 0. 强制架构约定
 
-- Task 00 `[~]`：已复核工作区、敏感文件忽略和基线；已纳入 Room 22/23/24 schema，v9/v14/v16 脱敏 fixture 与提交拆分仍未完成。
-- Task 01 `[~]`：三桶模型、兼容映射和纯函数测试已复核；完整边界验收仍未覆盖。
-- Task 02 `[~]`：修复 AndroidTest schema assets 配置，v22→v23 真实迁移测试已在模拟器通过；v3/v9/v14/v16 全链路 fixture 仍缺失。
-- Task 03 `[~]`：核心三桶/负债/今日涨跌测试已复核；SnapshotWorker 对照和全部数据质量场景仍需补齐。
-- Task 04 `[~]`：规划导航与可保存表单代码已复核；七个子功能、通知冷启动和旋转验收尚未完整执行。
-- Task 05 `[~]`：覆盖恢复实现已复核；逐表 round-trip、非法外键回滚和旧备份矩阵测试仍需补齐。
-- Task 06 `[~]`：价格健康状态、缓存回退和 Worker 实现已复核；完整 Mock 网络矩阵和四类证券设备验收仍需补齐。
-- Task 07 `[~]`：OCR 解析、统一代码和 HoldingLedger 已复核；批量失败回滚、重复导入和多币种 UI 验收仍需补齐。
-- Task 08 `[~]`：报表、周期规则和对账实现已复核；仓储级自动化覆盖仍不完整。
-- Task 09 `[~]`：合并持仓模型和详情页已复核；双账户买卖、多币种限制的完整 UI 验收仍需补齐。
-- Task 10 `[~]`：旧页面入口清理、生命周期采集和 Locale 格式化已复核；`PrototypeScreens.kt` 仍为 1689 行，尚未按页面拆分。
-- Task 11 `[~]`：本轮未纳入执行；隐私政策真实支持邮箱/公开 HTTPS URL 等发布资料仍待补齐。
-- Task 12 `[~]`：clean、JVM `test`（Debug 142/142；Release 142/142）、Debug、AndroidTest 编译、Lint、Release APK/AAB 全部通过；模拟器 connected tests 25/25 通过，debug 安装启动无崩溃；完整产品流程仍未全部手工验收。
+- [ ] Android App 的所有远端数据只请求 FinUnity 专属服务域名，例如 `https://api.finunity.example.com/api/v1`。
+- [ ] Android 不再直接请求 Yahoo Finance，也不直接集成任何基金、汇率、行情或云 OCR 供应商接口。
+- [ ] Yahoo 或其他数据商只能作为专属服务的上游；上游 URL、密钥、鉴权方式和原始响应不得出现在 APK 中。
+- [ ] 专属服务负责统一股票、ETF、基金、汇率、历史数据、指标数据和图片解析的供应商差异。
+- [ ] 专属服务返回 FinUnity 自己定义的稳定 JSON；更换上游数据商时 Android 不需要升级。
+- [ ] 当前本地 Room 数据仍是 App 的业务主存储；专属服务首期只提供数据和解析能力，不直接修改用户本地资产。
+- [ ] 所有价格、净值、汇率和 OCR 结果都必须由用户可追溯到数据时间、数据质量和服务端请求 ID。
 
-## 继续修复记录（2026-08-28）
+## 1. 服务项目首期交付范围
 
-- Task 02：v22→v23 迁移 fixture 增加 positions、prices、price_history、transactions、asset_snapshots、recurring_rules 行数校验，并增加未知风险桶失败测试，迁移类 2/2 通过。
-- Task 05：新增备份导出/覆盖恢复、非法外键保护、未来版本拒绝测试，备份类 3/3 通过。
-- Task 06：`PriceRepository` 支持注入 API，新增成功、失败、缓存回退和熔断测试，行情类 4/4 通过。
-- Task 08：新增周期规则幂等、报表缺汇率/有效汇率、对账一致/不一致/数据不足测试，共 6/6 通过。
-- Task 10：删除未引用的重复 `AccountHubScreen`，将仍使用的账户工具页独立为 `AccountAssetsByAccountScreen.kt`；正式 UI 不再读取 `summary.positions`。
-- Task 12：完整 instrumentation suite 从 11 项扩展并通过至 25 项；最终 clean 全链路和模拟器启动冒烟均通过。
-- UI 实机复核：按当前导航逐页截图检查总览、持仓、流水、配置、账户、账户详情、添加/编辑账户、资产录入、导入、规划、报表、周期收支、备份、隐私、对账、导出及交易录入等页面；确认可滚动页面的底部内容可达。修复财务报表指标卡横向截断、周期收入类别换行异常、交易录入底部按钮文字被导航栏 inset 裁切。
-
----
-
-## 一、最终产品口径
-
-### 1. 三桶定义
-
-| 稳定键 | 中文名称 | 目标 | 典型资产 |
+| ID | 优先级 | 专属服务必须提供的能力 | 当前 App 缺口 |
 |---|---|---|---|
-| `DEFENSIVE` | 防守 | 保证近期流动性、随时可用 | 现金、活期、余额宝、短期备用金 |
-| `BALANCED` | 稳健 | 保障、保值、低波动 | 定期、债券、保险、年金、房产、车辆、低波动基金 |
-| `AGGRESSIVE` | 进攻 | 长期增值、承担波动 | 股票、ETF、权益基金、训练仓 |
+| API-00 | P0 | 客户端鉴权、版本和服务能力 | 当前没有自有服务鉴权 |
+| API-01 | P0 | 证券/基金搜索与代码解析 | 当前只靠本地正则猜代码和市场 |
+| API-02 | P0 | 一次性资产数据同步接口 | 当前 App 逐个请求 Yahoo 股票和汇率 |
+| API-03 | P0 | 股票、ETF 最新价与昨收 | 当前使用 Yahoo 非正式接口 |
+| API-04 | P0 | 公募基金净值 | 当前 `FUND` 完全手工维护，不自动同步 |
+| API-05 | P0 | 外汇汇率 | 当前只请求 Yahoo `XXXYYY=X` |
+| API-06 | P0 | 持仓截图解析 | 当前只有本地 ML Kit + 单行正则，没有专属服务接口 |
+| API-07 | P1 | 历史价格和历史净值 | 当前只能从 App 开始使用后逐日积累 |
+| API-08 | P1 | 基金分类、限购和市场指标 | 当前全部手工填写 |
+| API-09 | P1 | 公司行动 | 当前无法自动识别拆股、分红、代码变更 |
+| API-10 | P1 | 服务状态和数据源健康 | 当前无法判断专属服务或上游是否异常 |
 
-### 2. 默认目标比例
+首期 P0 完成后，Android 应能完全删除对 `query1.finance.yahoo.com` 的直接访问，并能通过专属服务完成股票/ETF/基金/汇率同步和图片解析。
 
-```text
-DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3
+## 2. 统一协议
+
+### 2.1 HTTP 与鉴权
+
+- Base URL：`https://<专属域名>/api/v1`
+- 传输：只允许 TLS 1.2 及以上。
+- JSON：`Content-Type: application/json; charset=utf-8`。
+- 图片：`multipart/form-data`。
+- 鉴权：`Authorization: Bearer <access_token>`。
+- 链路追踪：Android 每次传 `X-Request-ID`；服务端原样返回或生成新的 `request_id`。
+- 幂等：写入/任务类接口支持 `Idempotency-Key`。
+- 压缩：支持 gzip/br，Android 至少使用 gzip。
+- 语言：`Accept-Language: zh-CN`，错误码保持英文稳定枚举，错误文案可中文化。
+
+### 2.2 基础数据格式
+
+- 日期：`YYYY-MM-DD`。
+- 时间：RFC 3339 UTC，例如 `2026-08-30T11:20:30Z`。
+- 金额、价格、数量、净值、汇率、比例：JSON 十进制字符串，例如 `"1418.01"`。
+- 未知数值：返回 `null`；禁止用 `0`、空串、`NaN` 或 `Infinity` 表示未知。
+- 币种：ISO 4217 大写三位码，例如 `CNY`、`USD`、`HKD`。
+- 市场：优先使用 ISO 10383 MIC，例如 `XSHG`、`XSHE`、`XHKG`、`XNAS`、`XNYS`。
+- 服务端 ID：不透明字符串；客户端关联字段统一叫 `client_ref`，服务端必须原样返回。
+- 枚举：大写蛇形命名；新增值必须向后兼容。
+
+### 2.3 成功响应包络
+
+```json
+{
+  "request_id": "req_01J6ABCD",
+  "data": {},
+  "warnings": [],
+  "partial": false,
+  "server_time": "2026-08-30T11:20:30Z"
+}
 ```
 
-该比例由原默认四象限合并得出：防守 10%，稳健 40% + 保命 20% = 稳健 60%，进攻 30%。
+### 2.4 错误响应包络
 
-### 3. 旧数据映射
+```json
+{
+  "request_id": "req_01J6ABCD",
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "请求过于频繁",
+    "retryable": true,
+    "retry_after_seconds": 60,
+    "details": []
+  },
+  "server_time": "2026-08-30T11:20:30Z"
+}
+```
 
-| 旧值 | 新值 |
+HTTP 状态约定：
+
+| HTTP | 含义 |
 |---|---|
-| `CASH` | `DEFENSIVE` |
-| `CONSERVATIVE` | `BALANCED` |
-| `INSURANCE` | `BALANCED` |
-| `AGGRESSIVE` | `AGGRESSIVE` |
+| 200 | 成功；批量部分失败也返回 200，并设置 `partial=true` |
+| 400 | 请求字段/格式错误 |
+| 401 | Token 缺失、无效或过期 |
+| 403 | 客户端无权限、完整性校验失败 |
+| 404 | 单资源不存在 |
+| 409 | 幂等键或资源状态冲突 |
+| 413 | 图片或批量请求过大 |
+| 415 | 不支持的图片/媒体格式 |
+| 422 | 图片可读取但无法解析为持仓，或业务字段校验失败 |
+| 429 | 限流；必须返回 `Retry-After` |
+| 500/502/503/504 | 专属服务或上游错误，可按 `retryable` 决定重试 |
 
-### 4. 统一统计口径
+批量接口的单项状态：`OK / NOT_FOUND / INVALID / AMBIGUOUS / STALE / RATE_LIMITED / PROVIDER_ERROR`。整批不能因为一个项目失败而丢弃其他成功数据。
 
-- `grossAssets`：所有正资产总额，不减负债。
-- `liabilities`：负债余额的正数合计。
-- `netWorth`：`grossAssets - liabilities`。
-- 三桶金额之和必须等于 `grossAssets`，负债不进入任何桶。
-- 三桶占比、目标偏离和再平衡均以“可配置资产”为分母，不以净资产为分母。
-- 锁定专款仍展示在对应桶中，但不进入可投资策略盘和再平衡金额。
-- “今日涨跌比例”的分母只使用有昨收价的可跟踪证券昨日市值，不能用房产、现金和净资产稀释。
+## 3. API-00 `[ ]`：客户端鉴权和能力配置
 
-### 5. 全局完成标准
+### 3.1 获取匿名客户端会话
 
-- [ ] 运行代码、数据库、备份、CSV、OCR、页面、文案和文档只出现正式三桶口径。
-- [ ] 旧四象限数据库和旧备份可无损迁移到三桶。
-- [ ] 核心写操作具备事务性，UI 不提前报告成功。
-- [ ] 所有自动化测试、Debug/Release 构建、Lint 门禁和真机核心流程通过。
-- [ ] 不再存在用户可见的死入口、不可达正式页面或与能力不一致的承诺。
+`POST /api/v1/auth/session`
 
----
+请求：
 
-## 二、按顺序执行的 Task
-
-## Task 00 `[~]`：冻结基线并建立可回退验证样本
-
-**优先级**：P0  
-**依赖**：无  
-**目标**：先保护当前大量未提交工作，保存能验证迁移和核心计算的真实样本。
-
-### 修改/产出
-
-- [ ] 盘点当前 tracked/untracked 文件，确认截图、演示数据库、签名文件是否应进入版本库。
-- [ ] 确保 `signing.properties`、`keys/`、`local.properties`、数据库样本中的敏感数据继续被忽略。
-- [ ] 将本轮功能改动整理为可审查提交；不要把所有功能和三桶迁移压成一个不可回滚提交。
-- [ ] 准备以下脱敏测试 fixture：
-  - v9 四象限数据库；
-  - v14 含估值字段数据库；
-  - v16 含 Position + AssetRecord 数据库；
-  - v22 当前数据库；
-  - 旧备份 JSON（至少 v1、v6、v8）；
-  - 含现金、保险、房产、股票、USD/HKD、负债的综合样本。
-- [ ] 记录当前 142 个 Debug JVM 单测（Debug/Release 各 142，共 284 次执行）、Debug/Release 构建和 Lint 数量作为回归基线。
-
-### 验证点
-
-- [ ] `git status --short` 中无意外密钥、真实财务数据或 APK/AAB。
-- [ ] 每个 fixture 都能说明来源版本、预期账户数、资产数、流水数和总额。
-- [ ] fixture 只使用虚构名称和金额。
-- [ ] 当前基线执行：
-
-```powershell
-.\gradlew.bat testDebugUnitTest assembleDebug compileDebugAndroidTestKotlin
-.\gradlew.bat lintDebug
+```json
+{
+  "installation_id": "android-installation-uuid",
+  "platform": "ANDROID",
+  "app_version": "1.0.0",
+  "version_code": 1,
+  "device_locale": "zh-CN",
+  "integrity_token": "optional-play-integrity-token"
+}
 ```
 
----
-
-## Task 01 `[~]`：建立三桶领域模型和纯函数测试
-
-**优先级**：P0  
-**依赖**：Task 00  
-**目标**：先在纯 Kotlin 层定义唯一三桶语义，再改数据库和 UI。
-
-### 修改范围
-
-- `data/local/entity/AssetRecord.kt`
-- `data/local/entity/Settings.kt`
-- `data/local/entity/AllocationTarget.kt`
-- `data/model/UnifiedAsset.kt`
-- `data/model/PortfolioSummary.kt`
-- `data/model/PortfolioCalculator.kt`
-- 再平衡、风险告警、压力测试、落点相关纯函数与测试
-
-### 任务项
-
-- [ ] 将正式枚举收口为 `DEFENSIVE / BALANCED / AGGRESSIVE`。
-- [ ] 删除业务层对 `CASH / CONSERVATIVE / INSURANCE` 的新增写入能力。
-- [ ] 建立单一兼容映射函数，例如 `legacyBucketToThreeBucket()`；迁移、备份和导入统一复用。
-- [ ] 将目标配置稳定键改为三桶，默认值改为 `0.1 / 0.6 / 0.3`。
-- [ ] `parseTargetAllocation()` 同时兼容旧四键和新三键；旧 `CONSERVATIVE + INSURANCE` 自动合并。
-- [ ] 明确资产类型默认桶：
-  - `CASH` → `DEFENSIVE`
-  - `TIME_DEPOSIT / REAL_ESTATE / VEHICLE / INSURANCE_POLICY` → `BALANCED`
-  - `STOCK / ETF` → `AGGRESSIVE`
-  - `FUND` 默认 `BALANCED` 或根据基金子类型决定；当前没有子类型时不得无提示地固定为进攻。
-- [ ] 将再平衡、风险上限、落点和锁定专款逻辑改成三桶键。
-- [ ] 保留 `maxAggressiveRatio`，文案统一为“进攻仓位上限”。
-- [ ] 删除所有“四象限/保命桶/标普四象限”代码注释和用户文案。
-
-### 验证点
-
-- [ ] 旧目标 `CONSERVATIVE:0.4,AGGRESSIVE:0.3,INSURANCE:0.2,CASH:0.1` 解析结果为三桶 `0.1/0.6/0.3`。
-- [ ] 新三桶目标解析后总和严格为 1；允许小数误差不超过 `1e-6`。
-- [ ] 目标缺项、重复项、非法数字、负数、总和不为 1 时有明确校验结果。
-- [ ] 保险、房产、车辆全部进入 `BALANCED`，不进入 `DEFENSIVE`。
-- [ ] 进攻上限和再平衡只使用三桶键。
-- [ ] 所有三桶纯函数均有边界单测：空资产、零总额、负债大于资产、锁定资产、缺汇率。
-
----
-
-## Task 02 `[~]`：数据库 v22→v23 三桶数据迁移
-
-**优先级**：P0  
-**依赖**：Task 01  
-**目标**：把现有数据库中的旧四象限值真实迁移成三桶，避免只在 UI 临时合并。
-
-### 修改范围
-
-- `data/local/AppDatabase.kt`
-- `data/local/Converters.kt`
-- `data/local/migration/DatabaseMigrations.kt`
-- Room schema 输出目录
-- `androidTest/.../AppDatabaseTest.kt` 或新的迁移测试
-
-### 任务项
-
-- [ ] 数据库版本升级到 v23。
-- [ ] 新增 `MIGRATION_22_23`，更新：
-  - `asset_records.riskBucket`
-  - `allocation_targets.riskBucket`
-  - `settings.targetAllocation`
-- [ ] 自定义目标配置迁移必须保留用户比例，不能一律覆盖成默认值。
-- [ ] 迁移中把 `CONSERVATIVE + INSURANCE` 比例求和为 `BALANCED`。
-- [ ] `Converters.toRiskBucket()` 对未知值给出可诊断错误；不能静默写错桶。
-- [ ] 开启 `exportSchema = true`，将 v23 schema 纳入版本控制。
-- [ ] 使用 `MigrationTestHelper` 建立真实迁移测试，而不是只创建当前版本内存数据库。
-- [ ] 迁移后执行 Room schema validation。
-
-### 验证点
-
-- [ ] v22 fixture 升级后不存在 `CASH / CONSERVATIVE / INSURANCE` 风险桶值。
-- [ ] 迁移前后账户数、资产数、交易数、价格历史数、快照数完全一致。
-- [ ] 迁移前四桶金额合并后与迁移后三桶金额一致，误差小于 0.01。
-- [ ] 用户自定义比例迁移前后数学等价。
-- [ ] v3→v23、v9→v23、v14→v23、v16→v23、v22→v23 全链路测试通过。
-- [ ] 迁移失败时不会触发 v3+ 的破坏性重建。
-
----
-
-## Task 03 `[~]`：重构总资产、负债、三桶和今日涨跌口径
-
-**优先级**：P0  
-**依赖**：Task 02  
-**目标**：修正 `cashAssets = totalAssets - stockAssets` 等错误口径，建立可解释的家庭资产总览。
-
-### 修改范围
-
-- `PortfolioCalculator.kt`
-- `PortfolioSummary.kt`
-- `MainViewModel.kt`
-- `SnapshotWorker.kt`
-- `AssetSnapshot.kt`
-- `HistoryRepository.kt`
-- 历史、报表、总览、压力测试页面
-
-### 任务项
-
-- [ ] `PortfolioSummary` 明确输出：
-  - `grossAssets`
-  - `liabilities`
-  - `netWorth`
-  - `defensiveAssets`
-  - `balancedAssets`
-  - `aggressiveAssets`
-  - `strategyAssets`
-- [ ] 删除或弃用含糊的 `cashAssets / stockAssets / totalAssets` 业务含义，防止旧口径继续传播。
-- [ ] 三桶金额只由 AssetRecord 风险桶汇总；负债账户单独计算。
-- [ ] 三桶占比分母使用可配置资产，不使用净资产。
-- [ ] 锁定专款从策略盘中扣除，但仍计入总资产和桶金额。
-- [ ] “今日涨跌额”只计算有有效昨收的证券。
-- [ ] “今日涨跌率”分母改为上述证券的昨日市值。
-- [ ] 汇率缺失时返回带原因的数据质量状态，不得用 1:1 静默折算。
-- [ ] 数据库升级到 v24，为快照增加三桶、总正资产、负债和口径版本字段。
-- [ ] 旧快照标记为 legacy；不能伪造无法从旧字段恢复的三桶历史。
-- [ ] 新快照满足：`三桶合计 = grossAssets`、`grossAssets - liabilities = netWorth`。
-
-### 验证点
-
-- [ ] 仅有房产时，`balancedAssets` 等于房产市值，`defensiveAssets` 为 0。
-- [ ] 仅有保单时不会显示为现金。
-- [ ] 100 万资产 + 20 万负债：`grossAssets=100万`、`liabilities=20万`、`netWorth=80万`，三桶占比仍合计 100%。
-- [ ] 有锁定专款时，总资产不变，策略盘正确减少。
-- [ ] 有房产和现金时，证券今日涨跌率不被非证券资产稀释。
-- [ ] 缺 USD/HKD 汇率时界面明确显示“未计入/汇率缺失”，不产生 1:1 假总额。
-- [ ] SnapshotWorker 与 MainViewModel 对同一 fixture 的结果逐字段一致。
-
----
-
-## Task 04 `[~]`：让三桶规划闭环重新可达
-
-**优先级**：P0  
-**依赖**：Task 03  
-**目标**：消除已经实现但用户无法进入的规划、历史和风险页面。
-
-### 修改范围
-
-- `MainActivity.kt`
-- `PrototypeScreens.kt`
-- `PlanningScreen.kt`
-- `TargetAllocationScreen.kt`
-- `MonthlyReviewScreen.kt`
-- `ExpenseSimulationScreen.kt`
-- `LandingPointScreen.kt`
-- `StressTestScreen.kt`
-- `HistoryScreen.kt`
-- `SettingsScreen.kt`
-
-### 任务项
-
-- [ ] 明确一级信息架构：总览 / 持仓 / 流水 / 配置 / 账户。
-- [ ] “配置”页保留三桶目标调节，并增加“进入完整规划”入口。
-- [ ] 完整规划页提供：目标配置、偏离建议、落点、月度复盘、历史、支出模拟、压力测试。
-- [ ] 所有旧四象限 UI 改成三桶。
-- [ ] 删除“稳健+保命按旧比例再拆分”的保存逻辑。
-- [ ] 月度提醒点击后能直接进入月度复盘，并能正常返回原路径。
-- [ ] 设置页对规划入口的说明与真实导航一致。
-- [ ] 给正式页面建立导航可达性清单；不可达页面要么接入，要么删除。
-- [ ] 系统返回、顶部返回、底部 Tab 切换遵循同一导航规则。
-
-### 验证点
-
-- [ ] 从首页最多两次点击可进入完整规划页。
-- [ ] 从规划页可进入并返回七个子功能，返回栈无跳页和死循环。
-- [ ] 三桶目标保存后，首页、配置、规划、复盘显示完全一致。
-- [ ] 旋转屏幕后仍停留在当前页面，已填写表单不丢失。
-- [ ] 通知冷启动和应用已打开两种场景都能进入月度复盘。
-- [ ] 静态扫描不存在只有 `when` 分支、没有任何入口的正式 Screen。
-
----
-
-## Task 05 `[~]`：修复备份恢复和迁移安全
-
-**优先级**：P0  
-**依赖**：Task 02、Task 03  
-**目标**：确保真实家庭财务数据可完整恢复且不会混入旧数据。
-
-### 修改范围
-
-- `BackupRepository.kt`
-- 全部 DAO
-- `BackupScreen.kt`
-- 备份兼容测试
-
-### 任务项
-
-- [ ] `AssetSnapshotDao` 增加 `deleteAll()`。
-- [ ] 恢复事务中清空所有会被备份恢复的表，包括 `asset_snapshots`。
-- [ ] 备份版本升级到 v9，正式保存三桶键和 v24 快照字段。
-- [ ] `normalizeLegacyJson()` 在 Gson 反序列化前将旧风险桶和旧目标配置改成三桶。
-- [ ] 校验重复 ID、悬空 accountId/recordId、非法金额、NaN/Infinity、未知枚举和未来版本。
-- [ ] 恢复前展示摘要：账户、资产、流水、快照、规则数量及备份时间。
-- [ ] 恢复失败必须完整回滚，原数据库逐表不变。
-- [ ] 恢复成功后重新调度周期任务并刷新 UI 状态。
-- [ ] 明确“覆盖恢复”，不使用容易误解的“导入合并”文案。
-
-### 验证点
-
-- [ ] 在已有 10 条本地快照时恢复仅含 3 条快照的备份，恢复后必须恰好 3 条。
-- [ ] v1/v6/v8 旧备份恢复为三桶后金额等价。
-- [ ] v9 备份导出→清库→恢复后，逐表内容一致。
-- [ ] 中途制造一条非法外键，恢复失败且原库 hash/计数不变。
-- [ ] 未来备份版本给出“请升级应用”，不得尝试部分恢复。
-
----
-
-## Task 06 `[~]`：修复行情同步、重试和价格可信度
-
-**优先级**：P0  
-**依赖**：Task 03  
-**目标**：让“自动同步成功”与真实价格结果一致，并让用户知道数据是否过期。
-
-### 修改范围
-
-- `PriceRepository.kt`
-- `PriceSyncWorker.kt`
-- `MainViewModel.kt`
-- `Price.kt`
-- `PriceDao.kt`
-- 总览和账户同步状态 UI
-- Worker/Repository 测试
-
-### 任务项
-
-- [ ] `PriceSyncWorker` 必须消费 `RefreshResult`：
-  - 全部成功 → `Result.success()`
-  - 部分失败 → 保存成功项并记录失败详情；根据策略决定 retry
-  - 全部失败且仍有重试次数 → `Result.retry()`
-  - 达到上限 → `Result.failure()` 并保留旧缓存
-- [ ] 删除未使用的 `BACKOFF_DELAYS`，或实现与注释一致的统一退避策略。
-- [ ] 批量刷新前检查熔断器；半开状态只允许有限探测请求。
-- [ ] 手动刷新和后台刷新复用同一服务，不重复请求同一 symbol。
-- [ ] 手动刷新成功后写入价格历史或从 `prices.updatedAt` 读取真实同步时间。
-- [ ] 首页展示整体最差价格状态：正常 / 延迟 / 过期 / 缓存回退 / 部分失败。
-- [ ] 不支持 Yahoo 的基金代码保留手动价格，不应每天制造错误噪音。
-- [ ] 统一证券代码：上海 `.SS`、深圳 `.SZ`、港股 `.HK`、美股 ticker。
-- [ ] 网络失败时不得把旧价格标成“已同步”。
-
-### 验证点
-
-- [ ] Mock 全成功、部分失败、全部失败、超限、429、超时、断网、缓存回退。
-- [ ] 全部失败会进入 WorkManager 重试，而不是成功结束。
-- [ ] 手动刷新后首页同步时间立即更新。
-- [ ] 断网时总额使用旧缓存并显示“价格偏旧”，恢复网络后可再次成功。
-- [ ] 真机/模拟器验证 `AAPL`、`600519.SS`、`159919.SZ`、`0700.HK`。
-- [ ] 验证 `USDCNY=X`、`HKDCNY=X` 汇率以及多币种总额。
-- [ ] 连续失败和熔断恢复行为可从测试或日志明确确认。
-
----
-
-## Task 07 `[~]`：修复 OCR、手动录入和批量导入事务
-
-**优先级**：P1  
-**依赖**：Task 01、Task 05  
-**目标**：确保导入的数据类型、代码、币种和成功状态可信。
-
-### 修改范围
-
-- `HoldingScreenshotParser.kt`
-- `ScreenshotImportRepository.kt`
-- `PrototypeScreens.kt`
-- `MainActivity.kt`
-- `HoldingLedgerRepository.kt`
-- `CsvImportRepository.kt`
-- 导入测试
-
-### 任务项
-
-- [ ] OCR 正则支持 `.SS/.SH/.SZ/.HK`，并将 `.SH` 规范化为 `.SS`。
-- [ ] 裸六位 A 股代码必须推断交易所或标记“需确认”，不能静默生成无法同步的代码。
-- [ ] 港股统一处理 4/5 位代码和前导零。
-- [ ] OCR 解析保留原始文本、标准化代码和置信/需确认原因。
-- [ ] OCR 批量保存改为单个 suspend API + Room 事务，返回逐行结果。
-- [ ] UI 仅在事务成功后提示“已导入 N 项”；失败显示具体行，不提前返回。
-- [ ] 手动快速录入增加：资产名称、资产类型、币种、数量、成本价、当前价。
-- [ ] 风险桶由资产类型自动映射，不让用户直接选择三桶；基金类型不明确时提示确认。
-- [ ] 同码、同账户、同币种的更新/合并规则写进 UI 说明和单测。
-- [ ] CSV、OCR、手动录入统一走 HoldingLedger，不各自直接写 DAO。
-- [ ] 回滚导入批次时只删除该批新增项，不删除此前已存在并被更新的持仓。
-
-### 验证点
-
-- [ ] OCR 单测覆盖：`510300.SS`、`600519.SH`、`159919.SZ`、`00700.HK`、`AAPL`。
-- [ ] 市值绝不被当作成本；成本缺失必须人工填写。
-- [ ] 10 行批量导入第 6 行失败时，根据产品策略做到全回滚或明确部分成功，不能假报 10 行成功。
-- [ ] 重复导入同一截图不会生成重复持仓和重复流水。
-- [ ] 同一券商账户可录入 CNY/USD/HKD 资产。
-- [ ] 股票、ETF、现金、定期、保单默认桶正确。
-
----
-
-## Task 08 `[~]`：修复报表、周期规则和对账正确性
-
-**优先级**：P1  
-**依赖**：Task 03、Task 05  
-**目标**：消除看起来完整但金额可能错误的辅助功能。
-
-### 修改范围
-
-- `FinancialReportRepository.kt`
-- `FinancialReportScreen.kt`
-- `RecurringRuleRepository.kt`
-- `RecurringRuleWorker.kt`
-- `ReconciliationScreen.kt`
-- `MainViewModel.reconcileAccountBalance()`
-
-### 任务项
-
-- [ ] 报表缺汇率时不得使用 `1.0`；使用最后有效汇率或将该币种明确排除出合计。
-- [ ] 报表显示汇率时间和未计入币种。
-- [ ] 周期规则的 29/30/31 日按“当月最后一天”规则处理。
-- [ ] 周期规则以 `ruleId + yyyy-MM` 保证幂等。
-- [ ] 处理闰年、时区变化、Worker 延迟跨月和应用长期未打开场景。
-- [ ] 周期规则删除、禁用、账户删除后的行为明确。
-- [ ] 对账建立“期初余额/起始快照”概念；没有期初数据时不得把 0 当成可靠起点。
-- [ ] 对账结果区分：一致、不一致、数据不足。
-- [ ] `getComputedBalance()` 名称和实现一致；不要仅返回最近 `balanceAfter` 却声称完成计算。
-- [ ] 普通现金账户和负债账户分别测试，不用一套错误口径强行统一。
-
-### 验证点
-
-- [ ] USD 汇率缺失时，CNY 总报表不会把 100 USD 算成 100 CNY。
-- [ ] 2 月的 31 日规则会在 2 月最后一天执行一次。
-- [ ] Worker 同月重复运行不会重复生成流水。
-- [ ] 账户没有期初余额时显示“数据不足”，不显示虚假的差额。
-- [ ] 有完整期初余额和流水时，对账结果可复算且误差小于 0.01。
-
----
-
-## Task 09 `[~]`：补齐跨账户合并持仓详情
-
-**优先级**：P1  
-**依赖**：Task 03、Task 04  
-**目标**：让多账户聚合不只停留在列表总数，点击后仍能看到完整来源。
-
-### 修改范围
-
-- `MergedHolding.kt`
-- 新建 `MergedHoldingDetailScreen.kt`
-- `PrototypeHoldingsScreen`
-- `MainActivity.kt`
-- 交易入口和交易历史查询
-
-### 任务项
-
-- [ ] 新增以标准化证券代码为键的合并详情页。
-- [ ] 展示总数量、总成本、总市值、总盈亏、加权成本和币种状态。
-- [ ] 展示每个账户/来源的数量、成本、现价、同步状态。
-- [ ] 同码多币种不得强行合并成一个价格；需要分组或明确 `MIXED` 限制。
-- [ ] 买入/卖出必须明确选择账户和币种。
-- [ ] 多来源卖出流水能在合并详情和对应来源中追溯。
-- [ ] 删除“点击合并持仓后打开 firstOrNull 资产记录”的逻辑。
-
-### 验证点
-
-- [ ] 两个账户持有同一 ETF，列表和详情的数量、成本、市值一致。
-- [ ] 点击详情可看到两个来源，不会随机打开第一条。
-- [ ] 从账户 A 卖出后只减少 A，合并总额同步变化。
-- [ ] 同码不同币种时禁止未经确认的跨币种卖出。
-
----
-
-## Task 10 `[~]`：导航、状态和遗留代码收口
-
-**优先级**：P2  
-**依赖**：Task 04、Task 09  
-**目标**：降低超大文件和新旧页面并存造成的回归概率。
-
-### 任务项
-
-- [ ] 使用 Navigation Compose 或等价可保存导航状态替换手工 `Screen + List` 栈。
-- [ ] 页面参数只传稳定 ID，不把完整 Entity 放进可恢复导航状态。
-- [ ] ViewModel 按 feature 拆分：总览、持仓交易、导入、规划、设置/工具。
-- [ ] 将 1580 行 `PrototypeScreens.kt` 按页面拆文件。
-- [ ] 删除未使用的旧 `MainScreen`、不可达 `PositionScreen` 和重复 UI，或明确迁移期限。
-- [ ] Position 表完成退役：主计算、Worker、Flow 不再读取；评估后续数据库版本删除表。
-- [ ] Flow 改用 `collectAsStateWithLifecycle()`。
-- [ ] 表单状态使用 `rememberSaveable` 或 ViewModel，支持旋转和进程重建。
-- [ ] 清理未使用参数、未使用资源、过时注释和死枚举。
-- [ ] 所有金额格式化显式使用 Locale，处理 Lint `DefaultLocale`。
-
-### 验证点
-
-- [ ] 旋转屏幕、切后台、系统回收后恢复当前页面和未提交表单。
-- [ ] 底部 Tab 不产生无限返回栈。
-- [ ] 全局静态扫描无旧四象限枚举和值。
-- [ ] 主代码不再查询活跃 Position；旧 fixture 迁移后仍可读取 AssetRecord。
-- [ ] Lint 的未使用参数、默认 Locale、弃用 API告警显著收敛，并记录剩余豁免原因。
-
----
-
-## Task 11 `[~]`：发布工程、隐私和体积收尾
-
-**优先级**：P2  
-**依赖**：Task 05～Task 10  
-**目标**：达到可以交付真实用户测试的发布状态。
-
-### 任务项
-
-- [ ] Release 开启 R8 和资源收缩，维护必要 keep rules。
-- [ ] 使用 AAB 评估本地中文 OCR 的实际下载体积；记录 APK/AAB 前后变化。
-- [ ] 检查 ML Kit、Room、Compose、Lifecycle、WorkManager、Retrofit 等依赖兼容升级，不一次性盲升全部。
-- [ ] 修复 `CreateDocument()` 弃用调用并指定明确 MIME 类型。
-- [ ] 完成隐私政策真实支持邮箱和公开 HTTPS URL。
-- [ ] 商店说明明确：数据本地保存、OCR 本地处理、行情会向 Yahoo 请求证券代码、备份为明文。
-- [ ] 补数据删除说明、免责声明和行情数据来源说明。
-- [ ] 版本号、签名、图标、应用名“衡仓/FinUnity”统一。
-- [ ] README、AGENTS、ROADMAP、任务清单全部更新为三桶、Room 当前版本和真实功能状态。
-- [ ] 券商授权同步在首批发布中若未实现，所有 UI 和文档不得暗示已经支持。
-
-### 验证点
-
-- [ ] Release APK/AAB 可签名安装、冷启动、升级安装。
-- [ ] R8 后 Room、Gson 备份、Retrofit、WorkManager、ML Kit 正常。
-- [ ] 反编译 APK 搜不到签名密码、API Key、真实邮箱以外的敏感配置。
-- [ ] 隐私政策 URL 无登录即可访问，应用内文案与网页一致。
-- [ ] Lint 0 error；新增 warning 必须说明原因或修复。
-- [ ] Release 体积有记录并达到团队设定上限。
-
----
-
-## Task 12 `[~]`：最终自动化与真机验收
-
-**优先级**：P0 发布门禁  
-**依赖**：全部前置 Task  
-**目标**：用完整数据闭环证明三桶版本可用，而不只证明能编译。
-
-### 自动化命令
-
-```powershell
-.\gradlew.bat clean
-.\gradlew.bat testDebugUnitTest
-.\gradlew.bat assembleDebug
-.\gradlew.bat compileDebugAndroidTestKotlin
-.\gradlew.bat connectedDebugAndroidTest
-.\gradlew.bat lintDebug
-.\gradlew.bat assembleRelease
+响应：
+
+```json
+{
+  "request_id": "req_auth_01",
+  "data": {
+    "access_token": "short-lived-token",
+    "token_type": "Bearer",
+    "expires_in_seconds": 3600,
+    "refresh_token": "rotating-refresh-token",
+    "refresh_expires_in_seconds": 2592000
+  },
+  "warnings": [],
+  "partial": false,
+  "server_time": "2026-08-30T11:20:30Z"
+}
 ```
 
-### 必测场景
+要求：
 
-- [ ] 全新安装：Onboarding → 建账户 → 录现金/定期/保单/股票 → 三桶总览正确。
-- [ ] 旧版升级：v9/v14/v16/v22 数据升级到三桶，金额和流水不丢失。
-- [ ] 多币种：CNY/USD/HKD 汇率正常、缺失、过期三种状态。
-- [ ] 交易：买入、加仓、部分卖出、全部卖出、手续费、现金增减和流水一致。
-- [ ] 多账户同码：合并展示、来源详情、指定账户卖出。
-- [ ] 导入：CSV、OCR、手动录入、重复导入、批次回滚。
-- [ ] 备份：导出、覆盖恢复、非法文件、未来版本、恢复中断。
-- [ ] 后台任务：价格同步、快照、月度提醒、周期收支。
-- [ ] 规划：目标、偏离、落点、复盘、支出模拟、压力测试、历史。
-- [ ] 状态恢复：旋转、切后台、进程重建、通知冷启动。
-- [ ] 隐私：截图不上传、自动云备份关闭、明文备份风险提示。
+- [ ] APK 内不得内置可调用上游供应商的长期密钥。
+- [ ] `installation_id` 不是用户身份，不得用于跨应用追踪。
+- [ ] Access Token 短期有效，Refresh Token 必须轮换并可吊销。
+- [ ] 如果不采用匿名会话，服务项目必须提供等价安全方案；不能用一个永不过期的静态 API Key。
 
-### 数学不变量
+### 3.2 刷新会话
 
-- [ ] `grossAssets - liabilities = netWorth`。
-- [ ] `defensiveAssets + balancedAssets + aggressiveAssets = grossAssets`。
-- [ ] 有资产时三桶占比之和为 100%，误差小于 `1e-6`。
-- [ ] 部分卖出后单位成本不变，剩余成本按数量比例下降。
-- [ ] 交易前后现金、持仓和流水可复算。
-- [ ] 备份恢复前后逐表记录数和关键金额一致。
-- [ ] 缺价格/汇率不会生成 NaN、Infinity 或 1:1 假结果。
+`POST /api/v1/auth/session:refresh`
 
-### 发布判定
+请求：`{"refresh_token":"rotating-refresh-token"}`；响应字段与 3.1 相同。
 
-- [ ] 所有 P0/P1 Task 完成。
-- [ ] 自动化命令全部通过。
-- [ ] 真机验收无阻断问题。
-- [ ] 无未说明的数据迁移风险。
-- [ ] 无用户可见旧四象限文案或不可达正式页面。
-- [ ] 产品负责人确认三桶默认比例、基金默认桶和负债展示口径。
+### 3.3 客户端配置
 
----
+`GET /api/v1/app/config?platform=ANDROID&version_code=1`
 
-## 三、建议迭代拆分
+至少返回：
 
-### 迭代 A：三桶和数据安全
-
-```text
-Task 00 → Task 01 → Task 02 → Task 03 → Task 05
+```json
+{
+  "request_id": "req_config_01",
+  "data": {
+    "minimum_supported_version_code": 1,
+    "latest_version_code": 1,
+    "maintenance": false,
+    "features": {
+      "market_sync": true,
+      "fund_nav": true,
+      "remote_ocr": true,
+      "market_history": true,
+      "market_metrics": false
+    },
+    "limits": {
+      "market_sync_instruments": 100,
+      "ocr_image_bytes": 10485760,
+      "ocr_image_megapixels": 20
+    },
+    "privacy_policy_url": "https://www.example.com/privacy"
+  }
+}
 ```
 
-交付标准：旧数据可迁移、三桶金额正确、备份可恢复。
+## 4. API-01 `[ ]`：证券主数据、搜索和解析
 
-### 迭代 B：核心闭环可用
+专属服务必须建立稳定的 `instrument_id`，不能让 Android 把 Yahoo 代码当作业务主键。
 
-```text
-Task 04 → Task 06 → Task 07
+### 4.1 统一证券对象
+
+```json
+{
+  "instrument_id": "XSHG:600519",
+  "symbol": "600519",
+  "canonical_symbol": "600519.SS",
+  "name": "贵州茅台",
+  "short_name": "贵州茅台",
+  "type": "STOCK",
+  "market": "XSHG",
+  "currency": "CNY",
+  "status": "ACTIVE",
+  "aliases": ["600519.SH", "600519.SS"],
+  "fund_code": null
+}
 ```
 
-交付标准：规划可达、行情可信、导入不假报成功。
+`type`：`STOCK / ETF / FUND / LOF / REIT / BOND / FX`。
+`status`：`ACTIVE / SUSPENDED / DELISTED / CLOSED / UNKNOWN`。
 
-### 迭代 C：辅助能力和多账户体验
+### 4.2 搜索
 
-```text
-Task 08 → Task 09
+`GET /api/v1/instruments/search?q={名称或代码}&types=STOCK,ETF,FUND&markets=XSHG,XSHE,XHKG,XNAS,XNYS&limit=20&cursor={可选}`
+
+响应：`items: Instrument[]`、`next_cursor`。
+
+搜索要求：
+
+- [ ] 支持中文名称、简称、拼音首字母、原始代码和带后缀代码。
+- [ ] 支持 A 股、港股、美股、场内 ETF、LOF、境内公募基金和 QDII。
+- [ ] 相同六位代码必须结合 `type/market` 区分股票和公募基金。
+- [ ] 美股代码允许点号和连字符，不能用“1～5 个字母”的本地限制。
+
+### 4.3 批量解析
+
+`POST /api/v1/instruments/resolve`
+
+请求：
+
+```json
+{
+  "queries": [
+    {"client_ref": "asset-1", "text": "600519", "type_hint": "STOCK", "market_hint": "XSHG"},
+    {"client_ref": "asset-2", "text": "00700.HK"},
+    {"client_ref": "asset-3", "text": "000001", "type_hint": "FUND"}
+  ]
+}
 ```
 
-交付标准：报表/周期/对账可信，合并持仓可追溯。
+响应单项：
 
-### 迭代 D：工程与发布
-
-```text
-Task 10 → Task 11 → Task 12
+```json
+{
+  "client_ref": "asset-1",
+  "status": "RESOLVED",
+  "instrument": {
+    "instrument_id": "XSHG:600519",
+    "symbol": "600519",
+    "canonical_symbol": "600519.SS",
+    "name": "贵州茅台",
+    "type": "STOCK",
+    "market": "XSHG",
+    "currency": "CNY",
+    "status": "ACTIVE"
+  },
+  "confidence": 0.99,
+  "candidates": [],
+  "review_reasons": []
+}
 ```
 
-交付标准：架构收口、发布资料完备、完整验收通过。
+解析状态：`RESOLVED / AMBIGUOUS / NOT_FOUND / INVALID`。`AMBIGUOUS` 必须返回候选项，专属服务不能静默猜交易所或资产类型。
 
----
+### 4.4 代码兼容规则
 
-## 四、暂不纳入首版阻断的后续项目
+- 上海：接受 `.SH/.SS`，统一 `market=XSHG`，兼容当前 App 输出 `600519.SS`。
+- 深圳：接受 `.SZ`，统一 `market=XSHE`，输出 `159919.SZ`。
+- 港股：业务主代码保留五位，例如 `00700`；供应商适配代码单独维护，不得丢失前导零。
+- 美股：大写原始 ticker，例如 `AAPL`、`BRK.B`。
+- 公募基金：保存六位 `fund_code` 和独立 `instrument_id`，不得仅靠数字形态推断为 A 股。
 
-以下需求不应混入三桶修复主线；若未实现，产品入口必须明确隐藏或标注范围：
+## 5. API-02 `[ ]`：APP 一次性资产数据同步
 
-- [ ] 券商 OAuth/只读授权和定时持仓同步。
-- [ ] 家庭成员、多账本和共同资产归属。
-- [ ] 生物识别/PIN 隐私锁。
-- [ ] 买房、教育、养老等目标账户体系。
-- [ ] 自动基金分类、估值数据、场内溢价数据源。
-- [ ] 收益贡献分解：价格、现金流、汇率影响。
-- [ ] 云端加密同步与跨设备自动同步。
+这是 Android 后台 Worker 和手动刷新优先调用的聚合接口。服务端内部可以并行调用行情、基金和汇率数据源，但对 Android 只返回统一结果。
 
-这些项目应单独立项，先明确接口合规、安全存储、隐私政策和成本预算。
+`POST /api/v1/market/sync`
+
+### 5.1 请求
+
+```json
+{
+  "client_request_id": "sync-android-uuid",
+  "base_currency": "CNY",
+  "instruments": [
+    {"client_ref": "record-1", "instrument_id": "XSHG:600519", "input_code": "600519.SS", "asset_type": "STOCK"},
+    {"client_ref": "record-2", "instrument_id": "XSHE:159919", "input_code": "159919.SZ", "asset_type": "ETF"},
+    {"client_ref": "record-3", "instrument_id": "CNFUND:000001", "input_code": "000001", "asset_type": "FUND"},
+    {"client_ref": "record-4", "instrument_id": "XNAS:AAPL", "input_code": "AAPL", "asset_type": "STOCK"}
+  ],
+  "fx_pairs": [
+    {"client_ref": "fx-usd-cny", "base": "USD", "quote": "CNY"},
+    {"client_ref": "fx-hkd-cny", "base": "HKD", "quote": "CNY"}
+  ],
+  "include": ["LATEST_VALUE", "PREVIOUS_CLOSE", "BASIC_METADATA"],
+  "allow_delayed": true
+}
+```
+
+`instrument_id` 在旧数据尚未迁移时允许为 `null`；服务端需要用 `input_code + asset_type` 解析，并在响应里返回解析后的 instrument。
+
+### 5.2 响应
+
+```json
+{
+  "request_id": "req_sync_01",
+  "data": {
+    "instruments": [
+      {
+        "client_ref": "record-1",
+        "status": "OK",
+        "instrument": {
+          "instrument_id": "XSHG:600519",
+          "canonical_symbol": "600519.SS",
+          "name": "贵州茅台",
+          "type": "STOCK",
+          "market": "XSHG",
+          "currency": "CNY"
+        },
+        "value": {
+          "value_type": "MARKET_PRICE",
+          "current": "1418.01",
+          "previous_close": "1402.50",
+          "value_date": "2026-08-28",
+          "source_time": "2026-08-28T07:00:00Z",
+          "received_at": "2026-08-28T07:00:03Z",
+          "quality": "DELAYED",
+          "delay_seconds": 900,
+          "source": "provider-name"
+        },
+        "error": null
+      },
+      {
+        "client_ref": "record-3",
+        "status": "OK",
+        "instrument": {
+          "instrument_id": "CNFUND:000001",
+          "canonical_symbol": "000001",
+          "name": "基金名称",
+          "type": "FUND",
+          "market": "CNFUND",
+          "currency": "CNY"
+        },
+        "value": {
+          "value_type": "OFFICIAL_NAV",
+          "current": "1.2345",
+          "previous_close": "1.2300",
+          "value_date": "2026-08-28",
+          "source_time": "2026-08-29T01:30:00Z",
+          "received_at": "2026-08-29T01:30:05Z",
+          "quality": "OFFICIAL",
+          "delay_seconds": null,
+          "source": "provider-name"
+        },
+        "error": null
+      }
+    ],
+    "fx_rates": [
+      {
+        "client_ref": "fx-usd-cny",
+        "status": "OK",
+        "pair": "USD/CNY",
+        "rate": "7.123456",
+        "rate_type": "MID",
+        "source_time": "2026-08-28T16:00:00Z",
+        "received_at": "2026-08-28T16:00:02Z",
+        "quality": "EOD",
+        "source": "provider-name",
+        "error": null
+      }
+    ]
+  },
+  "warnings": [],
+  "partial": false,
+  "server_time": "2026-08-30T11:20:30Z"
+}
+```
+
+### 5.3 强制行为
+
+- [ ] 单批至少支持 100 个 instrument 和 20 个货币对。
+- [ ] 服务端按资产类型选择数据：股票/ETF 用市场价，场外公募基金用正式净值。
+- [ ] 基金估值不得覆盖同一净值日的正式净值。
+- [ ] 休市、停牌和周末不能简单作为失败；返回最后有效值、真实日期和状态。
+- [ ] `previous_close` 或前一净值未知时返回 `null`，不能返回 `0`。
+- [ ] 单项失败放入该项 `error`，其他成功项照常返回。
+- [ ] 服务端结果可缓存，但必须返回原始数据时间，不能用缓存读取时间冒充行情时间。
+- [ ] 相同 `client_request_id` 的重复请求必须幂等。
+
+## 6. API-03 `[ ]`：股票/ETF 最新行情明细
+
+供资产详情页或问题排查单独查询。
+
+`POST /api/v1/market/quotes/batch`
+
+请求：`instrument_ids`，最多 100 个；可选 `fields=[LAST,PREVIOUS_CLOSE,OHLC,VOLUME]`。
+
+每项至少返回：
+
+```json
+{
+  "instrument_id": "XNAS:AAPL",
+  "status": "OK",
+  "last": "229.10",
+  "previous_close": "227.16",
+  "open": "228.20",
+  "high": "230.40",
+  "low": "227.80",
+  "volume": "38521000",
+  "currency": "USD",
+  "market_status": "CLOSED",
+  "source_time": "2026-08-28T20:00:00Z",
+  "quality": "DELAYED",
+  "source": "provider-name"
+}
+```
+
+`market_status`：`PRE_OPEN / OPEN / LUNCH_BREAK / CLOSED / SUSPENDED / UNKNOWN`。
+`quality`：`REALTIME / DELAYED / EOD / STALE / FALLBACK`。
+
+## 7. API-04 `[ ]`：公募基金净值和基金资料
+
+### 7.1 基金净值批量
+
+`POST /api/v1/funds/nav/batch`
+
+请求：
+
+```json
+{
+  "funds": [
+    {"client_ref": "fund-1", "instrument_id": "CNFUND:000001", "fund_code": "000001"},
+    {"client_ref": "fund-2", "fund_code": "161725"}
+  ],
+  "as_of_date": "2026-08-28",
+  "include_estimate": true
+}
+```
+
+响应单项：
+
+```json
+{
+  "client_ref": "fund-1",
+  "status": "OK",
+  "instrument_id": "CNFUND:000001",
+  "fund_code": "000001",
+  "name": "基金名称",
+  "unit_nav": "1.2345",
+  "accumulated_nav": "3.4567",
+  "previous_unit_nav": "1.2300",
+  "nav_date": "2026-08-28",
+  "currency": "CNY",
+  "value_type": "OFFICIAL_NAV",
+  "estimated_nav": null,
+  "estimated_at": null,
+  "source_time": "2026-08-29T01:30:00Z",
+  "received_at": "2026-08-29T01:30:05Z",
+  "source": "provider-name"
+}
+```
+
+`value_type`：`OFFICIAL_NAV / ESTIMATED_NAV / PREVIOUS_OFFICIAL_NAV`。
+
+### 7.2 基金详情
+
+`GET /api/v1/funds/{fund_code}`
+
+至少返回：
+
+- `instrument_id/fund_code/name/short_name/currency/status`
+- `fund_type`：`EQUITY / BOND / MIXED / MONEY_MARKET / INDEX / QDII / REIT / FOF / OTHER`
+- `qdii/exchange_traded/benchmark/management_company/inception_date`
+- `purchase_status`：`OPEN / RESTRICTED / SUSPENDED / CLOSED / UNKNOWN`
+- `purchase_limit`：`amount/currency/effective_at/channel_scope`，未知为 `null`
+- `suggested_bucket`：`DEFENSIVE / BALANCED / AGGRESSIVE`，只是录入默认建议，不能替用户做最终分类
+- `source/as_of_date`
+
+验收基金类型：主动权益、债券、货币、指数、QDII、LOF/场内基金至少各 1 个。
+
+## 8. API-05 `[ ]`：汇率
+
+`POST /api/v1/fx/rates/batch`
+
+请求：
+
+```json
+{
+  "pairs": [
+    {"client_ref": "usd-cny", "base": "USD", "quote": "CNY"},
+    {"client_ref": "hkd-cny", "base": "HKD", "quote": "CNY"}
+  ],
+  "rate_type": "MID"
+}
+```
+
+响应单项：
+
+```json
+{
+  "client_ref": "usd-cny",
+  "status": "OK",
+  "pair": "USD/CNY",
+  "rate": "7.123456",
+  "rate_type": "MID",
+  "source_time": "2026-08-28T16:00:00Z",
+  "received_at": "2026-08-28T16:00:02Z",
+  "quality": "EOD",
+  "source": "provider-name"
+}
+```
+
+- [ ] 首期必须支持 `USD/CNY`、`HKD/CNY`，并允许服务端扩展其他 ISO 4217 货币。
+- [ ] 同币种换算由 App 本地使用 `1`，不请求服务端。
+- [ ] 缺汇率必须明确失败；服务端和 Android 都不能按 `1:1` 兜底。
+- [ ] 明确 `MID/CLOSE` 口径；不能把银行现钞买入价和市场中间价混用。
+
+## 9. API-06 `[ ]`：持仓截图解析
+
+专属服务需要完成 OCR、表格结构恢复、字段语义识别和证券代码解析；不能只返回一段 OCR 文本。
+
+### 9.1 同步解析接口
+
+`POST /api/v1/ocr/holdings:parse`
+`Content-Type: multipart/form-data`
+
+字段：
+
+| 字段 | 必填 | 格式 | 说明 |
+|---|---|---|---|
+| `image` | 是 | JPEG/PNG/WebP，建议支持 HEIC | 用户选择的持仓截图 |
+| `client_request_id` | 是 | UUID | 幂等与追踪 |
+| `locale` | 否 | `zh-CN` | 默认中文 |
+| `default_currency` | 否 | ISO 4217 | 页面未标币种时的提示，不可无依据强行赋值 |
+| `broker_hint` | 否 | 字符串 | 券商或基金 App 名称 |
+| `parse_mode` | 是 | `HOLDINGS` | 后续可扩展 `TRANSACTIONS/STATEMENT` |
+
+图片限制：最小 480×480，最大 20MP，压缩后最大 10MB；支持 EXIF 方向。超限分别返回 `IMAGE_TOO_SMALL / IMAGE_TOO_LARGE / UNSUPPORTED_MEDIA_TYPE`。
+
+### 9.2 响应
+
+```json
+{
+  "request_id": "req_ocr_01",
+  "data": {
+    "document_id": "doc_ephemeral_01",
+    "document_type": "HOLDINGS",
+    "image_sha256": "sha256-hex",
+    "broker": {"name": "识别到的券商", "confidence": 0.82},
+    "as_of_date": "2026-08-28",
+    "rows": [
+      {
+        "row_id": "row-1",
+        "raw_text": "贵州茅台 600519 持仓100 市值141801 成本120000",
+        "name": "贵州茅台",
+        "security_code": {
+          "raw": "600519",
+          "normalized": "600519.SS",
+          "instrument_id": "XSHG:600519",
+          "market": "XSHG",
+          "status": "RESOLVED",
+          "confidence": 0.99,
+          "candidates": [],
+          "needs_confirmation": false
+        },
+        "asset_type": "STOCK",
+        "quantity": "100",
+        "current_price": "1418.01",
+        "market_value": "141801.00",
+        "total_cost": "120000.00",
+        "currency": "CNY",
+        "confidence": 0.96,
+        "field_confidence": {
+          "name": 0.98,
+          "security_code": 0.99,
+          "quantity": 0.97,
+          "current_price": 0.94,
+          "market_value": 0.95,
+          "total_cost": 0.90,
+          "currency": 0.92
+        },
+        "review_reasons": [],
+        "bounding_box": {"x": 24, "y": 310, "width": 980, "height": 84}
+      }
+    ],
+    "unparsed_blocks": [],
+    "warnings": []
+  },
+  "warnings": [],
+  "partial": false,
+  "server_time": "2026-08-30T11:20:30Z"
+}
+```
+
+### 9.3 强制解析规则
+
+- [ ] 数量、价格、市值、成本使用十进制字符串或 `null`。
+- [ ] 截图没有明确“成本/持仓成本/成本金额”时，`total_cost` 必须为 `null`。
+- [ ] 禁止把市值、可用资金、总资产或累计收益当成成本。
+- [ ] `market_value` 与 `quantity × current_price` 不一致时返回 `VALUE_MISMATCH`，不得静默改数。
+- [ ] 代码有多个候选时返回 `AMBIGUOUS + candidates`，Android 交给用户确认。
+- [ ] 每行保留原文、总置信度、字段置信度、复核原因和坐标。
+- [ ] 支持跨行名称、表头、千分位、负盈亏、人民币/港币/美元符号和一图多币种。
+- [ ] 相同 `client_request_id + image_sha256` 重复提交必须幂等。
+
+### 9.4 隐私和删除
+
+- [ ] 图片只通过 TLS 上传，不进入普通访问日志、分析平台或模型训练集。
+- [ ] 默认解析完成即删除原始图片；如需暂存，最长保留时间必须配置并写入隐私政策。
+- [ ] `DELETE /api/v1/ocr/documents/{document_id}`：立即删除图片、派生文件和可识别原文。
+- [ ] 日志对姓名、账户号、资产总额和图片 URL 脱敏。
+- [ ] 服务项目提供数据处理地区、子处理方和保存期限，供 App 隐私政策使用。
+
+### 9.5 异步扩展
+
+如果 15 秒内无法稳定完成解析，增加：
+
+- `POST /api/v1/ocr/jobs`：返回 `job_id/status=PENDING`。
+- `GET /api/v1/ocr/jobs/{job_id}`：返回 `PENDING/RUNNING/SUCCEEDED/FAILED/EXPIRED`。
+- `DELETE /api/v1/ocr/jobs/{job_id}`：取消任务并删除数据。
+
+## 10. API-07 `[ ]`：历史行情和基金净值
+
+`GET /api/v1/market/history?instrument_id={id}&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&interval=1d&adjustment=TOTAL_RETURN&cursor={可选}`
+
+股票/ETF 数据点：
+
+```json
+{
+  "date": "2026-08-28",
+  "open": "1400.00",
+  "high": "1425.00",
+  "low": "1398.00",
+  "close": "1418.01",
+  "previous_close": "1402.50",
+  "adjusted_close": "1418.01",
+  "volume": "2410000",
+  "currency": "CNY",
+  "source": "provider-name"
+}
+```
+
+基金数据点：`date/unit_nav/accumulated_nav/value_type/currency/source`。
+
+- [ ] 支持 `NONE / SPLIT_ADJUSTED / TOTAL_RETURN` 复权口径并在响应中回显。
+- [ ] 支持分页；单个 instrument 至少可查询 5 年日线。
+- [ ] “交易日无数据”与“服务请求失败”必须区分。
+- [ ] 历史行情用于标的曲线，不能伪造成用户过去的真实组合快照。
+
+## 11. API-08 `[ ]`：基金分类、限购与市场指标
+
+### 11.1 批量指标
+
+`POST /api/v1/market/metrics/batch`
+
+请求：`instrument_ids`，最多 100 个。
+
+每项返回：
+
+```json
+{
+  "instrument_id": "XSHE:159919",
+  "status": "OK",
+  "as_of": "2026-08-28T07:00:00Z",
+  "pe_ttm": "13.52",
+  "pb": "1.46",
+  "dividend_yield": "0.0312",
+  "market_price": "4.223",
+  "iopv_or_nav": "4.210",
+  "premium_rate": "0.003087",
+  "purchase_status": "OPEN",
+  "purchase_limit": null,
+  "source": "provider-name",
+  "quality": "DELAYED"
+}
+```
+
+- [ ] 不适用或未知字段返回 `null`，不能返回 `0`。
+- [ ] 溢价率必须同时返回计算所用市价、IOPV/NAV 和各自时间。
+- [ ] QDII 限购返回币种、金额、生效时间和渠道范围。
+- [ ] 旧净值和新市价时间不一致时必须给出 `STALE_COMPONENT` 警告。
+
+## 12. API-09 `[ ]`：公司行动
+
+`GET /api/v1/corporate-actions?instrument_id={id}&since=YYYY-MM-DD&cursor={可选}`
+
+事件：`CASH_DIVIDEND / STOCK_DIVIDEND / SPLIT / REVERSE_SPLIT / RIGHTS_ISSUE / FUND_DISTRIBUTION / SYMBOL_CHANGE / DELISTING`。
+
+每项返回：`event_id/instrument_id/type/announcement_date/ex_date/record_date/pay_date/ratio/cash_per_share/currency/old_symbol/new_symbol/source/status`。
+
+专属服务只提供事实数据；Android 首期生成“待确认调整”，不能后台静默修改数量和成本。
+
+## 13. API-10 `[ ]`：服务状态
+
+### 13.1 存活检查
+
+`GET /health/live`：只表示服务进程存活，不访问上游。
+
+### 13.2 就绪检查
+
+`GET /health/ready`：检查数据库、缓存和关键依赖是否可用。
+
+### 13.3 数据能力状态
+
+`GET /api/v1/status`
+
+```json
+{
+  "request_id": "req_status_01",
+  "data": {
+    "status": "DEGRADED",
+    "capabilities": {
+      "stock_quotes": "AVAILABLE",
+      "fund_nav": "DEGRADED",
+      "fx": "AVAILABLE",
+      "ocr": "AVAILABLE",
+      "history": "AVAILABLE"
+    },
+    "incidents": [
+      {"code": "FUND_NAV_DELAYED", "message": "部分基金净值延迟", "started_at": "2026-08-30T08:00:00Z"}
+    ]
+  }
+}
+```
+
+不得在公开状态接口暴露上游密钥、内部 URL、数据库信息或用户数据。
+
+## 14. 第二阶段专属服务接口（未实现功能）
+
+这些能力当前 App 也未实现，不阻塞首期替换 Yahoo/OCR，但专属服务项目需预留版本空间。
+
+### 14.1 券商只读同步 `[ ]`
+
+- `POST /api/v1/broker/connections/start`
+- `POST /api/v1/broker/connections/complete`
+- `GET /api/v1/broker/connections/{id}`
+- `POST /api/v1/broker/connections/{id}/sync`
+- `GET /api/v1/broker/sync-jobs/{job_id}`
+- `GET /api/v1/broker/connections/{id}/snapshot?cursor=...`
+- `DELETE /api/v1/broker/connections/{id}`
+
+快照需返回账户、持仓、交易三类外部稳定 ID，所有数值仍使用十进制字符串。要求只读权限、OAuth PKCE、令牌服务端加密、可撤销、增量游标和幂等同步。
+
+### 14.2 端到端加密云同步 `[ ]`
+
+在确定账户体系、设备密钥、恢复方案、冲突合并、删除传播和设备撤销前不实施。服务端只能保存密文，不能直接上传明文 Room 数据库或 JSON 备份。
+
+## 15. Android 替换旧接口任务
+
+以下任务属于 FinUnity Android 项目，但依赖上述专属服务完成。
+
+- [x] 新建 `FinUnityServiceApi`，所有 URL 指向专属服务 Base URL。
+- [x] 删除 `NetworkModule` 中硬编码的 `https://query1.finance.yahoo.com/`。
+- [x] 删除 Android 对 `YahooFinanceApi` 原始 DTO 的依赖。
+- [x] `PriceSyncWorker` 和手动刷新统一调用 `/market/sync`，不再逐个代码请求。
+- [x] 股票、ETF、基金、汇率按 `client_ref` 映射回 Room 记录。
+- [x] Room 增加 `instrumentId/source/sourceTime/receivedAt/quality/valueType/errorCode` 等字段。
+- [x] `FUND` 加入自动净值同步，不再一律跳过。
+- [x] 资产录入通过 `/instruments/search` 选择稳定 `instrument_id`；OCR 导入保存服务端返回的 `instrument_id`，不再用资产名称冒充证券代码。
+- [x] 截图识别改为 `/ocr/holdings:parse`，移除运行时 ML Kit 依赖；服务错误直接显示且不生成模拟数据。
+- [x] 上传截图前明确提示图片会发送到专属服务；用户取消时不上传，服务解析后调用删除接口并要求确认删除成功。
+- [ ] 更新隐私政策，写明服务域名、处理目的、保存期限和删除方式。
+- [ ] 401 刷新 Token，429 遵守 `Retry-After`，5xx/超时指数退避，4xx 参数错误不盲目重试。
+- [ ] 部分成功只重试失败项；已成功项立即安全落库。
+- [ ] 离线时使用最后有效缓存并显示原数据时间，不能把缓存读取时间显示为同步时间。
+- [x] Base URL 只通过构建配置注入且强制 HTTPS，Manifest 禁止明文 HTTP；源码和 APK 不再包含上游地址。
+
+## 16. 专属服务项目交付物
+
+- [ ] OpenAPI 3.1 文件，包含全部 P0 端点、模型、枚举和错误码。
+- [ ] 测试环境 Base URL 与正式环境 Base URL。
+- [ ] 可直接连接真实测试环境的契约测试；不得用 Fake 行情、净值、汇率或 OCR 数据替代服务端错误。
+- [ ] Postman/Bruno/curl 真实测试环境示例，至少覆盖成功、部分失败、401、429、超时和上游错误。
+- [ ] 数据源和许可证说明：股票、ETF、基金、汇率、OCR 各自的上游、商用权限和缓存限制。
+- [ ] 数据更新频率/SLA：行情延迟、基金净值发布时间、汇率时间和历史修正策略。
+- [ ] 错误码表和 Android 重试建议。
+- [ ] OCR 隐私说明：处理地区、子处理方、是否用于训练、保存期限和删除验证。
+- [ ] 监控：请求量、P50/P95/P99、上游成功率、缓存命中率、429、OCR 失败率。
+- [ ] 变更策略：URL 使用 `/api/v1`；破坏性字段变更必须发布新版本，不能直接改变已有语义。
+
+## 17. 联调数据与验收标准
+
+### 17.1 固定联调样本
+
+- A 股：`600519.SS`。
+- 深市 ETF：`159919.SZ`。
+- 港股：`00700.HK`，同时验证前导零。
+- 美股：`AAPL`，并增加一个带点号或连字符的代码。
+- 公募基金：主动权益、债券、货币、指数、QDII、LOF 各 1 个。
+- 汇率：`USD/CNY`、`HKD/CNY`。
+- OCR：A 股券商、港股券商、美股券商、公募基金、深色模式、长截图、模糊图、多币种、成本缺失。
+
+### 17.2 故障样本
+
+- 无效代码、代码歧义、退市、停牌、休市。
+- 基金净值尚未公布、只有估值、净值修正。
+- 单项失败但整批其他项成功。
+- Token 过期、403、429、上游 5xx、超时、服务降级。
+- OCR 图片过大、格式不支持、无法识别、字段冲突、重复上传和主动删除。
+
+### 17.3 完成定义
+
+- [ ] P0 接口全部有 OpenAPI、可调用的真实测试环境和真实错误样例。
+- [ ] Android 网络抓包只出现专属服务域名，不再出现 Yahoo 或其他数据商域名。
+- [ ] `600519.SS / 159919.SZ / 00700.HK / AAPL` 可取得当前值、昨收、币种、数据时间、来源和质量。
+- [ ] 六类基金可取得正式净值、净值日期和基金分类；未公布净值不会伪报为成功的新净值。
+- [ ] `USD/CNY`、`HKD/CNY` 可用，缺失时不会发生 1:1 假换算。
+- [ ] OCR 成本缺失时返回 `null`，不会把市值误当成本；低置信结果必须可复核。
+- [ ] 批量部分失败、缓存回退、Token 刷新和 429 重试均有自动化契约测试。
+- [ ] Release APK 不包含上游密钥、上游接口地址或图片解析供应商密钥。

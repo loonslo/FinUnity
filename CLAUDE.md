@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs daily prices from Yahoo Finance, and provides rebalancing alerts with four-quadrant asset allocation. UI is in Chinese.
+FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs remote data through the dedicated FinUnity service, and provides rebalancing alerts with three-bucket asset allocation. UI is in Chinese.
 
 ## Build & Test Commands
 
@@ -88,7 +88,7 @@ The 落点 system sits *below* the four risk buckets, implementing the per-asset
 ## Key Design Decisions
 
 - **Average Cost Method**: `totalCost` is proportionally reduced when selling (shares and cost both decrease, unit cost unchanged)
-- **Multi-Currency**: All values converted to `baseCurrency` (CNY default) via Yahoo Finance exchange rates. Exchange rate symbol format: `"USDCNY=X"`.
+- **Multi-Currency**: All values are converted to `baseCurrency` (CNY default) using rates returned by the FinUnity service. Local cache keys retain the `"USDCNY=X"` compatibility format.
 - **Explicit Currency**: Each position/record has explicit `currency`; do not infer from symbol
 - **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted). All other account balances are ignored — assets tracked via AssetRecord.
 - **Cash Auto-Management**: `adjustCashAsset()` creates/updates/deletes CASH AssetRecords automatically when buying/selling non-cash assets

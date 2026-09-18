@@ -10,25 +10,26 @@ data class ParsedScreenshotHolding(
     val name: String,
     val securityCode: String,
     val quantity: Double,
+    val currentPrice: Double,
     val marketValue: Double,
+    val totalCost: Double? = null,
     val currency: String,
     val needsReview: Boolean,
     val rawText: String = "",
     val rawSecurityCode: String = securityCode,
     val confidence: OcrConfidence = if (needsReview) OcrConfidence.MEDIUM else OcrConfidence.HIGH,
-    val reviewReason: String? = null
-) {
-    val currentPrice: Double
-        get() = if (quantity > 0.0) marketValue / quantity else 0.0
-}
+    val reviewReason: String? = null,
+    val instrumentId: String = "",
+    val requestId: String = ""
+)
 
 enum class OcrConfidence { HIGH, MEDIUM, LOW }
 
 /**
  * Conservative parser for common Chinese brokerage holding-table layouts.
  *
- * ML Kit already supplies text in visual lines. A complete, valid-looking row is required before
- * it is offered for import; ambiguous rows are intentionally marked for confirmation in the UI.
+ * Legacy local text parser retained for old fixtures and offline text migration only.
+ * The active screenshot flow uses the FinUnity dedicated service and never fabricates missing rows.
  */
 object HoldingScreenshotParser {
     private val securityCodeRegex = Regex(
@@ -84,6 +85,7 @@ object HoldingScreenshotParser {
             name = name,
             securityCode = code,
             quantity = quantity,
+            currentPrice = marketValue / quantity,
             marketValue = marketValue,
             currency = currencyFor(line),
             needsReview = needsReview,

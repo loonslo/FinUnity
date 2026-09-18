@@ -6,16 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.finunity.data.local.AppDatabase
 import com.finunity.data.local.entity.Price
-import com.finunity.data.remote.ChartData
-import com.finunity.data.remote.ChartError
-import com.finunity.data.remote.ChartResult
-import com.finunity.data.remote.StockMeta
-import com.finunity.data.remote.YahooFinanceApi
-import com.finunity.data.remote.YahooFinanceResponse
+import com.finunity.data.remote.ApiEnvelope
+import com.finunity.data.remote.ApiError
+import com.finunity.data.remote.MarketSyncData
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -23,7 +20,6 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PriceRepositoryTest {
-
     private lateinit var db: AppDatabase
 
     @Before
@@ -33,115 +29,61 @@ class PriceRepositoryTest {
     }
 
     @After
-    fun closeDb() {
-        db.close()
-    }
+    fun closeDb() = db.close()
 
     @Test
-    fun refreshDeduplicatesSymbolsAndStoresSuccessfulPrices() = runBlocking {
-        val api = FakeYahooFinanceApi()
-        val repository = PriceRepository(db.priceDao(), api)
-
-        val result = repository.refreshAllPrices(
-            symbols = listOf("AAPL", "AAPL", "600519.SS"),
-            rates = emptyMap()
-        )
-
-        assertEquals(2, result.symbolsRefreshed)
-        assertTrue(result.symbolsFailed.isEmpty())
-        assertFalse(result.isPartialFailure)
-        assertEquals(setOf("AAPL", "600519.SS"), result.successfulSymbols)
-        assertEquals(2, db.priceDao().getAllPrices().size)
-        assertEquals(2, api.stockRequests.size)
-    }
-
-    @Test
-    fun failedRefreshIsReportedAndDoesNotCreateFakePrice() = runBlocking {
-        val api = FakeYahooFinanceApi(failSymbols = setOf("AAPL"))
-        val repository = PriceRepository(db.priceDao(), api)
-
-        val result = repository.refreshAllPrices(listOf("AAPL"), emptyMap())
-
-        assertEquals(0, result.symbolsRefreshed)
-        assertEquals(listOf("AAPL"), result.symbolsFailed)
-        assertTrue(result.isPartialFailure)
-        assertEquals(emptyList<Price>(), db.priceDao().getAllPrices())
-    }
-
-    @Test
-    fun staleCacheIsReturnedAsFallbackWhenNetworkFails() = runBlocking {
-        val oldPrice = Price(
-            symbol = "AAPL",
-            price = 100.0,
-            previousClose = 99.0,
-            currency = "USD",
-            updatedAt = System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000L,
-            isFallback = false
-        )
-        db.priceDao().insert(oldPrice)
-        val repository = PriceRepository(
-            db.priceDao(),
-            FakeYahooFinanceApi(failSymbols = setOf("AAPL"))
-        )
-
-        val result = repository.getPrice("AAPL")
-
-        assertEquals(100.0, result?.price ?: 0.0, 0.001)
-        assertTrue(result?.isFallback == true)
-    }
-
-    @Test
-    fun circuitBreakerStopsRequestsAfterFiveConsecutiveFailures() = runBlocking {
-        val symbols = (1..6).map { "FAIL$it" }
-        val api = FakeYahooFinanceApi(failSymbols = symbols.toSet())
-        val repository = PriceRepository(db.priceDao(), api)
-
-        val result = repository.refreshAllPrices(symbols, emptyMap())
-
-        assertEquals(symbols, result.symbolsFailed)
-        assertEquals(5, api.stockRequests.size)
-        assertTrue(result.isPartialFailure)
-    }
-
-    private class FakeYahooFinanceApi(
-        private val failSymbols: Set<String> = emptySet()
-    ) : YahooFinanceApi {
-        val stockRequests = mutableListOf<String>()
-
-        override suspend fun getStockPrice(
-            symbol: String,
-            interval: String,
-            range: String
-        ): YahooFinanceResponse {
-            stockRequests += symbol
-            if (symbol in failSymbols) throw IllegalStateException("simulated failure")
-            return YahooFinanceResponse(
-                chart = ChartResult(
-                    result = listOf(
-                        ChartData(
-                            meta = StockMeta(
-                                symbol = symbol,
-                                regularMarketPrice = if (symbol == "AAPL") 200.0 else 1500.0,
-                                regularMarketPreviousClose = 199.0,
-                                chartPreviousClose = null,
-                                currency = if (symbol == "AAPL") "USD" else "CNY"
-                            )
-                        )
-                    ),
-                    error = null
-                )
+    fun serviceLevelErrorIsPropagatedAndDoesNotCreatePrice() = runBlocking {
+        val repository = PriceRepository(db.priceDao()) {
+            ApiEnvelope(
+                requestId = "req-service-error",
+                error = ApiError("PROVIDER_ERROR", "上游不可用", retryable = true)
             )
         }
 
-        override suspend fun getExchangeRate(
-            symbol: String,
-            interval: String,
-            range: String
-        ): YahooFinanceResponse = YahooFinanceResponse(
-            chart = ChartResult(
-                result = null,
-                error = ChartError("NOT_USED", "not used in this test")
+        val error = runCatching {
+            repository.refreshMarketData(
+                listOf(MarketAssetRequest("record-1", "AAPL", "STOCK")),
+                emptySet(),
+                "CNY"
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error?.message.orEmpty().contains("PROVIDER_ERROR"))
+        assertTrue(db.priceDao().getAllPrices().isEmpty())
+    }
+
+    @Test
+    fun emptySuccessfulPayloadIsReportedAsMissingAndDoesNotCreatePrice() = runBlocking {
+        val repository = PriceRepository(db.priceDao()) {
+            ApiEnvelope(requestId = "req-empty", data = MarketSyncData())
+        }
+
+        val result = repository.refreshMarketData(
+            listOf(MarketAssetRequest("record-1", "AAPL", "STOCK")),
+            emptySet(),
+            "CNY"
+        )
+
+        assertEquals(listOf("AAPL"), result.symbolsFailed)
+        assertEquals("MISSING_ITEM", result.failureCodes["AAPL"])
+        assertNull(db.priceDao().getPrice("AAPL"))
+    }
+
+    @Test
+    fun staleCacheIsExplicitlyMarkedAsFallback() = runBlocking {
+        db.priceDao().insert(
+            Price(
+                symbol = "AAPL",
+                price = 100.0,
+                previousClose = 99.0,
+                currency = "USD",
+                updatedAt = System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000L
             )
         )
+
+        val result = PriceRepository(db.priceDao()).getPrice("AAPL")
+
+        assertEquals(100.0, result?.price ?: 0.0, 0.001)
+        assertTrue(result?.isFallback == true)
     }
 }

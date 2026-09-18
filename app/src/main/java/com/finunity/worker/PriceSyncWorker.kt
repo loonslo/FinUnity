@@ -10,12 +10,14 @@ import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Settings
 import com.finunity.data.model.normalizeSecurityCode
 import com.finunity.data.repository.PriceRepository
+import com.finunity.data.repository.MarketAssetRequest
+import com.finunity.data.remote.FinUnityServiceException
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
 /**
  * 价格同步 Worker
- * 每日执行一次，自动刷新股票/ETF 价格并保存历史（价格过期阈值 12 小时）
+ * 每日执行一次，通过 FinUnity 专属服务刷新股票、ETF、基金净值和汇率。
  */
 class PriceSyncWorker(
     context: Context,
@@ -29,14 +31,18 @@ class PriceSyncWorker(
             val priceRepository = PriceRepository(database.priceDao())
 
             // 优先使用显式证券编码；旧记录回退到名称，兼容历史数据。
-            val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name)
+            val tradableTypes = listOf(AssetType.STOCK.name, AssetType.ETF.name, AssetType.FUND.name)
             val tradableRecords = database.assetRecordDao().getRecordsByTypes(tradableTypes)
-            val assetRecordCodes = tradableRecords
-                .map { normalizeSecurityCode(it.securityCode.ifBlank { it.name }) }
-
-            // 合并所有需要刷新的代码
-            val allSymbols = assetRecordCodes.distinct()
-            Log.d(TAG, "Found ${assetRecordCodes.size} tradable asset record codes, total ${allSymbols.size}")
+            val marketRequests = tradableRecords.map { record ->
+                MarketAssetRequest(
+                    clientRef = record.id,
+                    code = normalizeSecurityCode(record.securityCode.ifBlank { record.name }),
+                    assetType = record.assetType.name,
+                    instrumentId = record.instrumentId.takeIf(String::isNotBlank)
+                )
+            }
+            val allSymbols = marketRequests.map { it.code }.distinct()
+            Log.d(TAG, "Found ${marketRequests.size} service market requests, total ${allSymbols.size} symbols")
 
             // 获取所有账户的货币类型，构建汇率刷新列表
             val accounts = database.accountDao().getAllAccounts().first()
@@ -48,15 +54,16 @@ class PriceSyncWorker(
                     tradableRecords.map { it.currency })
                 .distinct()
                 .filter { it != baseCurrency }
-            val rates = currencies.associate { "${it}${baseCurrency}" to 1.0 }
+            val currencyPairs = currencies.map { "${it}${baseCurrency}" }.toSet()
 
-            // 批量刷新价格和汇率
-            val result = priceRepository.refreshAllPrices(allSymbols, rates)
+            // 单次请求专属服务，由服务端聚合行情、基金净值和汇率。
+            val result = priceRepository.refreshMarketData(marketRequests, currencyPairs, baseCurrency)
             Log.d(
                 TAG,
                 "Price sync result: symbols ${result.symbolsRefreshed}/${allSymbols.size}, " +
-                    "rates ${result.ratesRefreshed}/${rates.size}, " +
-                    "failedSymbols=${result.symbolsFailed}, failedRates=${result.ratesFailed}"
+                    "rates ${result.ratesRefreshed}/${currencyPairs.size}, " +
+                    "failedSymbols=${result.symbolsFailed}, failedRates=${result.ratesFailed}, " +
+                    "failureCodes=${result.failureCodes}, requestId=${result.requestId}"
             )
 
             // 为股票/ETF/基金 AssetRecord 保存价格历史
@@ -79,7 +86,11 @@ class PriceSyncWorker(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Price sync failed: ${e.message}")
-            if (runAttemptCount < MAX_ATTEMPTS - 1) {
+            val retryable = (e as? FinUnityServiceException)?.retryable ?: true
+            if (!retryable) {
+                Log.e(TAG, "Non-retryable service error; WorkManager will not retry")
+                Result.failure()
+            } else if (runAttemptCount < MAX_ATTEMPTS - 1) {
                 Result.retry()
             } else {
                 Log.e(TAG, "Price sync failed after $MAX_ATTEMPTS attempts, giving up")
@@ -118,6 +129,7 @@ class PriceSyncWorker(
                         // 回写 AssetRecord 当前价格
                         val updated = record.copy(
                             currentPrice = price.price,
+                            instrumentId = price.instrumentId.ifBlank { record.instrumentId },
                             updatedAt = System.currentTimeMillis()
                         )
                         database.assetRecordDao().update(updated)

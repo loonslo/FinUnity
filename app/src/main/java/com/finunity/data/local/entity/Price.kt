@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 
 /**
  * 价格缓存实体
- * 存储从 Yahoo Finance 获取的股价和汇率
+ * 存储从 FinUnity 专属服务获取的行情、基金净值和汇率。
  */
 @Entity(tableName = "prices")
 data class Price(
@@ -15,7 +15,14 @@ data class Price(
     val previousClose: Double = 0.0,   // 昨收价，0 表示未知（用于计算今日涨跌）
     val currency: String,              // 价格货币
     val updatedAt: Long = System.currentTimeMillis(),
-    val isFallback: Boolean = false     // 是否是过期缓存回退（而非实时数据）
+    val isFallback: Boolean = false,    // 是否是历史缓存回退（本次服务请求并未成功）
+    val instrumentId: String = "",
+    val source: String = "",
+    val sourceTime: Long? = null,
+    val receivedAt: Long? = null,
+    val quality: String = "UNKNOWN",
+    val valueType: String = "MARKET_PRICE",
+    val errorCode: String? = null
 ) {
     /**
      * 价格是否过期。

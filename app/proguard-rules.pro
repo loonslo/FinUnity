@@ -20,5 +20,5 @@
 -keep @androidx.room.Entity class *
 -dontwarn androidx.room.paging.**
 
-# Yahoo Finance API Response
+# FinUnity dedicated service API responses
 -keep class com.finunity.data.remote.** { *; }

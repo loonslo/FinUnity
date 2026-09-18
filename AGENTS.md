@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs daily prices from Yahoo Finance, and provides rebalancing alerts with three-bucket asset allocation. UI is in Chinese.
+FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs market data through the dedicated FinUnity service, and provides rebalancing alerts with three-bucket asset allocation. UI is in Chinese.
 
 ## Build & Test Commands
 
@@ -64,7 +64,7 @@ Three risk dimensions for asset allocation:
 
 UI shows a three-segment donut chart with green (AGGRESSIVE), blue (BALANCED), and gold (DEFENSIVE). The default target allocation is `"DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"`.
 
-## Database Schema (Room, version 24)
+## Database Schema (Room, version 25)
 
 - `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
@@ -75,12 +75,12 @@ UI shows a three-segment donut chart with green (AGGRESSIVE), blue (BALANCED), a
 - `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals and data-quality fields). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals), v24→v25 (add FinUnity service identity, provenance, and data-quality fields). Destructive fallback allowed from v1, v2 only.
 
 ## Key Design Decisions
 
 - **Average Cost Method**: `totalCost` is proportionally reduced when selling (shares and cost both decrease, unit cost unchanged)
-- **Multi-Currency**: All values converted to `baseCurrency` (CNY default) via Yahoo Finance exchange rates. Exchange rate symbol format: `"USDCNY=X"`.
+- **Multi-Currency**: All values are converted to `baseCurrency` (CNY default) using rates returned by the FinUnity service. The local cache retains compatibility keys such as `"USDCNY=X"`.
 - **Explicit Currency**: Each position/record has explicit `currency`; do not infer from symbol
 - **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted). All other account balances are ignored — assets tracked via AssetRecord.
 - **Cash Auto-Management**: `adjustCashAsset()` creates/updates/deletes CASH AssetRecords automatically when buying/selling non-cash assets
