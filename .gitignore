@@ -12,6 +12,7 @@ gradle/wrapper/dists/
 
 # Local configuration
 local.properties
+/.claude/
 
 # Generated files
 *.class
