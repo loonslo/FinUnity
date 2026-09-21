@@ -62,20 +62,28 @@ Three risk dimensions for asset allocation:
 - **BALANCED** (稳健/保障与保值的钱): Bonds, time deposits, insurance policies, real estate, vehicles, funds without a more specific subtype
 - **DEFENSIVE** (防守/要花的钱): Cash, demand deposits, Yu'ebao-type products
 
-UI shows a three-segment donut chart with green (AGGRESSIVE), blue (BALANCED), and gold (DEFENSIVE). The default target allocation is `"DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"`.
+UI distinguishes the three buckets by color — orange (AGGRESSIVE), gold (BALANCED), blue (DEFENSIVE); see `FinColors` in `ui/theme/Theme.kt` — via a stacked allocation bar (`StackedAllocationBar` in `TargetAllocationScreen.kt`), not a donut chart. The default target allocation is `"DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"`.
 
 ## Database Schema (Room, version 25)
 
-- `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance. **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
+- `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance, createdAt, sourceType, externalSourceId, lastSyncedAt, syncState (source/sync provenance), initialPrincipal, annualInterestRate, dueDayOfMonth, minimumPayment (liability metadata, LIABILITY accounts only). **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
 - `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
-- `asset_records` (new) — id, accountId, assetType, riskBucket, name, quantity, cost, currentPrice, currency, createdAt, updatedAt
-- `prices` — symbol (PK), price, currency, updatedAt, isFallback. 12h staleness threshold.
+- `asset_records` (new) — id, accountId, assetType, riskBucket, name, securityCode, instrumentId, quantity, cost, currentPrice, currency, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked, createdAt, updatedAt, sourceType, sourceAccountId, sourceRecordId, importBatchId, sourceFingerprint, syncedAt
+- `allocation_targets` — subCategory (PK), riskBucket, targetAmount, capAmount, stopNote, updatedAt. Sub-bucket (落点) level target/cap/stop, joined to asset_records by subCategory to produce the 落点表 (LandingPoint).
+- `prices` — symbol (PK), price, previousClose, currency, updatedAt, isFallback, instrumentId, source, sourceTime, receivedAt, quality, valueType, errorCode. 12h staleness threshold.
 - `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
-- `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW), shares, price, amount, currency, timestamp, note, recordId, balanceAfter
-- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05)
+- `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW/LIABILITY_PAYMENT), shares, price, amount, currency, timestamp, note, recordId, balanceAfter, origin, sourceFingerprint, category, importBatchId
+- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05), onboarded, amountsVisible, maxAggressiveRatio (default 0.70)
 - `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
+- `recurring_rules` — id, accountId, type (INCOME/EXPENSE), amount, currency, category, note, dayOfMonth, enabled, lastGeneratedAt, createdAt. Local-only recurring income/expense rules; never syncs to a bank or broker.
 
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals), v24→v25 (add FinUnity service identity, provenance, and data-quality fields). Destructive fallback allowed from v1, v2 only.
+**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table), v10→v11 (add maxAggressiveRatio to settings), v11→v12 (add industryTag to asset_records), v12→v13 (add purchaseRestricted to asset_records), v13→v14 (add peRatio/dividendYield/premiumRate to asset_records), v14→v15 (add previousClose to prices), v15→v16 (add securityCode to asset_records), v16→v17 (add source/sync metadata to accounts/asset_records/transactions; migrate positions into asset_records and clear positions), v17→v18 (add sourceFingerprint to transactions), v18→v19 (add category to transactions), v19→v20 (add liability metadata to accounts), v20→v21 (add recurring_rules table), v21→v22 (add importBatchId to transactions), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals), v24→v25 (add FinUnity service identity, provenance, and data-quality fields). Destructive fallback allowed from v1, v2 only.
+
+## Landing Points (落点表 · 子桶配置)
+
+The 落点 system sits *below* the three risk buckets, implementing the 加仓落点表 (accumulation landing-point table) from the product's 资产配置SOP plan (`对应方案第三章` in source comments). Assets carry a `subCategory` tag; `AllocationTarget` rows hold per-落点 `targetAmount`/`capAmount`/`stopNote`. `PortfolioCalculator.computeLandingPoints()` joins them into `LandingPoint` rows (`currentValue` vs `targetAmount`, plus computed `gap`/`progress`/`overCap`/`reachedTarget`, and `hasTarget` marking held-but-untargeted 落点). `computeLockedValue()` sums `locked` records; `PortfolioSummary.strategyAssets = grossAssets − lockedAssets` (floored at 0) is the investable pool. UI: `LandingPointScreen`, reachable from both PlanningScreen and SettingsScreen; edit form on AssetRecordScreen (subCategory + locked). Backup `BackupData` (current version 9) includes `allocationTargets`.
+
+**Risk check (风险体检 · 永不满仓)**: `evaluateRiskAlerts()` (pure fn in PortfolioSummary.kt) produces `RiskAlert` rows — WARNING when AGGRESSIVE ratio exceeds `settings.maxAggressiveRatio`, WARNING per over-cap landing point, INFO per reached-target landing point that isn't also over-cap. Surfaced in a 风险体检 card atop PlanningScreen; the ratio cap is edited in TargetAllocationScreen.
 
 ## Key Design Decisions
 
