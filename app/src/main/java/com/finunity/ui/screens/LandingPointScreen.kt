@@ -353,6 +353,7 @@ private fun TargetEditDialog(
 private fun trimAmount(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
 
+@Composable
 private fun bucketColorLp(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
     RiskBucket.BALANCED -> FinColors.Conservative

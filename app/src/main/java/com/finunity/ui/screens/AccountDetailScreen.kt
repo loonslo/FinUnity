@@ -30,6 +30,7 @@ import com.finunity.data.local.entity.displayName
 import com.finunity.data.model.AccountSummary
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
+import com.finunity.ui.theme.FinChrome
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
@@ -124,7 +125,7 @@ fun AccountDetailScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                         ),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                        border = BorderStroke(1.dp, FinChrome.CardBorder)
                     ) {
                         Box(
                             modifier = Modifier
@@ -222,7 +223,7 @@ fun AccountInfoCard(
         colors = CardDefaults.cardColors(
             containerColor = FinColors.Surface
         ),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -312,19 +313,19 @@ fun AccountStatsRow(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.md,
         colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             StatCell("市值", formatCurrency(totalValue, baseCurrency), FinColors.TextPrimary)
             if (incomeRecords.isNotEmpty()) {
-                Box(Modifier.width(1.dp).height(34.dp).background(Color.White.copy(alpha = 0.08f)))
+                Box(Modifier.width(1.dp).height(34.dp).background(FinChrome.CardBorder))
                 StatCell("盈亏", formatSignedMoney(totalProfitLoss, baseCurrency), when {
                     totalProfitLoss > 0 -> FinColors.Profit
                     totalProfitLoss < 0 -> FinColors.Loss
                     else -> FinColors.TextSecondary
                 })
-                Box(Modifier.width(1.dp).height(34.dp).background(Color.White.copy(alpha = 0.08f)))
+                Box(Modifier.width(1.dp).height(34.dp).background(FinChrome.CardBorder))
                 StatCell("收益率", formatSignedPercent(profitLossRatio), when {
                     profitLossRatio > 0 -> FinColors.Profit
                     profitLossRatio < 0 -> FinColors.Loss
@@ -357,7 +358,7 @@ fun StatCard(
         colors = CardDefaults.cardColors(
             containerColor = FinColors.Surface
         ),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -401,7 +402,7 @@ fun AccountRecordItem(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(

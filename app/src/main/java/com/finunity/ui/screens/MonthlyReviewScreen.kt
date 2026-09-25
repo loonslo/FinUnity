@@ -230,6 +230,7 @@ fun MonthlyReviewScreen(
     }
 }
 
+@Composable
 private fun bucketColorReview(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
     RiskBucket.BALANCED -> FinColors.Conservative

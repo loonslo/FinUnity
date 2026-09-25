@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.ui.components.FinInlineField
 import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinSoftButton
 import com.finunity.ui.components.FinTopBar
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
@@ -105,23 +106,15 @@ fun TradeScreen(
         topBar = { FinTopBar(title = "${if (tradeIsBuy) "买入" else "卖出"} ${record.name}", onBack = onBack) },
         bottomBar = {
             Surface(color = FinColors.PageBg) {
-                Button(
+                FinSoftButton(
+                    text = if (tradeIsBuy) "确认买入" else "确认卖出",
                     onClick = { showConfirmDialog = true },
                     enabled = valid,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .height(52.dp),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (tradeIsBuy) FinColors.Profit else FinColors.Loss,
-                        contentColor = Color.White,
-                        disabledContainerColor = FinColors.SurfaceElevated,
-                        disabledContentColor = FinColors.TextTertiary
-                    )
-                ) {
-                    Text(if (tradeIsBuy) "确认买入" else "确认卖出", fontWeight = FontWeight.SemiBold)
-                }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    containerColor = if (tradeIsBuy) FinColors.Profit else FinColors.Loss
+                )
             }
         },
         modifier = modifier

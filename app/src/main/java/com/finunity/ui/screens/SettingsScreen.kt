@@ -18,7 +18,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.Settings
 import com.finunity.ui.theme.FinColors
+import com.finunity.ui.theme.FinAppearance
+import com.finunity.ui.theme.FinThemeColor
+import com.finunity.ui.theme.finAppearanceFromKey
+import com.finunity.ui.theme.finThemeColorFromKey
+import com.finunity.ui.theme.storageKey
 import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinPill
 import com.finunity.ui.components.FinSettingRow
 import com.finunity.ui.components.FinTopBar
 
@@ -86,6 +92,54 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            // 外观：配色方案 × 深浅模式，切换立即生效并直接写入 settings（不走下方"保存设置"）
+            Column {
+                Text(
+                    text = "外观",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val currentThemeColor = finThemeColorFromKey(settings.themeColor)
+                val currentAppearance = finAppearanceFromKey(settings.themeAppearance)
+                FinCard(contentPadding = PaddingValues(14.dp)) {
+                    Text("配色方案", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FinPill(
+                            text = "极简灰蓝",
+                            selected = currentThemeColor == FinThemeColor.MINIMAL,
+                            onClick = { onSave(settings.copy(themeColor = FinThemeColor.MINIMAL.storageKey())) }
+                        )
+                        FinPill(
+                            text = "藏青",
+                            selected = currentThemeColor == FinThemeColor.NAVY,
+                            onClick = { onSave(settings.copy(themeColor = FinThemeColor.NAVY.storageKey())) }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text("外观模式", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FinPill(
+                            text = "跟随系统",
+                            selected = currentAppearance == FinAppearance.SYSTEM,
+                            onClick = { onSave(settings.copy(themeAppearance = FinAppearance.SYSTEM.storageKey())) }
+                        )
+                        FinPill(
+                            text = "浅色",
+                            selected = currentAppearance == FinAppearance.LIGHT,
+                            onClick = { onSave(settings.copy(themeAppearance = FinAppearance.LIGHT.storageKey())) }
+                        )
+                        FinPill(
+                            text = "深色",
+                            selected = currentAppearance == FinAppearance.DARK,
+                            onClick = { onSave(settings.copy(themeAppearance = FinAppearance.DARK.storageKey())) }
+                        )
+                    }
+                }
+            }
+
             // 本位币
             Column {
                 Text(

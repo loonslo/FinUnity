@@ -25,6 +25,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,19 +36,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import com.finunity.ui.theme.FinChrome
 import com.finunity.ui.theme.FinColors
 import java.util.Locale
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.theme.FinSizes
-
-// 兼容旧代码（保留别名过渡）
-val FinGreen = FinColors.Primary
-val FinLine = FinColors.Outline
-val FinBlue = FinColors.Conservative
-val FinGold = FinColors.Cash
-val FinPage = FinColors.PageBg
-val FinMuted = FinColors.Muted
-val FinAccent = FinColors.Accent
 
 // 间距系统（基于 8dp）
 val FinSpacing = object {
@@ -55,19 +51,19 @@ val FinSpacing = object {
     val xl = 32.dp
 }
 
-// 统一面板：14dp 圆角、细边、无阴影。
+// 统一面板：24dp 圆角、细边、无阴影——以描边为主而不是投影分层，对齐 Web 端 .panel。
 @Composable
 fun FinCard(
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surface,
+    containerColor: Color = FinColors.Surface,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = FinShapes.md,
+        shape = FinShapes.lg,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(contentPadding)) {
@@ -90,7 +86,7 @@ fun FinSectionLabel(
     )
 }
 
-// FinPill - 无边框，改用背景色
+// FinPill - 无边框，改用背景色。选中态用品牌色而不是反色技巧，浅色/深色模式下都成立。
 @Composable
 fun FinPill(
     text: String,
@@ -101,14 +97,14 @@ fun FinPill(
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = CircleShape,
-        color = if (selected) Color.White else Color.Transparent
+        color = if (selected) FinColors.Primary else Color.Transparent
     ) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) FinColors.PageBg else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (selected) Color.White else FinColors.TextSecondary
         )
     }
 }
@@ -140,7 +136,7 @@ fun FinTextField(
         isError = isError,
         supportingText = supportingText?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        shape = FinShapes.sm,
+        shape = FinShapes.xs,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = FinColors.Primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -150,22 +146,24 @@ fun FinTextField(
     )
 }
 
-// FinSoftButton - 绿色按钮
+// FinSoftButton - 主按钮，默认品牌色；containerColor/contentColor 可覆盖（如买卖操作需要红/绿）
 @Composable
 fun FinSoftButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    containerColor: Color = FinColors.Primary,
+    contentColor: Color = Color.White
 ) {
     Surface(
         modifier = modifier
             .height(FinSizes.buttonHeight)
             .clickable(enabled = enabled, onClick = onClick),
         shape = CircleShape,
-        // 禁用态用半透明主色而非浅灰，保证白色文字始终清晰可读
-        color = if (enabled) FinColors.Primary else FinColors.Primary.copy(alpha = 0.45f),
-        contentColor = Color.White
+        // 禁用态用半透明底色而非浅灰，保证文字始终清晰可读
+        color = if (enabled) containerColor else containerColor.copy(alpha = 0.45f),
+        contentColor = contentColor
     ) {
         Box(
             modifier = Modifier.fillMaxHeight(),
@@ -269,7 +267,7 @@ fun FinInlineField(
                 )
             }
         }
-        Divider(color = if (isError) FinColors.Danger else Color.White.copy(alpha = 0.06f))
+        Divider(color = if (isError) FinColors.Danger else FinChrome.CardBorder)
     }
 }
 
@@ -315,7 +313,7 @@ fun FinSettingRow(
                 }
             }
         }
-        if (showDivider) Divider(color = Color.White.copy(alpha = 0.06f))
+        if (showDivider) Divider(color = FinChrome.CardBorder)
     }
 }
 
@@ -323,5 +321,84 @@ fun FinSettingRow(
 fun FinBucketTag(label: String, color: Color, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, shape = CircleShape, color = color.copy(alpha = 0.12f)) {
         Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
+    }
+}
+
+/**
+ * 总资产卡外壳，对齐 Web 端 `.portfolio-hero`：渐变背景 + 28dp 圆角、零描边零阴影
+ * （纯靠背景色块和更大圆角区分层级，和普通 [FinCard] 的"描边为主"策略刻意不同）。
+ * 只提供背景/形状这一层，具体内容（金额、涨跌徽标、按钮、meta）由调用方组装。
+ * 藏青主题会额外叠一层品牌色径向光晕，极简灰蓝主题没有这层（heroGlow 为 null）。
+ */
+@Composable
+fun FinHeroCard(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val glow = FinChrome.HeroGlow
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(FinShapes.xl)
+            .background(FinChrome.HeroBrush)
+            .then(
+                if (glow != null) {
+                    Modifier.drawWithCache {
+                        val brush = Brush.radialGradient(
+                            colors = listOf(glow, Color.Transparent),
+                            center = Offset(size.width, 0f),
+                            radius = size.maxDimension * 1.1f
+                        )
+                        onDrawBehind { drawRect(brush) }
+                    }
+                } else Modifier
+            )
+    ) {
+        Column(modifier = Modifier.padding(contentPadding), content = content)
+    }
+}
+
+/** 涨跌徽标 pill，用在总资产卡里；正/负分别走 hero 专属的 delta 配色。 */
+@Composable
+fun FinHeroDeltaBadge(text: String, positive: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = if (positive) FinChrome.HeroDeltaBg else FinChrome.HeroDeltaNegativeBg
+    ) {
+        Text(
+            text,
+            color = if (positive) FinChrome.HeroDeltaColor else FinChrome.HeroDeltaNegative,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
+        )
+    }
+}
+
+/** Hero 卡内的操作按钮：ghost（半透明，默认）或 solid（实心，主操作）两种，对齐 Web 端 hero-buttons。 */
+@Composable
+fun FinHeroButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    solid: Boolean = false,
+    icon: (@Composable () -> Unit)? = null
+) {
+    Surface(
+        modifier = modifier.height(40.dp).clickable(onClick = onClick),
+        shape = CircleShape,
+        color = if (solid) FinChrome.HeroBtnSolidBg else FinChrome.HeroBtnGhostBg,
+        contentColor = if (solid) FinChrome.HeroBtnSolidColor else FinChrome.HeroBtnGhostColor
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp).fillMaxHeight(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            icon?.invoke()
+            Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }

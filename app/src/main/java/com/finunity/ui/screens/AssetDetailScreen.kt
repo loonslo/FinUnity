@@ -38,6 +38,7 @@ import com.finunity.data.local.entity.PriceHistory
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.model.AssetRecordSummary
 import com.finunity.data.model.displayName
+import com.finunity.ui.theme.FinChrome
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinTopBar
@@ -270,7 +271,7 @@ private fun RecentPriceSection(
                     modifier = Modifier.fillMaxWidth(),
                     shape = FinShapes.md,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                    border = BorderStroke(1.dp, FinChrome.CardBorder)
                 ) { PriceTrendChart(priceHistory, summary.record.currency) }
             }
             priceHistory.size == 1 -> EmptyDetailText("暂无足够历史数据")
@@ -318,7 +319,7 @@ private fun DetailTransactionItem(tx: Transaction, dateFormat: SimpleDateFormat)
     Card(
         shape = FinShapes.md,
         colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, FinChrome.CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
@@ -359,7 +360,7 @@ private fun DetailPriceItem(history: PriceHistory, dateFormat: SimpleDateFormat,
     Card(
         shape = FinShapes.md,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+        border = BorderStroke(1.dp, FinChrome.CardBorder)
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(dateFormat.format(Date(history.timestamp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -395,6 +396,7 @@ private fun PriceTrendChart(history: List<PriceHistory>, currency: String) {
         }
         Spacer(modifier = Modifier.height(8.dp))
         // 折线图
+        val lineColor = FinColors.Accent
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -424,7 +426,7 @@ private fun PriceTrendChart(history: List<PriceHistory>, currency: String) {
                 // 画折线
                 for (i in 0 until points.size - 1) {
                     drawLine(
-                        color = FinColors.Accent,
+                        color = lineColor,
                         start = points[i],
                         end = points[i + 1],
                         strokeWidth = 2.dp.toPx(),
@@ -435,7 +437,7 @@ private fun PriceTrendChart(history: List<PriceHistory>, currency: String) {
                 // 画数据点
                 for (point in points) {
                     drawCircle(
-                        color = FinColors.Accent,
+                        color = lineColor,
                         radius = 3.dp.toPx(),
                         center = point
                     )

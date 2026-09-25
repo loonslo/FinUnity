@@ -65,7 +65,11 @@ import com.finunity.ui.screens.ReconciliationScreen
 import com.finunity.ui.screens.ExportScreen
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.data.repository.LedgerResult
+import com.finunity.ui.theme.FinAppearance
+import com.finunity.ui.theme.FinThemeColor
 import com.finunity.ui.theme.FinUnityTheme
+import com.finunity.ui.theme.finAppearanceFromKey
+import com.finunity.ui.theme.finThemeColorFromKey
 import com.finunity.viewmodel.MainViewModel
 import com.finunity.worker.PriceSyncWorker
 import com.finunity.worker.ReviewReminderWorker
@@ -113,7 +117,14 @@ class MainActivity : ComponentActivity() {
         val openScreen = intent.getStringExtra("open")
 
         setContent {
-            FinUnityTheme {
+            // 主题偏好独立于 MainViewModel 读取，这样 FinUnityTheme 能在 FinUnityApp/
+            // MainViewModel 创建之前就拿到配色——两处都是同一张 settings 表的 Room Flow，
+            // 重复订阅代价很小。
+            val themeSettings by database.settingsDao().getSettings().collectAsStateWithLifecycle(initialValue = null)
+            FinUnityTheme(
+                themeColor = themeSettings?.themeColor?.let(::finThemeColorFromKey) ?: FinThemeColor.NAVY,
+                appearance = themeSettings?.themeAppearance?.let(::finAppearanceFromKey) ?: FinAppearance.DARK
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

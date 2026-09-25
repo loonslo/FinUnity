@@ -17,7 +17,9 @@ import com.finunity.ui.theme.FinShapes
 
 private data class BucketInfo(val name: String, val desc: String, val color: Color)
 
-private val BUCKETS = listOf(
+// 桶颜色随主题变化，不能放进顶层 val（在 Composable 上下文之外求值），改成按需构建的函数。
+@Composable
+private fun buckets(): List<BucketInfo> = listOf(
     BucketInfo("防守", "现金、活期和随时要用的备用金", FinColors.Cash),
     BucketInfo("稳健", "定期、债券、保险、房产、车辆和低波动资产", FinColors.Conservative),
     BucketInfo("进攻", "股票、ETF、权益基金和可承受波动的长期资金", FinColors.Aggressive)
@@ -134,7 +136,7 @@ private fun BucketStep() {
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                BUCKETS.forEach { q ->
+                buckets().forEach { q ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(q.color))
                         Spacer(modifier = Modifier.width(12.dp))

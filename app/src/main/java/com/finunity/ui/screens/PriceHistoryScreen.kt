@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.finunity.data.local.entity.PriceHistory
 import com.finunity.ui.components.FinTopBar
+import com.finunity.ui.theme.FinColors
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -131,7 +132,7 @@ fun PriceStatsCard(
     maxPrice: Double,
     baseCurrency: String
 ) {
-    val changeColor = if (priceChange >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val changeColor = if (priceChange >= 0) FinColors.Profit else FinColors.Loss
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -216,7 +217,7 @@ fun PriceStatsCard(
                     text = String.format(Locale.US, "%.2f", minPrice),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF00A86B)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -263,6 +264,7 @@ fun PriceChartCard(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            val lineColor = FinColors.Accent
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -288,7 +290,7 @@ fun PriceChartCard(
 
                 drawPath(
                     path = path,
-                    color = Color(0xFF2196F3),
+                    color = lineColor,
                     style = Stroke(width = 3.dp.toPx())
                 )
             }
@@ -323,7 +325,7 @@ fun PriceHistoryItem(
 ) {
     val profitLoss = history.price - history.cost
     val profitLossRatio = if (history.cost > 0) profitLoss / history.cost else 0.0
-    val profitColor = if (profitLoss >= 0) Color(0xFF00A86B) else Color(0xFFE53935)
+    val profitColor = if (profitLoss >= 0) FinColors.Profit else FinColors.Loss
 
     val date = Date(history.timestamp)
 

@@ -73,7 +73,7 @@ private fun AccountProfileHeader() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = FinShapes.xl,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FinColors.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
@@ -157,7 +157,7 @@ private fun SecondaryToolChip(
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = FinShapes.sm,
-        color = Color.White.copy(alpha = 0.72f),
+        color = FinColors.Surface,
         border = BorderStroke(1.dp, FinColors.Outline.copy(alpha = 0.65f))
     ) {
         Row(

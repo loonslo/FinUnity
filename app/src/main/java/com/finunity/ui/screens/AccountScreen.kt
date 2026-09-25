@@ -42,8 +42,10 @@ import com.finunity.data.model.AccountAssetRules
 import com.finunity.ui.components.FinTextField
 import com.finunity.ui.components.FinInlineField
 import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinHeroCard
 import com.finunity.ui.components.FinSettingRow
 import com.finunity.ui.components.FinTopBar
+import com.finunity.ui.theme.FinChrome
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 
@@ -162,7 +164,7 @@ fun AccountScreen(
                     Surface(onClick = { selectedType = type; showTypeSheet = false }, color = Color.Transparent, modifier = Modifier.fillMaxWidth(), shape = FinShapes.sm) {
                         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(34.dp).background(if (selectedType == type) FinColors.Accent else FinColors.SurfaceElevated, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                Text(accountTypeInitial(type), color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(accountTypeInitial(type), color = if (selectedType == type) Color.White else FinColors.TextPrimary, fontWeight = FontWeight.Bold)
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
@@ -202,7 +204,7 @@ fun AccountScreen(
                             if (selectedCurrency == code) Text("✓", color = FinColors.TextPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Divider(color = Color.White.copy(alpha = 0.06f))
+                    Divider(color = FinColors.Outline)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -377,39 +379,31 @@ private fun AccountHeroCard(
     selectedType: AccountType,
     selectedCurrency: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(30.dp),
-        colors = CardDefaults.cardColors(containerColor = FinColors.SurfaceElevated),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+    FinHeroCard {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = FinChrome.HeroBtnGhostBg
         ) {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = Color.White.copy(alpha = 0.12f)
-            ) {
-                Text(
-                    text = if (isEditing) "账户资料" else "新的资产入口",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.82f)
-                )
-            }
             Text(
-                text = if (isEditing) "保持账户信息清晰可追溯" else "先建立账户，再把钱按用途放进去",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Text(
-                text = "${selectedType.displayName()} · $selectedCurrency",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.72f)
+                text = if (isEditing) "账户资料" else "新的资产入口",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = FinChrome.HeroLabelColor
             )
         }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            text = if (isEditing) "保持账户信息清晰可追溯" else "先建立账户，再把钱按用途放进去",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = FinChrome.HeroAmountColor
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "${selectedType.displayName()} · $selectedCurrency",
+            style = MaterialTheme.typography.bodyMedium,
+            color = FinChrome.HeroMetaColor
+        )
     }
 }
 
@@ -492,12 +486,10 @@ private fun AccountTypeCard(
             .width(148.dp)
             .clickable(onClick = onClick),
         shape = FinShapes.lg,
-        // Keep the selected state in the same dark card system; the light outline
-        // carries selection without introducing a competing pale-blue card.
         color = FinColors.PageBg,
         border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) Color.White.copy(alpha = 0.72f) else FinColors.Outline
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) FinColors.Primary else FinColors.Outline
         )
     ) {
         Column(

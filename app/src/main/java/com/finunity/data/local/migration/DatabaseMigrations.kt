@@ -435,6 +435,19 @@ object Migration24To25 {
 }
 
 /**
+ * Database migration from version 25 to 26.
+ * Adds theme preference columns to settings (安卓UI重构：双主题×深浅色).
+ */
+object Migration25To26 {
+    val migration: Migration = object : Migration(25, 26) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE settings ADD COLUMN themeColor TEXT NOT NULL DEFAULT 'navy'")
+            database.execSQL("ALTER TABLE settings ADD COLUMN themeAppearance TEXT NOT NULL DEFAULT 'dark'")
+        }
+    }
+}
+
+/**
  * Provider for all database migrations.
  */
 object DatabaseMigrations {
@@ -460,6 +473,7 @@ object DatabaseMigrations {
         Migration21To22.migration,
         Migration22To23.migration,
         Migration23To24.migration,
-        Migration24To25.migration
+        Migration24To25.migration,
+        Migration25To26.migration
     )
 }

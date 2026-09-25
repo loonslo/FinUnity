@@ -109,10 +109,13 @@ import com.finunity.data.model.normalizeSecurityCode
 import com.finunity.data.repository.ScreenshotImportRepository
 import com.finunity.data.repository.MonthlyChange
 import com.finunity.data.local.entity.parseTargetAllocation
+import com.finunity.ui.theme.FinChrome
 import com.finunity.ui.theme.FinColors
 import com.finunity.ui.theme.FinShapes
 import com.finunity.ui.components.FinBucketTag
 import com.finunity.ui.components.FinCard
+import com.finunity.ui.components.FinHeroCard
+import com.finunity.ui.components.FinHeroDeltaBadge
 import com.finunity.ui.components.FinInlineField
 import com.finunity.ui.components.FinSettingRow
 import kotlinx.coroutines.CancellationException
@@ -130,11 +133,22 @@ enum class PrototypeTab { Overview, Assets, Mine }
 
 private enum class AssetEventFilter { ALL, TRADES, INFLOW, OUTFLOW }
 
-enum class PrototypeBucket(val label: String, val color: Color, val description: String) {
-    DEFENSIVE("防守", FinColors.Cash, "要花的钱 · 随时要用"),
-    BALANCED("稳健", FinColors.Conservative, "保本的钱 · 1-3 年要用"),
-    AGGRESSIVE("进攻", FinColors.Aggressive, "生钱的钱 · 长期持有")
+enum class PrototypeBucket(val label: String, val description: String) {
+    DEFENSIVE("防守", "要花的钱 · 随时要用"),
+    BALANCED("稳健", "保本的钱 · 1-3 年要用"),
+    AGGRESSIVE("进攻", "生钱的钱 · 长期持有")
 }
+
+/**
+ * 桶颜色需要按当前主题解析，枚举构造函数在 Composable 上下文之外执行，
+ * 所以颜色不能放进构造参数，改用扩展属性——调用写法 `bucket.color` 不变。
+ */
+val PrototypeBucket.color: Color
+    @Composable get() = when (this) {
+        PrototypeBucket.DEFENSIVE -> FinColors.Cash
+        PrototypeBucket.BALANCED -> FinColors.Conservative
+        PrototypeBucket.AGGRESSIVE -> FinColors.Aggressive
+    }
 
 private data class PrototypeHolding(
     val key: String,
@@ -232,12 +246,14 @@ private fun signedPercent(value: Double): String = when {
     else -> "0.0%"
 }
 
+@Composable
 private fun changeColor(value: Double): Color = when {
     value > 0 -> FinColors.Profit
     value < 0 -> FinColors.Loss
     else -> FinColors.TextSecondary
 }
 
+@Composable
 private fun driftColor(value: Double, threshold: Double): Color =
     if (abs(value) > threshold) FinColors.Warning else FinColors.TextSecondary
 
@@ -281,9 +297,10 @@ fun PrototypeBottomBar(
     selected: PrototypeTab,
     onSelect: (PrototypeTab) -> Unit
 ) {
-    Surface(color = FinColors.Surface, tonalElevation = 0.dp) {
+    // 对齐 Web 端侧边栏配色（藏青恒暗，极简灰蓝跟随外观），激活态用色块高亮而不是小圆点。
+    Box(Modifier.fillMaxWidth().background(FinChrome.NavBg)) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(66.dp).padding(horizontal = 6.dp, vertical = 5.dp),
+            modifier = Modifier.fillMaxWidth().height(66.dp).padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             PrototypeTabItem(PrototypeTab.Overview, "总览", Icons.Default.Home, selected, onSelect)
@@ -303,13 +320,17 @@ private fun RowScope.PrototypeTabItem(
 ) {
     val active = tab == selected
     Column(
-        modifier = Modifier.weight(1f).clip(FinShapes.sm).clickable { onSelect(tab) }.padding(vertical = 3.dp),
+        modifier = Modifier
+            .weight(1f)
+            .clip(FinShapes.sm)
+            .background(if (active) FinChrome.NavActiveBg else Color.Transparent)
+            .clickable { onSelect(tab) }
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp), tint = if (active) FinColors.TextPrimary else FinColors.TextSecondary)
-        Text(label, fontSize = 10.sp, color = if (active) FinColors.TextPrimary else FinColors.TextSecondary)
-        Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(if (active) Color.White else Color.Transparent))
+        Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp), tint = if (active) FinChrome.NavActiveText else FinChrome.NavText)
+        Text(label, fontSize = 10.sp, color = if (active) FinChrome.NavActiveText else FinChrome.NavText)
     }
 }
 
@@ -432,7 +453,7 @@ private fun EmptyPrototypeOverview(
             color = FinColors.TextSecondary
         )
         Spacer(Modifier.height(22.dp))
-        Button(onClick = onStartAddFlow, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)) {
+        Button(onClick = onStartAddFlow, colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White)) {
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(Modifier.width(6.dp))
             Text(if (hasAccounts) "添加第一项资产" else "添加账户", fontWeight = FontWeight.Bold)
@@ -485,41 +506,33 @@ private fun TotalAssetCard(summary: PortfolioSummary, monthlyChange: MonthlyChan
     // 活跃资产统一来自 AssetRecord；旧 Position 只由迁移/备份兼容层处理。
     val cost = summary.assetRecords.sumOf { it.costInBaseCurrency }
     val cumulative = summary.totalAssets - cost
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = FinShapes.md,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color(0xFF1E2438), Color(0xFF171B2A))))
-        ) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
-            Column(Modifier.padding(16.dp)) {
-                Text("总资产", color = FinColors.TextSecondary, fontSize = 11.sp)
-                Spacer(Modifier.height(4.dp))
-                MonoText(money(summary.totalAssets, summary.baseCurrency), size = 29, weight = FontWeight.Bold)
-                Text(
-                    "总成本 ${money(cost, summary.baseCurrency)}",
-                    color = FinColors.TextSecondary,
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    val monthValue = monthlyChange?.change ?: 0.0
-                    MetricCell("本月变化", signedMoney(monthValue, summary.baseCurrency), changeColor(monthValue))
-                    MetricDivider()
-                    MetricCell("本月变化率", signedPercent(monthlyChange?.percentageChange ?: 0.0), changeColor(monthlyChange?.percentageChange ?: 0.0))
-                    MetricDivider()
-                    MetricCell("累计收益", signedMoney(cumulative, summary.baseCurrency), changeColor(cumulative))
-                }
-                Text("今日变化 ${signedMoney(summary.todayChange, summary.baseCurrency)} · 仅作辅助参考", color = FinColors.TextTertiary, fontSize = 9.sp, modifier = Modifier.padding(top = 8.dp))
-            }
+    val metaBorder = FinChrome.HeroMetaBorder
+    FinHeroCard {
+        Text("总资产 · ${summary.baseCurrency}", color = FinChrome.HeroLabelColor, fontSize = 11.sp)
+        Spacer(Modifier.height(4.dp))
+        MonoText(money(summary.totalAssets, summary.baseCurrency), color = FinChrome.HeroAmountColor, size = 29, weight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        FinHeroDeltaBadge(
+            text = "累计收益 ${signedMoney(cumulative, summary.baseCurrency)}",
+            positive = cumulative >= 0
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            val monthValue = monthlyChange?.change ?: 0.0
+            MetricCell("本月变化", signedMoney(monthValue, summary.baseCurrency), changeColor(monthValue))
+            MetricDivider(metaBorder)
+            MetricCell("本月变化率", signedPercent(monthlyChange?.percentageChange ?: 0.0), changeColor(monthlyChange?.percentageChange ?: 0.0))
+            MetricDivider(metaBorder)
+            MetricCell("总成本", money(cost, summary.baseCurrency), FinChrome.HeroMetaStrong)
         }
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(metaBorder))
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "今日变化 ${signedMoney(summary.todayChange, summary.baseCurrency)} · 仅作辅助参考",
+            color = FinChrome.HeroMetaColor,
+            fontSize = 9.sp
+        )
     }
 }
 
@@ -578,60 +591,13 @@ private fun OverviewPriorityAlert(
 }
 
 @Composable
-private fun DataQualityCard(missingCurrencies: Set<String>) {
-    PrototypeCard(color = Color(0xFF3A3020)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Icon(
-                Icons.Default.Warning,
-                contentDescription = "数据提醒",
-                tint = FinColors.Warning,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text("部分金额未计入总览", color = FinColors.Warning, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                Text(
-                    "缺少 ${missingCurrencies.joinToString()} 的汇率。补齐汇率后，资产合计和配置比例会重新计算。",
-                    color = FinColors.TextSecondary,
-                    fontSize = 10.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun RowScope.MetricCell(label: String, value: String, color: Color) {
+    // 只在总资产卡（恒定深色背景，藏青主题下与外观模式无关）里使用，标签色走 hero 专属 token
+    // 而不是页面级 TextSecondary——藏青+浅色外观组合下两者会不一致。
     Column(modifier = Modifier.weight(1f)) {
-        Text(label, color = FinColors.TextSecondary, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = FinChrome.HeroMetaColor, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(3.dp))
         MonoText(value, color = color, size = 11, weight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun DriftWarningCard(drift: Map<PrototypeBucket, Double>, threshold: Double, total: Double, currency: String) {
-    val bad = drift.filterValues { abs(it) > threshold }.entries
-    val aggressive = drift[PrototypeBucket.AGGRESSIVE] ?: 0.0
-    val advice = if (aggressive > threshold) {
-        "减持进攻约 ${money(total * aggressive, currency)}，转入欠配桶"
-    } else "按目标比例进行再平衡"
-    PrototypeCard(color = Color(0xFF3A3020)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Box(Modifier.size(28.dp).clip(FinShapes.sm).background(FinColors.Warning.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Warning, contentDescription = "配置提醒", tint = FinColors.Warning, modifier = Modifier.size(16.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text("配置偏移提醒 · 阈值 ±${(threshold * 100).roundToInt()}%", color = FinColors.Warning, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    bad.joinToString("，") { (bucket, value) -> "${bucket.label}${if (value > 0) "超配" else "欠配"} ${signedPercent(value.toDouble())}" } + "：$advice",
-                    color = FinColors.Warning,
-                    fontSize = 10.sp
-                )
-            }
-        }
     }
 }
 
@@ -677,16 +643,21 @@ private fun AllocationCard(actual: Map<PrototypeBucket, Double>, target: Map<Pro
 
 @Composable
 private fun AllocationDonut(actual: Map<PrototypeBucket, Double>, target: Map<PrototypeBucket, Float>, modifier: Modifier) {
+    // bucket.color 是 @Composable 属性，Canvas 的绘制作用域不是 Composable 上下文，
+    // 必须先在这里解析成普通 Map 再传进去。
+    val bucketColors = PrototypeBucket.entries.associateWith { it.color }
+    val baseRingColor = FinColors.BgSunken
+    val tickColor = FinColors.TextPrimary
     Canvas(modifier) {
         val stroke = 13.dp.toPx()
         val diameter = size.minDimension - stroke
         val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
         val arcSize = Size(diameter, diameter)
-        drawArc(Color.White.copy(alpha = 0.08f), 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke))
+        drawArc(baseRingColor, 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke))
         var start = -90f
         PrototypeBucket.entries.forEach { bucket ->
             val sweep = ((actual[bucket] ?: 0.0) * 360f).toFloat()
-            if (sweep > 0f) drawArc(bucket.color, start, (sweep - 2f).coerceAtLeast(0.5f), false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Butt))
+            if (sweep > 0f) drawArc(bucketColors.getValue(bucket), start, (sweep - 2f).coerceAtLeast(0.5f), false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Butt))
             start += sweep
         }
         var accumulated = 0f
@@ -696,7 +667,7 @@ private fun AllocationDonut(actual: Map<PrototypeBucket, Double>, target: Map<Pr
             val center = Offset(size.width / 2, size.height / 2)
             val inner = diameter / 2 - stroke / 2 - 3.dp.toPx()
             val outer = diameter / 2 + stroke / 2 + 3.dp.toPx()
-            drawLine(Color.White, center + Offset((kotlin.math.cos(angle) * inner).toFloat(), (kotlin.math.sin(angle) * inner).toFloat()), center + Offset((kotlin.math.cos(angle) * outer).toFloat(), (kotlin.math.sin(angle) * outer).toFloat()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(tickColor, center + Offset((kotlin.math.cos(angle) * inner).toFloat(), (kotlin.math.sin(angle) * inner).toFloat()), center + Offset((kotlin.math.cos(angle) * outer).toFloat(), (kotlin.math.sin(angle) * outer).toFloat()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
         }
     }
 }
@@ -756,12 +727,12 @@ private fun PrototypeLoadingSkeleton(modifier: Modifier = Modifier) {
 
 @Composable
 private fun SkeletonBlock(modifier: Modifier = Modifier) {
-    Box(modifier.clip(FinShapes.md).background(Color.White.copy(alpha = 0.06f)))
+    Box(modifier.clip(FinShapes.md).background(FinColors.BgSunken))
 }
 
 @Composable
-private fun MetricDivider() {
-    Box(Modifier.width(1.dp).height(30.dp).background(Color.White.copy(alpha = 0.08f)))
+private fun MetricDivider(color: Color = FinColors.Outline) {
+    Box(Modifier.width(1.dp).height(30.dp).background(color))
 }
 
 @Composable
@@ -925,7 +896,7 @@ fun PrototypeHoldingsScreen(
                     onClick = onRecordTrade,
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)
+                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White)
                 ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("添加记录", fontWeight = FontWeight.Bold) }
             }
             item {
@@ -971,7 +942,7 @@ private fun HoldingListRow(holding: PrototypeHolding, currency: String, maxValue
             MonoText(holding.key, color = FinColors.TextSecondary, size = 9)
             if (holding.accountCount > 1) {
                 Spacer(Modifier.weight(1f))
-                Surface(color = Color(0xFF26385F), shape = RoundedCornerShape(6.dp)) { Text("分布于 ${holding.accountCount} 个账户", color = FinColors.Secondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
+                Surface(color = FinColors.SoftGreen, shape = RoundedCornerShape(6.dp)) { Text("分布于 ${holding.accountCount} 个账户", color = FinColors.Secondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -990,7 +961,7 @@ private fun HoldingListRow(holding: PrototypeHolding, currency: String, maxValue
             }
         }
         Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.06f))) {
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(FinColors.BgSunken)) {
             Box(Modifier.fillMaxWidth((if (maxValue > 0) holding.value / maxValue else 0.0).toFloat().coerceIn(0.03f, 1f)).fillMaxSize().clip(RoundedCornerShape(3.dp)).background(holding.bucket.color))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1052,7 +1023,7 @@ fun PrototypeFlowsScreen(
                         onClick = onRecordTrade,
                         modifier = Modifier.height(44.dp),
                         shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)
+                        colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White)
                     ) { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(3.dp)); Text("添加记录", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
@@ -1334,7 +1305,7 @@ fun PrototypeAllocationScreen(
             item {
                 PrototypeCard {
                     PrototypeBucket.entries.forEachIndexed { index, bucket ->
-                        if (index > 0) Divider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
+                        if (index > 0) Divider(color = FinColors.Outline, modifier = Modifier.padding(vertical = 4.dp))
                         val value = values[bucket] ?: 0f
                         val onChange: (Float) -> Unit = when (bucket) {
                             PrototypeBucket.DEFENSIVE -> { next: Float -> defensive = next }
@@ -1358,7 +1329,7 @@ fun PrototypeAllocationScreen(
                     enabled = abs(total - 1f) < 0.001f,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg, disabledContainerColor = FinColors.SurfaceElevated, disabledContentColor = FinColors.TextTertiary)
+                    colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White, disabledContainerColor = FinColors.SurfaceElevated, disabledContentColor = FinColors.TextTertiary)
                 ) { Text("保存配置", fontWeight = FontWeight.Bold) }
             }
             item { Spacer(Modifier.height(10.dp)) }
@@ -1383,7 +1354,7 @@ private fun SliderCard(bucket: PrototypeBucket, value: Float, actual: Double, on
             onValueChange = onChange,
             valueRange = 0f..1f,
             steps = 0,
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = bucket.color, inactiveTrackColor = Color.White.copy(alpha = 0.10f))
+            colors = SliderDefaults.colors(thumbColor = FinColors.TextPrimary, activeTrackColor = bucket.color, inactiveTrackColor = FinColors.BgSunken)
         )
     }
 }
@@ -1397,7 +1368,7 @@ private fun AllocationPreview(actual: Map<PrototypeBucket, Double>, target: Map<
             val targetValue = target[bucket] ?: 0f
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(bucket.label, color = FinColors.TextSecondary, fontSize = 11.sp, modifier = Modifier.width(38.dp))
-                BoxWithConstraints(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.06f))) {
+                BoxWithConstraints(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(3.dp)).background(FinColors.BgSunken)) {
                     Box(Modifier.fillMaxWidth(actualValue.toFloat().coerceIn(0f, 1f)).fillMaxSize().background(bucket.color))
                     Box(
                         Modifier
@@ -1405,7 +1376,7 @@ private fun AllocationPreview(actual: Map<PrototypeBucket, Double>, target: Map<
                             .offset(x = ((maxWidth - 3.dp) * targetValue.coerceIn(0f, 1f)))
                             .width(3.dp)
                             .height(14.dp)
-                            .background(Color.White)
+                            .background(FinColors.TextPrimary)
                     )
                 }
                 MonoText(
@@ -1448,13 +1419,14 @@ fun PrototypeAccountsScreen(
                 AccountSourceRow(account, summary, onClick = { onViewAccount(account.account.id) })
             }
             item {
+                val outlineColor = FinColors.Outline
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
                         .drawBehind {
                             drawRoundRect(
-                                color = FinColors.Outline,
+                                color = outlineColor,
                                 style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 7.dp.toPx()))),
                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx())
                             )
@@ -1586,7 +1558,7 @@ private fun SourceOptionCard(title: String, description: String, color: Color, i
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    if (recommended) { Spacer(Modifier.width(6.dp)); Surface(color = Color.White, shape = RoundedCornerShape(5.dp)) { Text("推荐", color = FinColors.PageBg, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) } }
+                    if (recommended) { Spacer(Modifier.width(6.dp)); Surface(color = FinColors.Primary, shape = RoundedCornerShape(5.dp)) { Text("推荐", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) } }
                 }
                 Text(description, color = FinColors.TextSecondary, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -1672,7 +1644,7 @@ fun PrototypeOcrImportScreen(
             item {
                 PrototypeCard(modifier = Modifier.clickable { launcher.launch("image/*") }) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF26385F)), contentAlignment = Alignment.Center) { Icon(Icons.Default.CropFree, contentDescription = "扫描截图", tint = FinColors.Secondary, modifier = Modifier.size(24.dp)) }
+                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(FinColors.SoftGreen), contentAlignment = Alignment.Center) { Icon(Icons.Default.CropFree, contentDescription = "扫描截图", tint = FinColors.Secondary, modifier = Modifier.size(24.dp)) }
                         Spacer(Modifier.height(6.dp))
                         Text(if (selectedUri == null) "选择持仓截图" else "重新选择截图", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                         Text("图片将发送到 FinUnity 专属服务解析", color = FinColors.TextSecondary, fontSize = 9.sp)
@@ -1727,7 +1699,7 @@ fun PrototypeOcrImportScreen(
                         enabled = selectedHoldings.isNotEmpty() && invalidSelectionCount == 0 && selectedAccount.isNotBlank(),
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)
+                        colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White)
                     ) { Text("确认导入 ${selectedHoldings.size} 项", fontWeight = FontWeight.Bold) }
                 }
             }
@@ -1880,7 +1852,7 @@ fun PrototypeManualEntryScreen(
                             )
                         )
                     }
-                }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FinColors.PageBg)) { Text("保存并加入汇总", fontWeight = FontWeight.Bold) }
+                }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = FinColors.Primary, contentColor = Color.White)) { Text("保存并加入汇总", fontWeight = FontWeight.Bold) }
             }
             item { Text("保存后立即参与总市值、策略占比与偏移计算；同编码持仓自动合并。", color = FinColors.TextSecondary, fontSize = 10.sp, modifier = Modifier.padding(bottom = 10.dp)) }
         }
@@ -1929,8 +1901,8 @@ private fun TradeModeChip(text: String, selected: Boolean, color: Color, onClick
 
 @Composable
 private fun PrototypeChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(modifier = Modifier.clip(CircleShape).clickable(onClick = onClick), shape = CircleShape, color = if (selected) Color.White else Color.Transparent, border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, FinColors.Outline)) {
-        Text(text, color = if (selected) FinColors.PageBg else FinColors.TextSecondary, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+    Surface(modifier = Modifier.clip(CircleShape).clickable(onClick = onClick), shape = CircleShape, color = if (selected) FinColors.Primary else Color.Transparent, border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, FinColors.Outline)) {
+        Text(text, color = if (selected) Color.White else FinColors.TextSecondary, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
     }
 }
 

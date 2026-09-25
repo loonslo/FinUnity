@@ -35,7 +35,7 @@
 ```
 app/src/main/java/com/finunity/
 ├── data/
-│   ├── local/          # Room 数据库（版本 25，显式迁移）
+│   ├── local/          # Room 数据库（版本 26，显式迁移）
 │   ├── remote/         # FinUnity 专属服务 API
 │   ├── repository/     # 数据中间层（含备份/恢复）
 │   └── model/          # 数据模型与计算器

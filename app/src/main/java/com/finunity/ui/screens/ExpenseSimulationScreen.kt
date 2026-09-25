@@ -298,6 +298,7 @@ private fun LegendDeltaRow(bucket: RiskBucket, before: Double, after: Double, to
     }
 }
 
+@Composable
 private fun bucketColorSim(bucket: RiskBucket): Color = when (bucket) {
     RiskBucket.AGGRESSIVE -> FinColors.Aggressive
     RiskBucket.BALANCED -> FinColors.Conservative

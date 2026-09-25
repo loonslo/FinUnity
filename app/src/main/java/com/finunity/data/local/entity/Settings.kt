@@ -18,7 +18,11 @@ data class Settings(
     val onboarded: Boolean = false,          // 是否已完成新手引导
     val amountsVisible: Boolean = true,      // 金额是否可见（全局隐藏开关）
     // 永不满仓 · 风险仓位上限：进取（生钱的钱）占比超过此值即提示"风险仓位偏高"。默认 0.70，0/1 之外视为不启用
-    val maxAggressiveRatio: Double = 0.70
+    val maxAggressiveRatio: Double = 0.70,
+    // 配色方案："minimal"(极简灰蓝) / "navy"(藏青)，对应 Web 端 data-theme-color
+    val themeColor: String = "navy",
+    // 外观模式："system" / "light" / "dark"，对应 Web 端 data-appearance
+    val themeAppearance: String = "dark"
 )
 
 /**
