@@ -49,14 +49,14 @@ app/src/main/java/com/finunity/
 
 ## 构建
 
-专属服务地址不写入源码。构建前通过 Gradle Property 或环境变量配置，且必须是 HTTPS：
+默认服务地址为 `https://finunity-api.baikai.site/api/v1/`。可通过 Gradle Property 或环境变量覆盖，且必须是 HTTPS：
 
 ```powershell
-$env:FINUNITY_API_BASE_URL = "https://api.example.com/api/v1/"
+$env:FINUNITY_API_BASE_URL = "https://finunity-api.baikai.site/api/v1/"
 .\gradlew.bat assembleDebug
 ```
 
-未配置时 App 仍可离线打开已有本地数据，但任何远端同步和截图解析都会明确报出 `FINUNITY_API_BASE_URL 未配置`，不会返回模拟数据。
+若显式将地址覆盖为空，App 仍可离线打开已有本地数据，但远端同步和截图解析会明确报出 `FINUNITY_API_BASE_URL 未配置`，不会返回模拟数据。默认地址的公网可达性仍需发布前验收。
 
 ### Windows
 ```bash
@@ -82,7 +82,7 @@ gradlew.bat testDebugUnitTest
 
 ## 数据说明
 
-- 所有数据存储在本地 Room 数据库，不上传任何服务器
+- 账本数据默认存储在本地 Room；主动确认的截图会上传服务端并转交 DashScope 识别，详见隐私政策
 - 股票/ETF 价格、基金净值和汇率通过 FinUnity 专属服务每日同步
 - 支持离线查看（使用缓存价格；过期时明确显示延迟/过期状态）
 - 导出为 JSON 文件，可跨设备恢复
@@ -94,7 +94,7 @@ gradlew.bat testDebugUnitTest
 - 行情刷新只向 FinUnity 专属服务发送证券代码、资产类型和货币对，不发送持仓数量、成本或账户余额。
 - 持仓截图只有在用户明确确认后才会发送到 FinUnity 专属服务解析；应用已关闭 Android 自动云备份。
 - “备份恢复”导出的 JSON 可能包含完整财务信息，是明文文件，请妥善保管。
-- 应用内可从“设置 → 隐私与数据说明”查看隐私说明；发布前还需将 [PRIVACY_POLICY.md](PRIVACY_POLICY.md) 发布为公开网页并替换真实支持邮箱。
+- 应用内可从“设置 → 隐私与数据说明”查看隐私说明；公开地址为 `https://finunity.baikai.site/android-privacy`，联系邮箱为 `chongqing115@126.com`。发布前仍需实际部署该网页、核对端点和费用预警。
 
 ## 免责声明
 

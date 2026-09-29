@@ -6,6 +6,8 @@ import android.net.Uri
 import com.finunity.data.model.OcrConfidence
 import com.finunity.data.model.ParsedScreenshotHolding
 import com.finunity.data.remote.NetworkModule
+import com.finunity.data.remote.FinUnityServiceException
+import com.finunity.data.remote.ocrErrorMessage
 import com.finunity.data.remote.requireData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,7 +55,7 @@ class ScreenshotImportRepository(private val context: Context) {
             bytes.toRequestBody(mimeType.toMediaType())
         )
         val textType = "text/plain; charset=utf-8".toMediaType()
-        val envelope = NetworkModule.authorized { api ->
+        val envelope = try { NetworkModule.authorized { api ->
             api.parseHoldingScreenshot(
                 image = image,
                 clientRequestId = requestId.toRequestBody(textType),
@@ -61,6 +63,15 @@ class ScreenshotImportRepository(private val context: Context) {
                 defaultCurrency = defaultCurrency?.uppercase(Locale.ROOT)?.toRequestBody(textType),
                 brokerHint = brokerHint?.toRequestBody(textType),
                 parseMode = "HOLDINGS".toRequestBody(textType)
+            )
+        } } catch (error: FinUnityServiceException) {
+            throw FinUnityServiceException(
+                code = error.code,
+                message = ocrErrorMessage(error.httpStatus, error.code, error.message.orEmpty()),
+                retryable = error.retryable,
+                requestId = error.requestId,
+                httpStatus = error.httpStatus,
+                retryAfterSeconds = error.retryAfterSeconds
             )
         }
         val data = envelope.requireData()

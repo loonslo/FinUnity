@@ -1594,7 +1594,7 @@ fun PrototypeOcrImportScreen(
         AlertDialog(
             onDismissRequest = { selectedUri = null },
             title = { Text("发送图片进行解析") },
-            text = { Text("所选持仓截图将通过加密连接发送到 FinUnity 专属服务。服务端返回结构化结果后仍需你逐项确认，解析错误会直接显示，不会填充模拟数据。") },
+            text = { Text("所选截图将通过 HTTPS 发往新加坡服务器，再转交阿里云 DashScope 中国站识别（北京接入地域）。FinUnity 原图不落盘，匿名结果最多缓存24小时；上游留存适用阿里云条款。识别后仍需你逐项确认。详见设置中的隐私说明。") },
             confirmButton = {
                 TextButton(onClick = { uploadApproved = true }) { Text("同意并解析") }
             },
