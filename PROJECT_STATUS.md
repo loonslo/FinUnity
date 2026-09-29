@@ -4,7 +4,7 @@ updated: 2026-09-29
 status: active
 overview: 多币种家庭资产账本与三桶规划 Android 应用。
 progress: 公网上线配套地址、匿名 OCR 提示与隐私材料已改造；当前工作树 Debug 构建及 146 项 JVM 单测通过，设备验收未完成。
-next: 部署后验证 HTTPS 与真实匿名 OCR，完成正式签名构建及真机/模拟器发布门禁。
+next: 后端 HTTPS 与真实匿名 Qwen 调用已部署验证；继续完成正式签名构建及 Android 真机/模拟器网络和发布门禁。
 evidence:
   - README.md
   - ROADMAP.md
