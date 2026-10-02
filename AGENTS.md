@@ -1,120 +1,49 @@
-# AGENTS.md
+# FinUnity 项目规则
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+FinUnity 是中文 Android 多币种资产管理应用。实现采用 Compose、ViewModel、Repository、Room 和 WorkManager；准确的依赖版本、SDK 配置与签名条件以 Gradle 文件为准。
 
-## Project Overview
+## 构建与验证
 
-FinUnity is an Android portfolio tracker app for managing multi-currency investments. It aggregates accounts (broker, bank, fund, insurance), tracks stock/fund/ETF positions, syncs market data through the dedicated FinUnity service, and provides rebalancing alerts with three-bucket asset allocation. UI is in Chinese.
+在 Windows 使用 `gradlew.bat`，在 macOS/Linux 使用 `./gradlew`：
 
-## Build & Test Commands
-
-```bash
-# Build debug APK
-./gradlew assembleDebug
-
-# Build release APK
-./gradlew assembleRelease
-
-# Run all unit tests
-./gradlew test
-
-# Run tests with verbose output
-./gradlew test --info
-
-# Run a specific test class
-./gradlew test --tests "com.finunity.data.model.PortfolioCalculationTest"
-
-# Tests are pure JUnit 4 (no Android dependencies needed)
-# PortfolioCalculationTest — average cost, profit/loss, multi-currency math
-# CurrencyTest — exchange rate conversions
-# TransactionTest — transaction recording and reconciliation
-# MainViewModelTest — ViewModel logic (uses Mockito)
-# RebalanceTest — rebalancing threshold logic
-# AssetRecordTest — AssetRecord CRUD and calculations
-# TransactionAuditTest — transaction audit/reconciliation
-# RiskBucketDetailConsistencyTest — risk bucket calculation consistency
+```text
+gradlew.bat assembleDebug
+gradlew.bat test
+gradlew.bat :app:testDebugUnitTest --tests "com.finunity.data.model.PortfolioCalculationTest"
 ```
 
-## Architecture
+单元测试位于 `app/src/test/`；涉及 Room 迁移或 Android 组件时，还要查看 `app/src/androidTest/`，在有设备或模拟器的环境运行相应测试。发布构建需满足 `app/build.gradle` 中的本机签名配置；不得提交签名文件或密码。
 
-**Pattern**: MVVM + Repository. All data reactive via Room Flows + `combine()`.
+## 数据与状态边界
 
-**Data Flow**:
-1. UI (Compose Screens) → ViewModel (MainViewModel) → Repository (PriceRepository) → DAO/API
-2. PriceSyncWorker (WorkManager, every 24h) → Repository → DAO
-3. SnapshotWorker (WorkManager, daily at 9 AM) → HistoryRepository → DAO
+- UI 经 ViewModel、Repository 访问 DAO 或 FinUnity 服务；价格同步和快照由独立 Worker 执行。更改调用链前检查对应 Repository、Worker 和测试。
+- `Position` 是历史兼容模型，`AssetRecord` 是当前资产模型；迁移或备份改动必须覆盖两者的读取兼容性。Room 当前 schema、迁移和导出分别以 `AppDatabase.kt`、`data/local/migration/`、`app/schemas/` 为准。
+- 资产总额由资产记录计算；非负债账户的 `balance` 不再叠加到资产总额，`LIABILITY` 账户余额按负债处理。现金作为 `AssetRecord(CASH)` 管理。
+- 每条资产记录保留显式币种，不从证券代码推断；跨币种计算先换算到基础币种。卖出按比例减少持有数量和总成本，保持单位成本不变。
+- 三桶分配为 `DEFENSIVE`、`BALANCED`、`AGGRESSIVE`。落点表按 `subCategory` 将资产与目标连接；锁定资产不计入可投资资产池。修改分桶、落点或再平衡计算时，核对 `PortfolioCalculator`、`PortfolioSummary` 与相关界面的一致性。
+- 价格缓存、同步失败回退和历史快照属于持久状态。失败时保留已有有效数据，并在 UI 中呈现数据质量；不要把回退价格当作新行情写入历史。
 
-**Navigation**: Manual stack-based navigation in MainActivity (sealed class `Screen` with 20+ variants). Three bottom tabs: 总览 (Overview), 资产 (Assets), 账户 (Accounts).
+## 变更约定
 
-## Dual Data Model (Migration in progress)
+- 修改数据库字段时补迁移与相应验证，不能以破坏性重建掩盖现有数据迁移问题。
+- 修改资产、交易、币种或风险分桶计算时，运行对应单元测试，并检查备份恢复及显示口径。
+- 界面沿用 `ui/theme/Theme.kt` 和 `ui/components/FinUi.kt` 的组件与配色；货币格式统一使用 `ui/screens/Formatters.kt`。
 
-The app is migrating from `Position` → `AssetRecord`. Both coexist:
+## 项目进度摘要
 
-- **`Position`** (legacy): `id, accountId, symbol, shares, totalCost, currency`. Always STOCK type, always AGGRESSIVE risk bucket. Retained only for backup and historical migration compatibility.
-- **`AssetRecord`** (current): Supports `AssetType` (STOCK/ETF/FUND/CASH/TIME_DEPOSIT/REAL_ESTATE/VEHICLE/INSURANCE_POLICY) and the formal three-bucket `RiskBucket` (DEFENSIVE/BALANCED/AGGRESSIVE). Has explicit `name, quantity, cost, currentPrice, currency`.
+完成有实质进展的任务后，先更新项目原有任务与验证记录，再核对根目录 `PROJECT_STATUS.md` 的概览、进度、下一步、证据和日期。文件变化本身不代表任务完成。
 
-The `PortfolioCalculator` handles both. `UnifiedAsset` interface bridges them. Cash is managed as AssetRecord(CASH, CASH bucket). The `adjustCashAsset()` method in MainViewModel auto-creates/updates/deletes CASH records when buying/selling.
+## PROJECT_STATUS 同步契约（v1）
 
-## Risk Bucket System（三桶）
+有实质进展时先更新项目内任务和验收记录，再更新根目录 `PROJECT_STATUS.md`；交付前校验以下格式。只维护本项目，不自动写入日常 vault，不把文件存在、格式通过或 Git 改动当作完成。
 
-Three risk dimensions for asset allocation:
-- **AGGRESSIVE** (进取/生钱的钱): Stocks, ETFs, equity funds
-- **BALANCED** (稳健/保障与保值的钱): Bonds, time deposits, insurance policies, real estate, vehicles, funds without a more specific subtype
-- **DEFENSIVE** (防守/要花的钱): Cash, demand deposits, Yu'ebao-type products
+- 文件以 YAML frontmatter 开始，字段名不得重复；必填 `project_id`、`updated`、`status`、`overview`、`progress`、`next`、`evidence`。
+- `project_id` 与登记的工作区相对路径一致，路径中的 `/` 替换为 `-`；本项目为 `FinUnityWorkspace-FinUnity`。
+- `updated` 使用未加引号的真实 `YYYY-MM-DD` 日期，表示摘要维护日期；纯格式修订也可更新，但须在正文记录修订日期、原进展日期及未重新验收的边界。
+- `status` 只允许 `active`（进行中）、`waiting`（等待输入）、`paused`（已延期）、`unknown`（待核实）；正在推进统一用 `active`，禁止 `in_progress`。它是项目跟进状态，不代表所有功能已经验收，也不使用 `done`。
+- `overview`、`progress`、`next` 为非空字符串；复杂文字用 YAML 引号或块字符串。`progress` 区分实际通过、历史记录及尚未验收的事项。
+- `evidence` 为非空字符串列表，只填项目内现存文件的相对路径，使用 `/`；禁止网址、描述文字、绝对路径、`.`/`..` 路径段、隐藏目录/文件、越界链接和 `PROJECT_STATUS.md` 自引用。不得读取或引用凭据、认证、运行目录；`runtime/`、`tmp/`、`temp/`、`logs/`、`storage/logs/` 下的文件不能作为 evidence 正本，核对过的结果应写入稳定任务/验收文档。
+- URL、测试命令、结果、部署编号和说明写入项目内任务或验收文件，再由 `evidence` 引用该文件；注明实际验证日期、环境、结果及未验证项。迁移旧摘要文字时标为历史记录搬迁，不能冒充本次复测。
+- 同步契约说明和模板位于日常库 `output/项目进展同步/README.md`、`PROJECT_STATUS.template.md`；本节保留完整字段规则，项目离开共同工作区后仍适用。跨项目访问须遵守既有项目边界；仅在用户本次明确授权访问日常同步工具且工具可用时，从共同工作区执行 `py -3.14 -B notebook_obsidian/日常/output/项目进展同步/sync_project_status.py --check --project FinUnityWorkspace/FinUnity`，只检查格式和证据路径，不读取或写入待办。
 
-UI distinguishes the three buckets by color — orange (AGGRESSIVE), gold (BALANCED), blue (DEFENSIVE); see `FinColors` in `ui/theme/Theme.kt` — via a stacked allocation bar (`StackedAllocationBar` in `TargetAllocationScreen.kt`), not a donut chart. The default target allocation is `"DEFENSIVE:0.1,BALANCED:0.6,AGGRESSIVE:0.3"`.
-
-## Database Schema (Room, version 26)
-
-- `accounts` — id, name, type (BROKER/BANK/FUND/CASH_MANAGEMENT/BOND/INSURANCE/LIABILITY/OTHER), currency, balance, createdAt, sourceType, externalSourceId, lastSyncedAt, syncState (source/sync provenance), initialPrincipal, annualInterestRate, dueDayOfMonth, minimumPayment (liability metadata, LIABILITY accounts only). **Non-LIABILITY accounts don't use balance for asset totals** — cash is tracked via AssetRecord(CASH).
-- `positions` (legacy) — id, accountId, symbol, shares, totalCost, currency
-- `asset_records` (new) — id, accountId, assetType, riskBucket, name, securityCode, instrumentId, quantity, cost, currentPrice, currency, subCategory, industryTag, purchaseRestricted, peRatio, dividendYield, premiumRate, locked, createdAt, updatedAt, sourceType, sourceAccountId, sourceRecordId, importBatchId, sourceFingerprint, syncedAt
-- `allocation_targets` — subCategory (PK), riskBucket, targetAmount, capAmount, stopNote, updatedAt. Sub-bucket (落点) level target/cap/stop, joined to asset_records by subCategory to produce the 落点表 (LandingPoint).
-- `prices` — symbol (PK), price, previousClose, currency, updatedAt, isFallback, instrumentId, source, sourceTime, receivedAt, quality, valueType, errorCode. 12h staleness threshold.
-- `price_history` — id, recordId, price, cost, timestamp. Per-record price/cost tracking.
-- `transactions` — id, accountId, symbol, type (BUY/SELL/DIVIDEND/FEE/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/WITHDRAW/LIABILITY_PAYMENT), shares, price, amount, currency, timestamp, note, recordId, balanceAfter, origin, sourceFingerprint, category, importBatchId
-- `settings` — id=1 singleton, baseCurrency (default CNY), targetAllocation, rebalanceThreshold (default 0.05), onboarded, amountsVisible, maxAggressiveRatio (default 0.70), themeColor (default navy), themeAppearance (default dark)
-- `asset_snapshots` — id, timestamp, totalAssets, cashAssets, stockAssets, stockRatio, baseCurrency, totalCost, notes
-- `recurring_rules` — id, accountId, type (INCOME/EXPENSE), amount, currency, category, note, dayOfMonth, enabled, lastGeneratedAt, createdAt. Local-only recurring income/expense rules; never syncs to a bank or broker.
-
-**Migrations**: v3→v4 (no-op), v4→v5 (add asset_records), v5→v6 (add price_history), v6→v7 (add recordId to transactions), v7→v8 (add onboarded to settings), v8→v9 (add amountsVisible to settings), v9→v10 (add subCategory+locked to asset_records, add allocation_targets table), v10→v11 (add maxAggressiveRatio to settings), v11→v12 (add industryTag to asset_records), v12→v13 (add purchaseRestricted to asset_records), v13→v14 (add peRatio/dividendYield/premiumRate to asset_records), v14→v15 (add previousClose to prices), v15→v16 (add securityCode to asset_records), v16→v17 (add source/sync metadata to accounts/asset_records/transactions; migrate positions into asset_records and clear positions), v17→v18 (add sourceFingerprint to transactions), v18→v19 (add category to transactions), v19→v20 (add liability metadata to accounts), v20→v21 (add recurring_rules table), v21→v22 (add importBatchId to transactions), v22→v23 (canonicalize legacy buckets and targets), v23→v24 (extend snapshots with three-bucket totals), v24→v25 (add FinUnity service identity, provenance, and data-quality fields), v25→v26 (add themeColor and themeAppearance to settings). Destructive fallback allowed from v1, v2 only.
-
-## Landing Points (落点表 · 子桶配置)
-
-The 落点 system sits *below* the three risk buckets, implementing the 加仓落点表 (accumulation landing-point table) from the product's 资产配置SOP plan (`对应方案第三章` in source comments). Assets carry a `subCategory` tag; `AllocationTarget` rows hold per-落点 `targetAmount`/`capAmount`/`stopNote`. `PortfolioCalculator.computeLandingPoints()` joins them into `LandingPoint` rows (`currentValue` vs `targetAmount`, plus computed `gap`/`progress`/`overCap`/`reachedTarget`, and `hasTarget` marking held-but-untargeted 落点). `computeLockedValue()` sums `locked` records; `PortfolioSummary.strategyAssets = grossAssets − lockedAssets` (floored at 0) is the investable pool. UI: `LandingPointScreen`, reachable from both PlanningScreen and SettingsScreen; edit form on AssetRecordScreen (subCategory + locked). Backup `BackupData` (current version 9) includes `allocationTargets`.
-
-**Risk check (风险体检 · 永不满仓)**: `evaluateRiskAlerts()` (pure fn in PortfolioSummary.kt) produces `RiskAlert` rows — WARNING when AGGRESSIVE ratio exceeds `settings.maxAggressiveRatio`, WARNING per over-cap landing point, INFO per reached-target landing point that isn't also over-cap. Surfaced in a 风险体检 card atop PlanningScreen; the ratio cap is edited in TargetAllocationScreen.
-
-## Key Design Decisions
-
-- **Average Cost Method**: `totalCost` is proportionally reduced when selling (shares and cost both decrease, unit cost unchanged)
-- **Multi-Currency**: All values are converted to `baseCurrency` (CNY default) using rates returned by the FinUnity service. The local cache retains compatibility keys such as `"USDCNY=X"`.
-- **Explicit Currency**: Each position/record has explicit `currency`; do not infer from symbol
-- **Liability Handling**: LIABILITY accounts reduce total assets (balance is subtracted). All other account balances are ignored — assets tracked via AssetRecord.
-- **Cash Auto-Management**: `adjustCashAsset()` creates/updates/deletes CASH AssetRecords automatically when buying/selling non-cash assets
-- **Price Cache**: Price entity has 12h staleness, 30-sec connect/read timeouts, circuit breaker (5 failures → 5-min open)
-- **Batch Refresh**: PriceSyncWorker refreshes in batches of 5, exponential backoff (1min/5min/15min), max 3 attempts
-- **Offline Support**: Prices cached in Room; stale cache returned as `isFallback=true` when network unavailable
-- **Rebalancing**: Configurable three-bucket target allocation; drift > threshold (default 5%) triggers recommendations
-- **CSV Import**: Supports importing accounts, positions, transactions from CSV files in assets/ directory
-- **Currency Formatting**: `formatCurrency()` in `ui/screens/Formatters.kt` (single source) — `¥` for CNY, `$` for USD, `HK$` for HKD
-
-## Tech Stack
-
-- Kotlin 1.9.20, compileSdk 36, targetSdk 36, minSdk 26, jvmTarget 17
-- Jetpack Compose with Material 3 (BOM 2023.10.01)
-- Room 2.6.1 with KSP, WorkManager 2.9.0
-- Retrofit 2.9.0 + OkHttp 4.12.0 + Gson
-- Navigation Compose 2.7.5, Lifecycle ViewModel Compose 2.6.2
-- Testing: JUnit 4.13.2, Mockito 5.8.0 + mockito-kotlin 5.2.1
-
-## UI Component Kit
-
-Design system defined in `ui/theme/Theme.kt` (green primary `#166B45`, gray-based text hierarchy). Custom components in `ui/components/FinUi.kt`: FinCard (no-elevation card), FinTextField (rounded), FinPill (toggle pill), FinSoftButton (green button), profitColor/profitText helpers.
-
-## Workers
-
-- **PriceSyncWorker**: PeriodicWorkRequest every 24h (requires network). Gets stock/ETF AssetRecord tickers, batch-refreshes prices and exchange rates, saves PriceHistory for successful real prices, and retains old cache on failure. Called from `PriceSyncWorker.schedule()` in MainActivity.onCreate().
-- **SnapshotWorker**: PeriodicWorkRequest daily at 9 AM (no network required). Computes total assets/cost, saves AssetSnapshot, cleans up snapshots >2 years old.
-
-## Imported Claude Cowork project instructions
+- 未使用同步工具时，仍须在本项目内逐项自检字段、状态与证据路径，并报告未通过项；不能跳过摘要维护。新建独立项目时先补齐本节约束和 PROJECT_STATUS.md，未知业务进度用 unknown，不因目录存在而推断完成。

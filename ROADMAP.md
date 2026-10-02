@@ -7,7 +7,7 @@ FinUnity 是一个中文 Android 多币种家庭资产记录工具。当前正�
 - 三桶领域模型：`DEFENSIVE / BALANCED / AGGRESSIVE`，旧数据通过兼容映射迁移。
 - 统一资产记录：股票、ETF、基金、现金、定期、房产、车辆、保单等资产均有明确币种和资产类型；基金在缺少子类型时默认归入稳健。
 - 总览统计：总正资产、负债、净资产、三桶金额、策略盘、缺失汇率和今日可跟踪证券涨跌分开计算。
-- Room 当前版本为 v25，包含三桶快照口径及专属服务 instrument/source/quality 字段；旧 `Position` 表仅保留备份及历史迁移兼容用途。
+- Room 当前版本为 v26：v25 包含三桶快照口径及专属服务 instrument/source/quality 字段，v25→v26 为设置增加主题颜色与外观字段；旧 `Position` 表仅保留备份及历史迁移兼容用途。版本与迁移以 `AppDatabase.kt`、`DatabaseMigrations.kt` 为准。
 - 规划闭环：目标配置、偏离建议、落点、月度复盘、历史、支出模拟和压力测试均可从规划入口到达。
 - 行情同步：股票/ETF 代码标准化，24 小时后台同步，批量刷新、熔断、重试、缓存回退和价格健康状态均已接入。
 - 导入与流水：OCR、CSV、手动录入统一经过 HoldingLedger；OCR 保留原文、标准化代码和需确认原因，批量导入具备事务回滚。
@@ -17,7 +17,7 @@ FinUnity 是一个中文 Android 多币种家庭资产记录工具。当前正�
 ## 当前验证状态
 
 - JVM 单测覆盖三桶解析、资产总额、负债、缺汇率、行情健康、OCR、周期规则等核心边界。
-- Debug 编译、AndroidTest 编译、Lint 和 Release 构建已通过阶段性验证；最终门禁仍需在干净构建后重跑。
+- Debug 编译、AndroidTest 编译、Lint 和 Release 构建曾通过阶段性验证；这不代表 v26 当前工作树已完成干净构建与设备验收，最终门禁仍需重跑。
 - 当前环境没有连接 Android 真机或模拟器，因此 `connectedDebugAndroidTest` 和安装/升级/旋转等验收需要在设备环境完成。
 
 ## 发布前剩余事项
