@@ -49,10 +49,10 @@ app/src/main/java/com/finunity/
 
 ## 构建
 
-默认服务地址为 `https://finunity-api.baikai.site/api/v1/`。可通过 Gradle Property 或环境变量覆盖，且必须是 HTTPS：
+默认服务地址为 `https://finunity-api.halfopen.dev/api/v1/`。可通过 Gradle Property 或环境变量覆盖，且必须是 HTTPS：
 
 ```powershell
-$env:FINUNITY_API_BASE_URL = "https://finunity-api.baikai.site/api/v1/"
+$env:FINUNITY_API_BASE_URL = "https://finunity-api.halfopen.dev/api/v1/"
 .\gradlew.bat assembleDebug
 ```
 
@@ -94,8 +94,13 @@ gradlew.bat testDebugUnitTest
 - 行情刷新只向 FinUnity 专属服务发送证券代码、资产类型和货币对，不发送持仓数量、成本或账户余额。
 - 持仓截图只有在用户明确确认后才会发送到 FinUnity 专属服务解析；应用已关闭 Android 自动云备份。
 - “备份恢复”导出的 JSON 可能包含完整财务信息，是明文文件，请妥善保管。
-- 应用内可从“设置 → 隐私与数据说明”查看隐私说明；公开地址为 `https://finunity.baikai.site/android-privacy`，联系邮箱为 `chongqing115@126.com`。发布前仍需实际部署该网页、核对端点和费用预警。
+- 应用内可从“设置 → 隐私与数据说明”查看隐私说明；公开地址为 `https://finunity.halfopen.dev/android-privacy`，联系邮箱为 `chongqing115@126.com`。发布前仍需实际部署该网页、核对端点和费用预警。
 
 ## 免责声明
 
 本应用仅供个人资产管理使用，不构成投资建议。专属服务返回的行情、净值和汇率可能延迟、缺失或修正，仅供参考。
+
+## 2026-10-03 halfopen.dev 域名迁移
+
+
+Android 默认 API 与隐私说明源码已更新为新域名；generateDebugBuildConfig 成功，生成 HTTPS API 地址正确，新旧 API readiness 已验收 200。已安装客户端继续使用旧 API 兼容入口；本次未签名/打包/分发、未做真机与完整业务网络验收。 详见 [迁移记录](docs/DOMAIN_MIGRATION_2026-10-03.md)。

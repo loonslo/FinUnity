@@ -27,7 +27,7 @@ def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias
 
 def finUnityApiBaseUrl = providers.gradleProperty('FINUNITY_API_BASE_URL')
         .orElse(providers.environmentVariable('FINUNITY_API_BASE_URL'))
-        .getOrElse('https://finunity-api.baikai.site/api/v1/')
+        .getOrElse('https://finunity-api.halfopen.dev/api/v1/')
 def escapedFinUnityApiBaseUrl = finUnityApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')
 
 if (!hasReleaseSigning) {
