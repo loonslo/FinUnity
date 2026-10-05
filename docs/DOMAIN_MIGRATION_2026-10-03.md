@@ -7,3 +7,9 @@ Android 默认 API 与隐私说明源码已更新为新域名；generateDebugBui
 下一步：正式签名构建、Android 真机网络与发布门禁仍待单独执行；当前已安装应用无需因域名更换停用。
 
 域名旧记录是历史资料，本次未全局改写历史验收。Google实际处理状态以最新 Search Console 为准。
+
+## 提交与发布跟进（2026-10-06）
+
+以下更新本页早期“未提交/未部署”的状态；旧验收保留原日期与环境。
+
+提交 9d2a3e3 已推送 master。本机 assembleDebug 与 test 成功；此前记录 146 项 JVM 单测通过。GitHub workflow 与 run 查询为空，仓库未配置 CI。本次未签名、未分发 APK、未发布应用商店，真机网络未验收。
