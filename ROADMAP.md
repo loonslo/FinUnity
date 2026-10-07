@@ -38,3 +38,9 @@ FinUnity 是一个中文 Android 多币种家庭资产记录工具。当前正�
 - 默认 HTTPS 服务地址、匿名 OCR 限额/停用提示及隐私材料已调整。
 - 当前工作树 `:app:testDebugUnitTest :app:assembleDebug` 通过，146 项 JVM 单测无失败；没有执行本轮正式签名、Android 仪器测试或真机验收。
 - 细节见 [公网上线配套改造验收](docs/PUBLIC_LAUNCH_2026-09-29.md)，生产网络与识别仍按发布门禁验证。
+
+
+## 双域名构建（2026-10-07）
+
+- [x] 两域构建参数与 URL、默认域 Kotlin 编译验证，见 docs/DUAL_DOMAIN_DEPLOYMENT_2026-10-07.md。
+- [ ] APK 签名、真机验收及发行（本次未请求）。

@@ -25,9 +25,16 @@ def releaseKeyPassword = signingValue('keyPassword', 'FINUNITY_KEY_PASSWORD')
 def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
         .every { it != null && !it.toString().trim().isEmpty() }
 
+def finUnityDomainRoot = providers.gradleProperty('FINUNITY_DOMAIN_ROOT')
+        .orElse(providers.environmentVariable('FINUNITY_DOMAIN_ROOT'))
+        .getOrElse('halfopen.dev')
+if (!(finUnityDomainRoot in ['halfopen.dev', 'baikai.site'])) {
+    throw new GradleException('FINUNITY_DOMAIN_ROOT must be halfopen.dev or baikai.site')
+}
+def finUnityPrivacyPolicyUrl = "https://finunity.${finUnityDomainRoot}/android-privacy/"
 def finUnityApiBaseUrl = providers.gradleProperty('FINUNITY_API_BASE_URL')
         .orElse(providers.environmentVariable('FINUNITY_API_BASE_URL'))
-        .getOrElse('https://finunity-api.halfopen.dev/api/v1/')
+        .getOrElse("https://finunity-api.${finUnityDomainRoot}/api/v1/")
 def escapedFinUnityApiBaseUrl = finUnityApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"')
 
 if (!hasReleaseSigning) {
@@ -46,6 +53,7 @@ android {
         versionName "1.0"
 
         buildConfigField "String", "FINUNITY_API_BASE_URL", "\"${escapedFinUnityApiBaseUrl}\""
+        buildConfigField "String", "FINUNITY_PRIVACY_POLICY_URL", "\"${finUnityPrivacyPolicyUrl}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
