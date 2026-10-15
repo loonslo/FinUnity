@@ -1,11 +1,12 @@
 ---
 project_id: FinUnityWorkspace-FinUnity
-updated: 2026-10-07
+updated: 2026-10-15
 status: active
 overview: 多币种家庭资产账本与三桶规划 Android 应用。
-progress: "Android 新增两域构建参数，旧域生成 URL 核对成功，默认域 Kotlin 编译通过；两域 API 保持在线，未发行新版 APK。"
-next: "审阅并发布双域构建配置，完成同版本双项目发布自动化；后续观察 Google 重新抓取与收录。"
+progress: 2026-10-15 双域 Android API 健康，后端升级至 55cf875；Android 工作区与远程一致，本次没有构建或分发 APK。 历史进展：Android 新增两域构建参数，旧域生成 URL 核对成功，默认域 Kotlin 编译通过；两域 API 保持在线，未发行新版 APK。
+next: 审阅并发布双域构建配置，完成同版本双项目发布自动化；后续观察 Google 重新抓取与收录。
 evidence:
+- docs/WORKSPACE_RELEASE_2026-10-15.md
 - README.md
 - ROADMAP.md
 - docs/PUBLIC_LAUNCH_2026-09-29.md
