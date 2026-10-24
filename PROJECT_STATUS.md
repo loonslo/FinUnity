@@ -6,6 +6,7 @@ overview: 多币种家庭资产账本与三桶规划 Android 应用。
 progress: >-
   2026-10-24 将 FinUnityPrototype 的目标规划第一阶段并入 FinUnity Android，新增 Compose 目标规划页、BigDecimal 本地测算、Room v27、目标关联实际转账、方案版本、月度复盘及 JSON 备份 v10；暖白橄榄为默认视觉。Windows 工作区 :app:assembleDebug 成功；:app:testDebugUnitTest 154 项通过；:app:compileDebugAndroidTestKotlin 成功。环境没有 adb，未运行设备迁移/备份测试或页面验收。
   2026-10-24 将 FinUnityServer、FinUintyWeb 与 FinUnityPrototype 工作树快照归并为本公开 monorepo 的 server/、web/ 和 planner-prototype-reference/；Server 140 项 pytest 与 Ruff 通过，Web 44 项 Node 测试、lint、build 通过，Server 集成 SPA 冒烟返回 200 并带 CSP。Prototype 标为历史参考，未重跑其测试。来源 Git 历史未导入，旧目录和远程未修改；npm audit 的 Vite/source-map-js 两个高危项未自动升级。本分支未修改线上部署配置。
+  2026-10-24 从历史原型归档快照移除 frontend/vite.config.ts，并同步归档 README、TypeScript include 与项目记录；原型外部工作目录和线上部署配置未修改。既有公开 Git 历史仍包含旧文件；本次未运行原型构建或测试。
   Android 环境没有 adb，未运行设备迁移/备份测试或页面验收；Prototype 本机资料未导入。
   前次进展（2026-10-23）：核对本机账本、备份、定期规则及复盘Worker，完成投资纪律Android对接任务：计划执行单、今日页、来源指纹去重、通知及迁移兼容。仅新增方向文档，没有修改Room、业务代码或Worker，未构建APK或进行真机验收。
   前次摘要（维护日期2026-10-15，本轮未复测其历史验收）：2026-10-15 双域 Android API 健康，后端升级至 55cf875；Android 工作区与远程一致，本次没有构建或分发 APK。 历史进展：Android
@@ -26,6 +27,7 @@ evidence:
 - app/src/test/java/com/finunity/data/model/FinancialPlannerEngineTest.kt
 - app/src/androidTest/java/com/finunity/data/local/Migration26To27Test.kt
 - docs/MONOREPO_MIGRATION_2026-10-24.md
+- planner-prototype-reference/docs/MONOREPO_ARCHIVE_2026-10-24.md
 ---
 
 # FinUnity Android · 项目概览与进度
