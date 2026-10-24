@@ -1,0 +1,29 @@
+# Optional direct-hosting example; production frontends use independent Vercel projects. Both public hosts share the same backend here, with no cross-domain redirect.
+finunity.halfopen.dev, finunity.baikai.site {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 11MB
+    }
+    @private path /docs /docs/* /redoc /redoc/* /openapi.json
+    respond @private 404
+    @api path /api/* /health/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8001
+    }
+}
+
+# Both Android API domains remain supported.
+finunity-api.halfopen.dev, finunity-api.baikai.site {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 11MB
+    }
+    @private path /docs /docs/* /redoc /redoc/* /openapi.json
+    respond @private 404
+    reverse_proxy 127.0.0.1:8000
+}

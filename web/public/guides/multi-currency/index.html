@@ -1,0 +1,18 @@
+<!doctype html>
+<html data-theme-color="minimal" lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多币种资产怎么汇总｜现金、持仓与汇率口径 · 衡仓</title><meta name="description" content="用虚构计算区分现金、持仓市值与币种换算；理解缺汇率的未计入状态、配置指标和账本对账。">
+<link rel="canonical" href="https://finunity.halfopen.dev/guides/multi-currency/">
+<link rel="alternate" hreflang="zh-CN" href="https://finunity.halfopen.dev/guides/multi-currency/">
+<link rel="alternate" hreflang="en" href="https://finunity.halfopen.dev/en/guides/multi-currency/">
+<link rel="alternate" hreflang="x-default" href="https://finunity.halfopen.dev/guides/multi-currency/">
+<link rel="stylesheet" href="/content.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head><body><a class="skip" href="#main">跳到正文</a>
+<header><a class="brand" href="/">衡仓</a><nav aria-label="主导航"><a href="/guides/multi-currency/">币种汇总</a><a href="/guides/holding-import/">持仓导入</a><a href="/en/guides/multi-currency/" lang="en">English</a></nav></header>
+<main id="main"><p class="eyebrow">FINUNITY · 产品与使用说明</p><h1>多币种汇总：先分币种，再看总额</h1><p class="lede">多币种汇总要先分清现金、持仓与换算方向。先看每个币种的账本，再判断主币种总额是否完整。</p>
+<h2>从账户到总资产</h2><ol><li><strong>现金余额：</strong>期初现金余额加减现金流水。只把流水对现金的影响计入，不把每条流水金额都当成当前资产。</li><li><strong>持仓市值：</strong>持仓数量和账本使用的参考价格形成市值；成本用于相应盈亏口径，不能把成本与市值重复相加。</li><li><strong>账户资产：</strong>现金余额加持仓市值，同币种账户再按服务端快照汇总。</li><li><strong>主币种总额：</strong>使用已配置的换算率合并，缺汇率的币种单独列出未计入部分。</li></ol><p>各页面使用服务端同一份账本快照。核对差异时先比较同一时间、币种和价格来源，不混用客户端自己的另一套金额计算。</p>
+<h2>一个纯计算例子</h2><div class="table-wrap"><table><thead><tr><th>币种</th><th>现金</th><th>持仓市值</th><th>分币种资产</th></tr></thead><tbody><tr><td>CNY</td><td>10,000</td><td>5,000</td><td>15,000</td></tr><tr><td>USD</td><td>1,000</td><td>500</td><td>1,500</td></tr></tbody></table></div><p>全部为虚构数值。示例换算方向为 1 USD = 7 CNY，因此人民币口径合计 25,500。若汇率未设置，看到 15,000 元并不说明美元资产为零；应同时读取“USD 未计入主币种总额”的状态。</p>
+<h2>三桶比例什么时候可信</h2><p>三桶用于整理已录入资产与自己的目标比例，不提供固定的推荐配置。先核对币种是否完整、价格是否有效以及记录分类；账本提示配置指标不可用时，不把空值补成零，也不把部分账本比例当作完整资产配置。</p>
+<h2>常见对账差异</h2><ul><li>总额少了一块：先看是否存在未配置汇率的币种。</li><li>现金与券商页面不一致：核对期初现金、流水方向和记录范围。</li><li>市值变化但数量没变：核对参考价格及更新时间，而不是把价格变化当作买卖。</li><li>汇率方向反了：写明一单位原币对应多少主币，不只保留一个没有方向的数字。</li></ul><p>当前行情是否接入真实适配器以及刷新是否成功，以界面来源与服务状态为准；没有适配器时可能保留手动或联调参考价格。这里不提供现时汇率、买卖判断或收益预测。</p>
+<h2>接下来整理持仓</h2><p>用<a href="/guides/holding-import/">持仓导入指南</a>逐项核对证券、数量与币种；数据处理见<a href="/privacy">隐私政策</a>。<a href="/register">创建账号</a>或<a href="/login">登录工作区</a>后，先用一小份自己的账本验证口径。</p><figure class="shot"><img src="/demo/overview.zh.png" width="929" height="571" alt="示例账本：币种单列、三类资产实际与目标对比"><figcaption>真实工作台截图，数字全部虚构。</figcaption></figure></main>
+<footer><p><a href="/privacy">隐私政策</a> · <a href="/terms">用户协议</a> · <a href="/login">登录</a></p><p>由 半開 制作 · <a href="https://halfopen.dev/">作品集</a></p><p>说明更新：2026-10-03。功能状态与额度以实际服务为准。</p></footer></body></html>

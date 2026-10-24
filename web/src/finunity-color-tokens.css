@@ -1,0 +1,314 @@
+/* ==========================================================================
+   FinUnity — Color Design Tokens
+   Two finalized themes: 极简灰蓝 (minimal) · 藏青 (navy)
+   ==========================================================================
+
+   HOW THIS IS ORGANIZED
+   1. Shared / invariant tokens  — identical in both themes, never re-themed
+   2. Theme: 极简灰蓝 (minimal)   — light chrome, light hero card
+   3. Theme: 藏青 (navy)          — dark chrome, dark hero card
+   Each theme block has a light-mode value set and a dark-mode override set.
+
+   HOW TO WIRE IT UP
+   Put `data-theme-color="minimal"` or `data-theme-color="navy"` on <html>
+   (rename the attribute to whatever your app already uses for theme
+   switching — only the selector needs to match, the token names don't
+   have to change). Put `data-appearance="dark"` on <html> for forced dark
+   mode; omit it to follow the OS via prefers-color-scheme. Rename freely —
+   what matters is keeping the CASCADE ORDER: shared tokens first, theme
+   tokens second, dark-mode overrides last, exactly as below.
+   ========================================================================== */
+
+
+/* --------------------------------------------------------------------------
+   1. SHARED / INVARIANT TOKENS
+   These never change between themes. Two families:
+   - Neutral UI scaffolding (bg, text, radius, shadow)
+   - Fixed-meaning semantic colors (gains/losses, risk-tier chart colors)
+     — these carry a universal meaning across the whole product, so they
+     stay constant regardless of which theme is active, the same way a
+     traffic light doesn't change color scheme by city.
+   -------------------------------------------------------------------------- */
+:root {
+  /* Neutral surfaces & text (light mode) */
+  --bg:            #F5F5F7;  /* page background */
+  --bg-elevated:   #FFFFFF;  /* cards, sidebar (light themes), top-bar buttons */
+  --bg-inset:      #F7F8F6;  /* subtle inset panels */
+  --bg-sunken:     #ECEEEA;  /* donut chart base ring, sunken wells */
+  --hairline:      rgba(20, 24, 22, 0.08);   /* 1px dividers/borders */
+  --text-primary:  #14181A;
+  --text-secondary:#6B7570;
+  --text-tertiary: #9AA39D;
+
+  /* Gains / losses — fixed everywhere. CN market convention: gains=red, losses=green
+     (opposite of the international red-down/green-up convention, intentional). */
+  --positive:      #D8464B;
+  --positive-rgb:  216, 70, 75;   /* for rgba() tint backgrounds */
+  --negative:      #269A57;
+  --negative-bg:   #E6F6EC;
+
+  /* Radius scale */
+  --radius-xs:   10px;   /* small buttons, inputs */
+  --radius-sm:   14px;   /* nav items, list rows, small buttons */
+  --radius-md:   18px;   /* --unused placeholder for mid-size components */
+  --radius-lg:   24px;   /* standard cards */
+  --radius-xl:   28px;   /* hero / feature card */
+  --radius-pill: 999px;  /* pills, chips, avatar */
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(20,24,22,0.04), 0 8px 24px rgba(20,24,22,0.05);
+  --shadow-pop:  0 4px 14px rgba(20,24,22,0.10);   /* icon buttons, floating pills */
+
+  /* Risk-bucket colors (进取/稳健/防守) — traffic-light code, fixed across
+     both themes. Each has two tiers:
+       *        vivid version  → donut ring stroke, legend dot fill
+                                 (decorative chart color, no text on top)
+       *-text   darker version → tag chip text / holding-marker text
+                                 (sits on top of *-bg tint, needs real
+                                 text contrast — do not swap these two) */
+  --bucket-def:      #2FA85A;  /* 防守 — green  */
+  --bucket-def-text: #1E7A40;
+  --bucket-def-bg:   #E5F7EA;
+  --bucket-bal:      #F0A93B;  /* 稳健 — amber  */
+  --bucket-bal-text: #9C6B1B;
+  --bucket-bal-bg:   #FDF1DC;
+  --bucket-aggr:      #E2582A; /* 进取 — red-orange */
+  --bucket-aggr-text: #A83A1A;
+  --bucket-aggr-bg:   #FBE7E0;
+}
+
+/* Dark mode — neutral surfaces & fixed semantic colors */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) {
+    --bg:             #0E1310;
+    --bg-elevated:    #1A211D;
+    --bg-inset:       #212925;
+    --bg-sunken:      #171D1A;
+    --hairline:       rgba(255,255,255,0.08);
+    --text-primary:   #F1F3F1;
+    --text-secondary: #9BA69F;
+    --text-tertiary:  #6F7A73;
+    --negative-bg:    rgba(38,154,87,0.16);
+    --bucket-def-bg:  rgba(47,168,90,0.20);
+    --bucket-bal-bg:  rgba(240,169,59,0.20);
+    --bucket-aggr-bg: rgba(226,88,42,0.20);
+    --bucket-def-text:  #6FD08C;
+    --bucket-bal-text:  #F5C570;
+    --bucket-aggr-text: #F08D6C;
+    --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    --shadow-pop:  0 4px 14px rgba(0,0,0,0.4);
+  }
+}
+/* Same values, applied when the app forces dark mode via an attribute
+   instead of following the OS */
+[data-appearance="dark"] {
+  --bg:             #0E1310;
+  --bg-elevated:    #1A211D;
+  --bg-inset:       #212925;
+  --bg-sunken:      #171D1A;
+  --hairline:       rgba(255,255,255,0.08);
+  --text-primary:   #F1F3F1;
+  --text-secondary: #9BA69F;
+  --text-tertiary:  #6F7A73;
+  --negative-bg:    rgba(38,154,87,0.16);
+  --bucket-def-bg:  rgba(47,168,90,0.20);
+  --bucket-bal-bg:  rgba(240,169,59,0.20);
+  --bucket-aggr-bg: rgba(226,88,42,0.20);
+  --bucket-def-text:  #6FD08C;
+  --bucket-bal-text:  #F5C570;
+  --bucket-aggr-text: #F08D6C;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  --shadow-pop:  0 4px 14px rgba(0,0,0,0.4);
+}
+
+
+/* --------------------------------------------------------------------------
+   2. THEME: 极简灰蓝 (minimal)
+   Light chrome throughout, INCLUDING the hero/balance card — no heavy dark
+   block anywhere. Single accent: a clean, moderate-saturation dusty blue.
+   -------------------------------------------------------------------------- */
+[data-theme-color="minimal"] {
+  /* Brand scale */
+  --brand-900: #33424D;
+  --brand-800: #3E5560;
+  --brand-700: #4A7C94;   /* used for glow / large-surface accents */
+  --brand-600: #3E6D82;   /* text-safe accent — links, icons, active states */
+  --brand-500: #3E6D82;   /* eyebrow / label text — same as 600, both AA-safe on white */
+  --brand-100: #E7EEF1;   /* pale tint backgrounds */
+  --brand-050: #F3F7F8;
+  --brand-glow-rgb: 74, 124, 148;
+  --brand-accent-onhero: #DCEAF0;  /* unused in this theme (hero is light) but kept for consistency */
+  --shadow-hero: 0 10px 28px rgba(51,66,77,0.10);   /* soft, not heavy */
+
+  /* Sidebar — light chrome */
+  --sidebar-bg:          #FAFBFB;
+  --sidebar-border:      var(--hairline);
+  --sidebar-text:        #78838C;
+  --sidebar-text-strong: #232B30;
+  --sidebar-text-dim:    #A7B0B6;
+  --sidebar-active-bg:   var(--brand-100);
+  --sidebar-active-text: var(--brand-600);
+  --sidebar-profile-bg:  #F1F4F5;
+  --sidebar-avatar-bg:   var(--brand-100);
+  --sidebar-avatar-text: var(--brand-600);
+  --sidebar-mark-bg:     var(--brand-600);
+  --sidebar-mark-text:   #FFFFFF;
+
+  /* Hero / balance card — soft light card, not a saturated block */
+  --hero-bg:            linear-gradient(160deg, #F1F5F6, #E5EBED);
+  --hero-border:        1px solid var(--hairline);
+  --hero-label-color:   var(--text-secondary);
+  --hero-amount-color:  var(--text-primary);
+  --hero-delta-bg:      rgba(var(--positive-rgb), 0.12);
+  --hero-delta-color:   var(--positive);
+  --hero-meta-border:   var(--hairline);
+  --hero-meta-color:    var(--text-tertiary);
+  --hero-meta-strong:   var(--text-primary);
+  --hero-btn-ghost-bg:     var(--bg-elevated);
+  --hero-btn-ghost-border: 1px solid var(--hairline);
+  --hero-btn-ghost-color:  var(--text-primary);
+  --hero-btn-solid-bg:     var(--brand-600);
+  --hero-btn-solid-color:  #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme-color="minimal"]:not([data-appearance="light"]) {
+    --brand-100: rgba(74,124,148,0.18);
+    --brand-050: rgba(74,124,148,0.09);
+    --sidebar-bg:          linear-gradient(180deg, #171C1F, #202629 60%, #293236);
+    --sidebar-border:      transparent;
+    --sidebar-text:        rgba(255,255,255,0.68);
+    --sidebar-text-strong: #FFFFFF;
+    --sidebar-text-dim:    rgba(255,255,255,0.55);
+    --sidebar-active-bg:   rgba(255,255,255,0.14);
+    --sidebar-active-text: #FFFFFF;
+    --sidebar-profile-bg:  rgba(255,255,255,0.06);
+    --sidebar-avatar-bg:   rgba(255,255,255,0.18);
+    --sidebar-avatar-text: #FFFFFF;
+    --sidebar-mark-bg:     rgba(255,255,255,0.18);
+    --sidebar-mark-text:   #FFFFFF;
+    --hero-bg:           linear-gradient(160deg, #232B30, #171C1F);
+    --hero-border:       1px solid rgba(255,255,255,0.08);
+    --hero-label-color:  rgba(255,255,255,0.68);
+    --hero-amount-color: #FFFFFF;
+    --hero-delta-bg:     rgba(var(--positive-rgb), 0.20);
+    --hero-meta-border:  rgba(255,255,255,0.14);
+    --hero-meta-color:   rgba(255,255,255,0.55);
+    --hero-meta-strong:  rgba(255,255,255,0.82);
+    --hero-btn-ghost-bg:     rgba(255,255,255,0.10);
+    --hero-btn-ghost-border: 1px solid rgba(255,255,255,0.14);
+    --hero-btn-ghost-color:  #FFFFFF;
+  }
+}
+[data-theme-color="minimal"][data-appearance="dark"] {
+  --brand-100: rgba(74,124,148,0.18);
+  --brand-050: rgba(74,124,148,0.09);
+  --sidebar-bg:          linear-gradient(180deg, #171C1F, #202629 60%, #293236);
+  --sidebar-border:      transparent;
+  --sidebar-text:        rgba(255,255,255,0.68);
+  --sidebar-text-strong: #FFFFFF;
+  --sidebar-text-dim:    rgba(255,255,255,0.55);
+  --sidebar-active-bg:   rgba(255,255,255,0.14);
+  --sidebar-active-text: #FFFFFF;
+  --sidebar-profile-bg:  rgba(255,255,255,0.06);
+  --sidebar-avatar-bg:   rgba(255,255,255,0.18);
+  --sidebar-avatar-text: #FFFFFF;
+  --sidebar-mark-bg:     rgba(255,255,255,0.18);
+  --sidebar-mark-text:   #FFFFFF;
+  --hero-bg:           linear-gradient(160deg, #232B30, #171C1F);
+  --hero-border:       1px solid rgba(255,255,255,0.08);
+  --hero-label-color:  rgba(255,255,255,0.68);
+  --hero-amount-color: #FFFFFF;
+  --hero-delta-bg:     rgba(var(--positive-rgb), 0.20);
+  --hero-meta-border:  rgba(255,255,255,0.14);
+  --hero-meta-color:   rgba(255,255,255,0.55);
+  --hero-meta-strong:  rgba(255,255,255,0.82);
+  --hero-btn-ghost-bg:     rgba(255,255,255,0.10);
+  --hero-btn-ghost-border: 1px solid rgba(255,255,255,0.14);
+  --hero-btn-ghost-color:  #FFFFFF;
+}
+
+
+/* --------------------------------------------------------------------------
+   3. THEME: 藏青 (navy)
+   Dark chrome (sidebar + hero card both use the deep navy gradient).
+   Single accent: a cool steel/ice blue — no gold, no warm hues.
+   Sidebar and hero here use the SHARED dark-chrome defaults below, so this
+   theme only needs to define its brand scale.
+   -------------------------------------------------------------------------- */
+[data-theme-color="navy"] {
+  /* Brand scale */
+  --brand-900: #0E1626;
+  --brand-800: #16223A;
+  --brand-700: #1E2D4A;
+  --brand-600: #2A3C5C;
+  --brand-500: #3B6EA5;   /* text-safe steel/ice-blue accent — links, icons */
+  --brand-100: #E9EEF5;
+  --brand-050: #F3F6FA;
+  --brand-glow-rgb: 92, 166, 214;
+  --brand-accent-onhero: #BFE0F5;
+  --shadow-hero: 0 16px 40px rgba(14,22,38,0.32);
+
+  /* Sidebar & hero: dark-chrome pattern, shared by any "deep" theme —
+     defined once here so future dark themes (石墨蓝, 苔绿, etc.) can reuse
+     this block instead of repeating it */
+  --sidebar-bg: linear-gradient(180deg, var(--brand-900), var(--brand-800) 60%, var(--brand-700));
+  --sidebar-border: transparent;
+  --sidebar-text: rgba(255,255,255,0.68);
+  --sidebar-text-strong: #FFFFFF;
+  --sidebar-text-dim: rgba(255,255,255,0.55);
+  --sidebar-active-bg: rgba(255,255,255,0.14);
+  --sidebar-active-text: #FFFFFF;
+  --sidebar-profile-bg: rgba(255,255,255,0.06);
+  --sidebar-avatar-bg: rgba(255,255,255,0.18);
+  --sidebar-avatar-text: #FFFFFF;
+  --sidebar-mark-bg: rgba(255,255,255,0.14);
+  --sidebar-mark-text: #FFFFFF;
+
+  --hero-bg: radial-gradient(120% 160% at 100% 0%, rgba(var(--brand-glow-rgb),0.35), transparent 55%),
+             linear-gradient(160deg, var(--brand-700), var(--brand-900));
+  --hero-border: none;
+  --hero-label-color: rgba(255,255,255,0.68);
+  --hero-amount-color: #FFFFFF;
+  --hero-delta-bg: rgba(255,255,255,0.12);
+  --hero-delta-color: var(--brand-accent-onhero);
+  --hero-meta-border: rgba(255,255,255,0.14);
+  --hero-meta-color: rgba(255,255,255,0.55);
+  --hero-meta-strong: rgba(255,255,255,0.82);
+  --hero-btn-ghost-bg: rgba(255,255,255,0.14);
+  --hero-btn-ghost-border: none;
+  --hero-btn-ghost-color: #FFFFFF;
+  --hero-btn-solid-bg: #FFFFFF;
+  --hero-btn-solid-color: var(--brand-800);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme-color="navy"]:not([data-appearance="light"]) {
+    --brand-100: rgba(59,110,165,0.22);
+    --brand-050: rgba(59,110,165,0.10);
+    /* sidebar/hero are already dark — nothing else needs to change */
+  }
+}
+[data-theme-color="navy"][data-appearance="dark"] {
+  --brand-100: rgba(59,110,165,0.22);
+  --brand-050: rgba(59,110,165,0.10);
+}
+
+/* Bucket semantics: cobalt / mist blue / amber. Gains and losses keep their own colors. */
+:root {
+  --bucket-aggr: #2855B8; --bucket-aggr-text: #204894; --bucket-aggr-bg: #E8EEFC;
+  --bucket-bal: #87AACC; --bucket-bal-text: #3D607F; --bucket-bal-bg: #EBF2F8;
+  --bucket-def: #D7A23B; --bucket-def-text: #846018; --bucket-def-bg: #FBF1DB;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) {
+    --bucket-aggr: #7197EF; --bucket-aggr-text: #A9C3FF; --bucket-aggr-bg: #253350;
+    --bucket-bal: #8BAFD0; --bucket-bal-text: #B4CFE7; --bucket-bal-bg: #293B4C;
+    --bucket-def: #DEB45F; --bucket-def-text: #F1CC81; --bucket-def-bg: #493C25;
+  }
+}
+[data-appearance="dark"] {
+  --bucket-aggr: #7197EF; --bucket-aggr-text: #A9C3FF; --bucket-aggr-bg: #253350;
+  --bucket-bal: #8BAFD0; --bucket-bal-text: #B4CFE7; --bucket-bal-bg: #293B4C;
+  --bucket-def: #DEB45F; --bucket-def-text: #F1CC81; --bucket-def-bg: #493C25;
+}

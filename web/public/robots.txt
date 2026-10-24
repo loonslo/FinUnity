@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://finunity.halfopen.dev/sitemap.xml

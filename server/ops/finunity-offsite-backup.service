@@ -1,0 +1,16 @@
+# Template: adjust User=, WorkingDirectory= and the paths to the production host before installing.
+# Secrets live in /etc/finunity-offsite.env (mode 600), never in this repository. See ops/README.md.
+[Unit]
+Description=FinUnity encrypted off-site backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finunity
+WorkingDirectory=/srv/finunity/app
+EnvironmentFile=/etc/finunity-offsite.env
+ExecStart=/usr/bin/python3 ops/offsite_backup.py backup --database /srv/finunity/data/finunity.db --backup-dir /srv/finunity/backups
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

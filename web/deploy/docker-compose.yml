@@ -1,0 +1,15 @@
+services:
+  finunity-web:
+    image: nginx:1.27-alpine
+    container_name: finunity-web
+    ports:
+      - "127.0.0.1:8001:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

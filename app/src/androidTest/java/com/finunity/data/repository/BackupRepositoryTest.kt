@@ -10,6 +10,10 @@ import com.finunity.data.local.entity.AccountType
 import com.finunity.data.local.entity.AssetRecord
 import com.finunity.data.local.entity.AssetSnapshot
 import com.finunity.data.local.entity.AssetType
+import com.finunity.data.local.entity.FinancialGoal
+import com.finunity.data.local.entity.FinancialPlanReview
+import com.finunity.data.local.entity.FinancialPlanVersion
+import com.finunity.data.local.entity.PlanningProfile
 import com.finunity.data.local.entity.RiskBucket
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.TransactionType
@@ -61,7 +65,7 @@ class BackupRepositoryTest {
         assertEquals(1, db.assetRecordDao().getAllRecords().first().size)
         assertEquals(1, db.assetSnapshotDao().getSnapshotCount())
         assertEquals("snapshot-1", db.assetSnapshotDao().getLatestSnapshot()?.id)
-        assertEquals(9, repository.summarize(json).getOrThrow().version)
+        assertEquals(10, repository.summarize(json).getOrThrow().version)
     }
 
     @Test
@@ -97,12 +101,92 @@ class BackupRepositoryTest {
     fun futureBackupVersionIsRejectedWithoutMutatingExistingDatabase() = runBlocking {
         val existing = sampleAccount("future-version-account")
         db.accountDao().insert(existing)
-        val futureBackup = BackupData(version = 10, accounts = emptyList())
+        val futureBackup = BackupData(version = 11, accounts = emptyList())
 
         val result = repository.import(Gson().toJson(futureBackup))
 
         assertFalse(result.isSuccess)
         assertEquals(listOf(existing), db.accountDao().getAllAccounts().first())
+    }
+
+    @Test
+    fun plannerDataAndLinkedTransactionsRoundTripThroughBackup() = runBlocking {
+        val account = sampleAccount("planner-backup-account")
+        val goal = FinancialGoal(
+            id = "planner-goal",
+            name = "教育储备",
+            targetAmount = "100000",
+            targetDate = "2030-01-01"
+        )
+        val plan = FinancialPlanVersion(
+            id = "planner-plan",
+            inputFingerprint = "fingerprint",
+            snapshotJson = "{}",
+            resultJson = "{}"
+        )
+        db.accountDao().insert(account)
+        db.transactionDao().insert(
+            Transaction(
+                id = "planner-transfer",
+                accountId = account.id,
+                symbol = null,
+                type = TransactionType.TRANSFER_IN,
+                shares = null,
+                price = null,
+                amount = 50.0,
+                currency = "CNY",
+                financialGoalId = goal.id
+            )
+        )
+        db.financialPlannerDao().saveProfile(PlanningProfile(monthlyIncome = "20000"))
+        db.financialPlannerDao().saveGoal(goal)
+        db.financialPlannerDao().savePlan(plan)
+        db.financialPlannerDao().saveReview(
+            FinancialPlanReview(
+                planId = plan.id,
+                month = "2026-10",
+                actualIncome = "20000",
+                actualExpenses = "12000",
+                actualGoalContributionsJson = "{\"${goal.id}\":\"50.00\"}"
+            )
+        )
+
+        val json = repository.export()
+        db.financialPlannerDao().saveGoal(goal.copy(id = "extra-goal", name = "后加入目标"))
+
+        val result = repository.import(json)
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf(goal), db.financialPlannerDao().observeGoals().first())
+        assertEquals("20000", db.financialPlannerDao().observeProfile().first()?.monthlyIncome)
+        assertEquals(listOf(plan), db.financialPlannerDao().observePlans().first())
+        assertEquals("2026-10", db.financialPlannerDao().observeReviews().first().single().month)
+        assertEquals(goal.id, db.transactionDao().getAllTransactions().first().single().financialGoalId)
+        val summary = repository.summarize(json).getOrThrow()
+        assertEquals(1, summary.financialGoalCount)
+        assertEquals(1, summary.financialPlanCount)
+    }
+
+    @Test
+    fun legacyBackupWithoutPlannerFieldsRestoresWithEmptyPlanner() = runBlocking {
+        val account = sampleAccount("legacy-account")
+        val legacyJson = Gson().toJson(BackupData(version = 9, accounts = listOf(account)))
+            .let { json ->
+                @Suppress("DEPRECATION")
+                com.google.gson.JsonParser().parse(json).asJsonObject.apply {
+                    remove("planningProfile")
+                    remove("financialGoals")
+                    remove("financialPlanVersions")
+                    remove("financialPlanReviews")
+                }.toString()
+            }
+
+        val result = repository.import(legacyJson)
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf(account), db.accountDao().getAllAccounts().first())
+        assertTrue(db.financialPlannerDao().observeGoals().first().isEmpty())
+        assertTrue(db.financialPlannerDao().observePlans().first().isEmpty())
     }
 
     private fun sampleAccount(id: String = "backup-account") = Account(

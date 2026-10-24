@@ -1,0 +1,2 @@
+:root{font-family:system-ui,"Microsoft YaHei",sans-serif;color:#18252d;background:#f5f7f8;line-height:1.8}body{max-width:840px;margin:auto;padding:32px 24px}article{background:white;padding:32px;border-radius:16px}h1{font-size:28px}h2{font-size:20px;margin-top:28px}a{color:#126862}small{color:#52616b}
+.policy-nav{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:16px}.policy-nav a{font-weight:600}

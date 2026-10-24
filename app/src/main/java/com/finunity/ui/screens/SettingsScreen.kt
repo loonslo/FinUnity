@@ -116,6 +116,11 @@ fun SettingsScreen(
                             selected = currentThemeColor == FinThemeColor.NAVY,
                             onClick = { onSave(settings.copy(themeColor = FinThemeColor.NAVY.storageKey())) }
                         )
+                          FinPill(
+                              text = "暖白橄榄",
+                              selected = currentThemeColor == FinThemeColor.OLIVE,
+                              onClick = { onSave(settings.copy(themeColor = FinThemeColor.OLIVE.storageKey())) }
+                          )
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     Text("外观模式", style = MaterialTheme.typography.bodySmall, color = FinColors.TextSecondary)

@@ -1,0 +1,302 @@
+{
+  "date": "2026-10-03",
+  "status": "published",
+  "archive_sha256": "b7a2ac97b7e5d18bb4d8e12c669bd03ae98c9044a6f1942f6c9f653494db0faf",
+  "source_files": [
+    {
+      "file": "index.html",
+      "sha256": "3fd0a2c2fd768fe2a726093afad32a445c1f39ef216f3a5bfadfa5040e744846"
+    },
+    {
+      "file": "package-lock.json",
+      "sha256": "2ec8c140b043f09388c154edcb1c3cfb4b2011e65790dc1ffe06470de2675460"
+    },
+    {
+      "file": "package.json",
+      "sha256": "479f1d1730d6e5d540d31c504436fb4ec9a8e2b0d9c1b962bc10bd6583f667fb"
+    },
+    {
+      "file": "public/android-privacy-en.html",
+      "sha256": "0bf5ffa2d0cb38947a4bce2fab0a1fb5ef08b5ac4f3118bb0683a10b5aabf562"
+    },
+    {
+      "file": "public/android-privacy/index.html",
+      "sha256": "9076b1e83735430e40188bdc462900eb2f85b3349706f17e05925409f75119e5"
+    },
+    {
+      "file": "public/en/guides/holding-import/index.html",
+      "sha256": "68070d3dc26c4bcb7d161406e826e4c2d7b788a9e37463d8bfd02b2e4e546ee7"
+    },
+    {
+      "file": "public/en/guides/multi-currency/index.html",
+      "sha256": "246f4f13f3949be7f09abdca72b5f31504107b4255c3b79ab63544d6756ae014"
+    },
+    {
+      "file": "public/en/product/index.html",
+      "sha256": "12b594ac04abfa8709f907c8a47778aaf042c316254c1799b3e9a434a9d326a6"
+    },
+    {
+      "file": "public/favicon.svg",
+      "sha256": "17a6f00b1367528599ab8a0736263fe8e9620bed007e000812a082c8e118ed08"
+    },
+    {
+      "file": "public/guides/holding-import/index.html",
+      "sha256": "f979dccc4df5d49e4d7b5863ae693249d0bfca8cf0d6c32a0a3ec5eda99861c3"
+    },
+    {
+      "file": "public/guides/multi-currency/index.html",
+      "sha256": "5c121ed99987b06b723c66b2d4a959a3c3a9b2c769096b8ded06c848a9418452"
+    },
+    {
+      "file": "public/landing.css",
+      "sha256": "61c75507e094d0335aed826aa017384030f8401c508541dc7cde73c70f0350e0"
+    },
+    {
+      "file": "public/ledger-example.en.svg",
+      "sha256": "c953253221e56d55618331cf4ded65c1648121c4434245f6e51e79f75f1bdd80"
+    },
+    {
+      "file": "public/ledger-example.zh.svg",
+      "sha256": "09a385fbd959aaf644c9e8c7c39ff6eef4676314cfd8e3506431b393a933c4c8"
+    },
+    {
+      "file": "public/og.png",
+      "sha256": "83a45d5e64fd6ddc7ce3e4f656d55517f2db20804621b207a6784ff2fb7bc9a4"
+    },
+    {
+      "file": "public/policy.css",
+      "sha256": "f9ce0f6698fbec9feac90f73a3ca14324e95d3ba95e8acc35344648a231dc83c"
+    },
+    {
+      "file": "public/privacy-en.html",
+      "sha256": "851756e307ac139e00ecfba740e07cd2c1a546db0dad40cdc60b8fffc9945271"
+    },
+    {
+      "file": "public/privacy/index.html",
+      "sha256": "5cce510f23be3cf434de6ce2f594bad06f8f02056a275f2f7f51d42bc31a1d2d"
+    },
+    {
+      "file": "public/product/index.html",
+      "sha256": "743c84af202da4b4a2ac42ec4d8e6aa3a1524945e7260029533086da67dee16c"
+    },
+    {
+      "file": "public/robots.txt",
+      "sha256": "565d01cfa4bbb5952d5cc6dadf2396e0034bb123aa997ae5dbe88494e4a517b1"
+    },
+    {
+      "file": "public/sitemap.xml",
+      "sha256": "30e2a7a5dcbf7012feaa7280c715b1d9254948bd1440c067d7f2e6df626f0392"
+    },
+    {
+      "file": "public/terms-en.html",
+      "sha256": "dba0e30204077669743f1403a417fe36e4c62cccf31b71e2f595d9bde63b72c0"
+    },
+    {
+      "file": "public/terms/index.html",
+      "sha256": "056cf4c56f43f8f84bb1b6e8811098bf8b5b6474e9b2e0557f78d5393cb49ac1"
+    },
+    {
+      "file": "src/App.css",
+      "sha256": "34df9d78143926e4a11700badaca7233d919cc22f85868dda895600734944f7e"
+    },
+    {
+      "file": "src/App.tsx",
+      "sha256": "a8171c236736f90607e2b261e972977cfaa9123946a03a7a255d563be3c26dd9"
+    },
+    {
+      "file": "src/AuthPages.tsx",
+      "sha256": "5418b3d84fbf5c1b1ae92f8aa521bebf6874946dca210693b0e5400dc4aad81d"
+    },
+    {
+      "file": "src/VisitorPreview.css",
+      "sha256": "ac8a9872e4f49142247db2df31c17dfadfc782f801622f63fffb112af6baff4a"
+    },
+    {
+      "file": "src/VisitorPreview.tsx",
+      "sha256": "c51a1461a8c80a2d8e697c1a311a4f80c17ed7d5b571de5834d4c8d91172c379"
+    },
+    {
+      "file": "src/api.ts",
+      "sha256": "fa498f4c1f0cf21f2008d19df2068f3ace3be237bfdab7918357c26a58fe5117"
+    },
+    {
+      "file": "src/decimal.ts",
+      "sha256": "6832740163c3a4f310d75409c1c5c08119bb58992d5a368242c9526fb4707e0c"
+    },
+    {
+      "file": "src/finunity-color-tokens.css",
+      "sha256": "268755177b7f6a80bbda5b4274746a0fb5656395c2125a067aec6ce3aab4f3fd"
+    },
+    {
+      "file": "src/holdingImport.ts",
+      "sha256": "be942236ebedc88c7d6873aedbe84f7bf667e79965660bf8c6ca8c9edf782736"
+    },
+    {
+      "file": "src/i18n.ts",
+      "sha256": "29ae816007cafc374a8b85378a0b5d794ae60751447baa7597551caa3c72f671"
+    },
+    {
+      "file": "src/index.css",
+      "sha256": "42e1392c5fe28233e2254419a8cd2c1058ab7a6e84a2a6ccb67e7955bb7ed09d"
+    },
+    {
+      "file": "src/ledgerValidation.ts",
+      "sha256": "0480e0ce7cdd7d997a87d786ea49bb733051065bcbc6dc27d2a089b91c5fd98d"
+    },
+    {
+      "file": "src/main.tsx",
+      "sha256": "6e9e5807fcbd48b75a96db5cbef36c996262196be42e6d4760dc86babbe61ad2"
+    },
+    {
+      "file": "src/theme.ts",
+      "sha256": "c7ecff01b052f8e1122380f637b09b7b3401d89996b8376baba5474552184e64"
+    },
+    {
+      "file": "src/types.ts",
+      "sha256": "03cc1932140ebeb8b5592de1d46d4cceedfeda82d875a3272ce3b04616cfb212"
+    },
+    {
+      "file": "tsconfig.app.json",
+      "sha256": "8e5d12ba330e7d86409edec74b95451e0db22ee09b9426c94b5bf817571eddb0"
+    },
+    {
+      "file": "tsconfig.json",
+      "sha256": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808"
+    },
+    {
+      "file": "tsconfig.node.json",
+      "sha256": "d366cc0827139db39c61815f22491bbfda56c654354a42ad7795143d314e45e8"
+    },
+    {
+      "file": "vercel.json",
+      "sha256": "f92cf66daa15d3b1db38530d57ae9477531a71ac48029597d609f2f757a67a2e"
+    },
+    {
+      "file": "vite.config.ts",
+      "sha256": "a08f79454c13efd42ee3e56ca4c8e70395ac2901e4c622e1f282f2cf0f0ad97c"
+    }
+  ],
+  "built_files": [
+    {
+      "file": "android-privacy/index.html",
+      "sha256": "9076b1e83735430e40188bdc462900eb2f85b3349706f17e05925409f75119e5"
+    },
+    {
+      "file": "android-privacy-en.html",
+      "sha256": "0bf5ffa2d0cb38947a4bce2fab0a1fb5ef08b5ac4f3118bb0683a10b5aabf562"
+    },
+    {
+      "file": "assets/browser-CmbbnXTP.js",
+      "sha256": "d8d0bc0cf7c04784cc4568036aa0c39eede45383d23f7c264cac9db92744b245"
+    },
+    {
+      "file": "assets/charts-BEj-mqs5.js",
+      "sha256": "446b11887e23e573f9886ce4e867eddc191ad232ffbd8c880a855fa9c82dc1c1"
+    },
+    {
+      "file": "assets/icons-7zcV8yu0.js",
+      "sha256": "c6a623ccfaa6b397a2f735bd2b0e61dd03c3e25fe14ea0db84621410bd92c23d"
+    },
+    {
+      "file": "assets/index-C0qyEjPH.css",
+      "sha256": "1993a22a94e3fbf156fa48d3694547cd7ce0488eeb865aadc0a05cd994283bf1"
+    },
+    {
+      "file": "assets/index-CodEnkx4.js",
+      "sha256": "8e2bf795300c02375dc4a512c8c7a6327425fdce99b7c387622a85dff2a9508e"
+    },
+    {
+      "file": "assets/query-Dj4atod6.js",
+      "sha256": "72dae74b9b964939991e52d7c46953f5a61c89cb5fd3aa7bd89faa362b1ad34e"
+    },
+    {
+      "file": "assets/react-BTnYZbcc.js",
+      "sha256": "122cf2bd66cbdb708333270a90c1c611b3c04d82d5ef13069d2b4a747ae36b32"
+    },
+    {
+      "file": "assets/rolldown-runtime-hePW80VL.js",
+      "sha256": "580ad8c58061a4dde99bde0a56905e382f0568516ee2f5b84dbfb52085709021"
+    },
+    {
+      "file": "en/guides/holding-import/index.html",
+      "sha256": "68070d3dc26c4bcb7d161406e826e4c2d7b788a9e37463d8bfd02b2e4e546ee7"
+    },
+    {
+      "file": "en/guides/multi-currency/index.html",
+      "sha256": "246f4f13f3949be7f09abdca72b5f31504107b4255c3b79ab63544d6756ae014"
+    },
+    {
+      "file": "en/product/index.html",
+      "sha256": "12b594ac04abfa8709f907c8a47778aaf042c316254c1799b3e9a434a9d326a6"
+    },
+    {
+      "file": "favicon.svg",
+      "sha256": "17a6f00b1367528599ab8a0736263fe8e9620bed007e000812a082c8e118ed08"
+    },
+    {
+      "file": "guides/holding-import/index.html",
+      "sha256": "f979dccc4df5d49e4d7b5863ae693249d0bfca8cf0d6c32a0a3ec5eda99861c3"
+    },
+    {
+      "file": "guides/multi-currency/index.html",
+      "sha256": "5c121ed99987b06b723c66b2d4a959a3c3a9b2c769096b8ded06c848a9418452"
+    },
+    {
+      "file": "index.html",
+      "sha256": "78acc1c692c569324cc3e2a6ab100f002bc2510790829e70192fb18d57b445d6"
+    },
+    {
+      "file": "landing.css",
+      "sha256": "61c75507e094d0335aed826aa017384030f8401c508541dc7cde73c70f0350e0"
+    },
+    {
+      "file": "ledger-example.en.svg",
+      "sha256": "c953253221e56d55618331cf4ded65c1648121c4434245f6e51e79f75f1bdd80"
+    },
+    {
+      "file": "ledger-example.zh.svg",
+      "sha256": "09a385fbd959aaf644c9e8c7c39ff6eef4676314cfd8e3506431b393a933c4c8"
+    },
+    {
+      "file": "og.png",
+      "sha256": "83a45d5e64fd6ddc7ce3e4f656d55517f2db20804621b207a6784ff2fb7bc9a4"
+    },
+    {
+      "file": "policy.css",
+      "sha256": "f9ce0f6698fbec9feac90f73a3ca14324e95d3ba95e8acc35344648a231dc83c"
+    },
+    {
+      "file": "privacy/index.html",
+      "sha256": "5cce510f23be3cf434de6ce2f594bad06f8f02056a275f2f7f51d42bc31a1d2d"
+    },
+    {
+      "file": "privacy-en.html",
+      "sha256": "851756e307ac139e00ecfba740e07cd2c1a546db0dad40cdc60b8fffc9945271"
+    },
+    {
+      "file": "product/index.html",
+      "sha256": "743c84af202da4b4a2ac42ec4d8e6aa3a1524945e7260029533086da67dee16c"
+    },
+    {
+      "file": "robots.txt",
+      "sha256": "565d01cfa4bbb5952d5cc6dadf2396e0034bb123aa997ae5dbe88494e4a517b1"
+    },
+    {
+      "file": "sitemap.xml",
+      "sha256": "30e2a7a5dcbf7012feaa7280c715b1d9254948bd1440c067d7f2e6df626f0392"
+    },
+    {
+      "file": "terms/index.html",
+      "sha256": "056cf4c56f43f8f84bb1b6e8811098bf8b5b6474e9b2e0557f78d5393cb49ac1"
+    },
+    {
+      "file": "terms-en.html",
+      "sha256": "dba0e30204077669743f1403a417fe36e4c62cccf31b71e2f595d9bde63b72c0"
+    }
+  ],
+  "deployment": {
+    "id": "dpl_98QBpw71GX5pwaUmW7h85xfFnXgH",
+    "readyState": "READY",
+    "productionUrl": "https://finunity.halfopen.dev"
+  }
+}

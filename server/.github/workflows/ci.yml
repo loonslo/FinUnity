@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Daily 05:17 Asia/Shanghai. Catches tests that start failing only because the calendar moved
+    # on (a fixed 2026-09 date read back through a "current month" default failed from 2026-10-01
+    # and nobody noticed, because nothing ran) and dependency drift, without waiting for a push.
+    - cron: "17 21 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and tests, application clock +${{ matrix.offset }} days
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0 = today, 35 = next month, 400 = next year: fixed dates, month rollovers, token expiry.
+        offset: [0, 35, 400]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: 0.12.15
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.12
+
+      - name: Ruff
+        if: matrix.offset == 0
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest -q --time-offset-days=${{ matrix.offset }}
+
+  image:
+    name: Docker image builds and answers its health probes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build
+        run: >
+          docker build
+          --build-arg GIT_SHA="$GITHUB_SHA"
+          --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          -t finunity-server:ci .
+
+      - name: Run and probe
+        run: |
+          docker run -d --name finunity -p 8000:8000 finunity-server:ci
+          curl -fsS --retry 30 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/health/ready
+          echo
+          curl -fsS http://127.0.0.1:8000/health/version | tee /dev/stderr | grep -q "$GITHUB_SHA"
+
+      - name: Container logs
+        if: failure()
+        run: docker logs finunity

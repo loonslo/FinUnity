@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+
+FROM node:22-bookworm-slim AS frontend-build
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+FROM python:3.12-slim AS python-dependencies
+COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src/backend
+COPY --from=frontend-build /src/frontend/dist /frontend-dist
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
+
+FROM python:3.12-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --home-dir /home/app --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /data \
+    && chown app:app /data
+ENV TZ=Asia/Shanghai \
+    FINUNITY_DATABASE_URL=sqlite:////data/finunity-prototype.db \
+    PYTHONPATH=/app/backend \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH
+WORKDIR /app
+COPY --from=python-dependencies /opt/venv /opt/venv
+COPY backend/ /app/backend/
+COPY --from=python-dependencies /frontend-dist /app/frontend/dist
+RUN chown -R root:root /app /opt/venv \
+    && chmod -R go-w /app /opt/venv \
+    && chown app:app /data
+USER 10001:10001
+EXPOSE 8011
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/api/health', timeout=3).read()"]
+CMD ["uvicorn", "app.prototype:app", "--host", "0.0.0.0", "--port", "8011", "--workers", "1", "--no-access-log"]

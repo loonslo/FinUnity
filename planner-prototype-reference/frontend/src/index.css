@@ -1,0 +1,260 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Typefaces — self-hosted: the app runs locally, so it must not
+   depend on a font CDN at runtime. Two subsets per family (latin +
+   latin-ext) so international names render correctly. 97 kB total.
+   ============================================================ */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("/fonts/instrument-serif-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("/fonts/instrument-serif-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-latin.woff2") format("woff2");
+  font-weight: 400 700; /* variable */
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-latin-ext.woff2") format("woff2");
+  font-weight: 400 700; /* variable */
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ============================================================
+   Design tokens — direction "Editoriale" (warm bone ground, olive
+   accent, high-contrast serif display) with the ruled-ledger table
+   treatment for dense views. Change a value here and the whole app
+   follows: no colour literals live in the components.
+
+   Contrast of each text token, measured in Edge on every text over what is
+   actually under it (WCAG AA is 4.5:1), on the bone ground and on the darkest
+   fill the pages paint it on:
+   ink 17.4, 15.9 on the olive tint · ink-soft 5.1, 4.7 on the warn tint ·
+   ink-faint 4.9, 4.5 on the warn tint · olive 6.0, 5.5 on the olive tint ·
+   up 7.6, 6.9 on its tint · down 5.7, 5.1 on its tint · warn 5.1 on the
+   surface (no state measured paints it on the ground), 4.5 on the warn tint ·
+   the white on a primary button 6.4.
+
+   Brief AY (2026-10-15) moved three of them, as little as AA took: each to
+   the nearest colour that reads 4.5 on every fill it is painted on.
+   ink-faint #757063 to #726d60: on the warn tint 4.31 to 4.50, on the tint
+   4.33 to 4.53, on the paid-before notice's olive at 5% 4.35 to 4.54.
+   warn #8a6a2b to #86692a: on the warn tint 4.39 to 4.51, as far from down
+   as before.
+   up #47624c to #195a46, so a gain is not the accent's colour: 2.7 apart
+   from the olive in OKLab (x100), now 8.1, as far as the dark theme keeps
+   them; 7.6 on the ground, 6.9 on its tint.
+   tests/contrast.test.ts reads this file and holds every pair at 4.5.
+
+   The dark theme (the block after this one) gives the same tokens values
+   designed for an espresso ground, not inverted: the grounds rise in
+   lightness as they come forward (page, panel, quiet fill), the ink is a
+   warm bone, and every colour that carries meaning is lifted until it reads
+   at 4.5:1 or more on the lightest dark fill. Each text token against the
+   dark ground and the dark surface:
+   ink 13.4 / 12.5 · ink-soft 6.6 / 6.1 · ink-faint 5.9 / 5.5 ·
+   olive 6.8 / 6.3 · up 8.3 / 7.7 · down 6.9 / 6.4 · warn 8.7 / 8.1
+   (all pass WCAG AA; the lowest on any dark fill is ink-faint on the warn
+   tint, 4.7). Text on the accent reads 6.8 on the dark olive's buttons, and
+   the open rail's ink 8.0 on its own deep olive.
+   ============================================================ */
+/* `static` matters: Tailwind v4 tree-shakes theme variables that no utility
+   class references, and several of these are consumed as `var(--color-…)`
+   from the chart components (SVG stroke/fill). Without `static` those
+   variables silently vanish from the build and the marks lose their colour. */
+@theme static {
+  --font-sans: "Archivo", system-ui, "Segoe UI", sans-serif;
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+
+  /* grounds */
+  --color-ground: #faf8f3; /* page */
+  --color-surface: #fffdf9; /* panels, inputs */
+  --color-tint: #f3f0e7; /* alternating ledger rows, quiet fills */
+
+  /* ink */
+  --color-ink: #141413;
+  --color-ink-soft: #6f6a5f;
+  --color-ink-faint: #726d60;
+  /* The question in an empty box: the faint ink, 5.1 on the surface, as in
+     the dark theme. Tailwind's own placeholder, the ink at 50%, read 3.5. */
+  --color-placeholder: var(--color-ink-faint);
+
+  /* lines: hair for dividers inside a group, rule for real borders */
+  --color-hair: #e2ddd1;
+  --color-rule: #cfc8b8;
+
+  /* accent */
+  --color-olive: #5a6247;
+  --color-olive-deep: #454b36;
+  --color-olive-tint: #edefe6;
+
+  /* semantic — separate from the accent, never used for decoration */
+  --color-up: #195a46;
+  --color-up-tint: #e9efe8;
+  --color-down: #94503f;
+  --color-down-tint: #f7eae5;
+  --color-warn: #86692a;
+  --color-warn-tint: #f6efdf;
+
+  /* Chart series identity. Three slots in FIXED order, assigned in sequence
+     and never cycled — a 4th series folds into "Other" or faces out into
+     small multiples instead of inventing a hue.
+
+     Validated with the dataviz palette checker against surface #FFFDF9:
+     all six checks PASS on both the adjacent and the all-pairs pairlists
+     (worst all-pairs CVD ΔE 8.3 protan, normal-vision 16.3, contrast ≥ 3:1).
+     Their dark steps (the dark block) keep the three hues, lifted into the
+     dark band, and pass every check of the same checker with --mode dark,
+     against the dark surface #2A241E and the dark ground #231E19, on both
+     pairlists (worst all-pairs CVD ΔE 8.9 deutan, normal-vision 16.2,
+     contrast ≥ 3:1).
+     Data marks carry more chroma than the UI chrome on purpose: the muted
+     chrome hues measured below the 0.10 chroma floor, i.e. they read as grey
+     and stop telling series apart. Single-series charts use the olive accent
+     instead — with one series colour does no identity work. */
+  --color-chart-1: #2a5fa8;
+  --color-chart-2: #b8801a;
+  --color-chart-3: #8a3f7a;
+
+  /* Text on the accent: a primary button's label, the Send button's arrow. */
+  --color-on-accent: #fff;
+
+  /* The chat's rail while the chat is open (and the closed rail under the
+     pointer, which shows what a press opens). A surface of its own, so a
+     theme can keep the app's largest block of accent quiet while the buttons
+     keep the accent; in this theme it is the olive. */
+  --color-rail: var(--color-olive);
+  --color-rail-deep: var(--color-olive-deep);
+  --color-rail-ink: var(--color-on-accent);
+
+  /* The libella's bob (Emblem.tsx), the mark's one gold. */
+  --color-gold: #c0a06a;
+
+  /* What floats above the page casts it: a "?"'s panel (shadow-md) and the
+     instrument picker's list (shadow-lg). Tailwind's own geometry, with the
+     colour a token, so the two components keep their classes. */
+  --color-shadow: #0000001a;
+  --shadow-md: 0 4px 6px -1px var(--color-shadow), 0 2px 4px -2px var(--color-shadow);
+  --shadow-lg: 0 10px 15px -3px var(--color-shadow), 0 4px 6px -4px var(--color-shadow);
+}
+
+/* ============================================================
+   The dark theme: the colour tokens again, for an espresso ground.
+   `data-theme` on the root says which theme a page wears. index.html sets it
+   before the first paint, from the reader's choice kept in this browser or
+   from the system's preference (components/theme.ts holds the rule), and
+   themeRoot.ts keeps it in step. The light values above are never touched.
+
+   `color-scheme: dark` makes the browser draw its own parts for a dark page:
+   a date's calendar icon, a number's spin buttons, a select's open list, a
+   datalist's suggestions, the scrollbars. The mark's gold is the same in
+   both themes.
+   ============================================================ */
+@layer base {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-ground: #231e19;
+    --color-surface: #2a241e;
+    --color-tint: #322b24;
+
+    --color-ink: #eee7da;
+    --color-ink-soft: #aca394;
+    --color-ink-faint: #a3998a;
+    --color-placeholder: var(--color-ink-faint);
+
+    --color-hair: #3f382f;
+    --color-rule: #554b40;
+
+    --color-olive: #a1ab7c;
+    --color-olive-deep: #c0ca9e;
+    --color-olive-tint: #2d2f24;
+
+    --color-up: #7ac7a2;
+    --color-up-tint: #233229;
+    --color-down: #e39383;
+    --color-down-tint: #3b2721;
+    --color-warn: #e8b36f;
+    --color-warn-tint: #3a2f1f;
+
+    --color-chart-1: #5386d3;
+    --color-chart-2: #bf8532;
+    --color-chart-3: #af609f;
+
+    --color-on-accent: #231e19;
+
+    /* A deep olive, near the closed rail's: the lifted olive over a whole
+       strip would be the one pale block beside the dark page. */
+    --color-rail: #40462a;
+    --color-rail-deep: #4d5337;
+    --color-rail-ink: var(--color-ink);
+
+    /* A black at 10% does not show on an espresso ground. */
+    --color-shadow: #00000066;
+  }
+
+  /* The question in an empty box, in both themes: the placeholder token.
+     Tailwind's own placeholder is the ink at 50%, which falls below 4.5:1 on
+     either surface (3.5 on the light one); the faint ink reads 5.1 on the
+     light surface and 5.5 on the dark. */
+  ::placeholder {
+    color: var(--color-placeholder);
+  }
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background-color: var(--color-ground);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Money and quantities must line up in columns. */
+  table,
+  th,
+  td {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Keyboard focus stays visible everywhere (the olive ring is the accent). */
+  :focus-visible {
+    outline: 2px solid var(--color-olive);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Opt-in tabular figures outside tables (stat cards, inline totals). */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}

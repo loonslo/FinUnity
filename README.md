@@ -8,6 +8,7 @@
 
 - **资产总览**：首页环形图展示三桶资产结构（防守/稳健/进攻）
 - **规划决策**：目标配置、专款隔离、落点跟踪、再平衡、风险红线、回撤阶梯和压力测试
+- **家庭目标规划**：月度预算、目标测算、方案版本、实际投入与月度复盘
 - **多账户管理**：支持券商、银行、基金、保险等 8 种账户类型
 - **多资产类型**：股票、ETF、基金、现金、定期、房产、车辆、保单
 - **自动同步**：通过 FinUnity 专属服务统一更新股票/ETF 价格、公募基金净值和汇率
@@ -37,7 +38,7 @@
 ```
 app/src/main/java/com/finunity/
 ├── data/
-│   ├── local/          # Room 数据库（版本 26，显式迁移）
+│   ├── local/          # Room 数据库（版本 27，显式迁移）
 │   ├── remote/         # FinUnity 专属服务 API
 │   ├── repository/     # 数据中间层（含备份/恢复）
 │   └── model/          # 数据模型与计算器
@@ -48,6 +49,16 @@ app/src/main/java/com/finunity/
 ├── viewmodel/          # MainViewModel
 └── worker/             # PriceSync / Snapshot / ReviewReminder
 ```
+
+## Monorepo 模块
+
+本仓库统一维护 FinUnity 的 Android、服务端和 Web 源码；它们仍分别构建和部署。Android Gradle 根项目在仓库根目录，其他模块位于：
+
+- `server/`：FastAPI 业务 API；Web 与 Android 通过稳定的 `/api/v1` 接口连接。
+- `web/`：React/Vite Web 客户端；Vercel 项目根目录应设为 `web/`。
+- `planner-prototype-reference/`：已归档的旧财务规划原型，仅供迁移对照，不作为正式运行或部署模块。
+
+从仓库根目录分别进入模块后，按模块 README 构建：Android 使用 `gradlew.bat assembleDebug`，Server 使用 `uv sync --extra dev` 和 `uv run --extra dev pytest -q`，Web 使用 `npm ci`、`npm test` 和 `npm run build`。Server Docker 部署配置仍独立位于 `server/`。
 
 ## 构建
 
@@ -106,3 +117,13 @@ gradlew.bat testDebugUnitTest
 
 
 Android 默认 API 与隐私说明源码已更新为新域名；generateDebugBuildConfig 成功，生成 HTTPS API 地址正确，新旧 API readiness 已验收 200。已安装客户端继续使用旧 API 兼容入口；本次未签名/打包/分发、未做真机与完整业务网络验收。 详见 [迁移记录](docs/DOMAIN_MIGRATION_2026-10-03.md)。
+
+
+## 2026-10-23 投资纪律整改对接
+
+新增[Android对接任务](docs/INVESTMENT_DISCIPLINE_HANDOFF_2026-10-23.md)。已有定期收入支出与30天复盘不能直接作为定投成交或每日投资提醒；后续统一计划执行单、成交联动及通知去重。本轮未改Android业务代码、数据库或APK。
+
+
+## 2026-10-24 财务目标规划并入
+
+FinUnityPrototype 的目标规划第一阶段已作为 Android 原生功能并入 FinUnity，不再作为独立运行产品；本地测算、目标实际投入和月度复盘沿用 FinUnity Room 与账本。迁移范围及未验收项见[整合记录](docs/FINANCIAL_PLANNER_INTEGRATION_2026-10-24.md)。

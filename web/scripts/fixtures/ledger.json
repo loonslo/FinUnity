@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-09-13T10:34:17Z",
+  "records": {
+    "accounts": [
+      {
+        "account_id": "acc_a37ad5ff3572451a91b25a3de1b4ceda",
+        "name": "Audit account",
+        "institution": null,
+        "account_type": "bank",
+        "currency": "CNY",
+        "opening_balance_minor": 10000,
+        "status": "active",
+        "version": 1,
+        "updated_at": "2026-09-13T10:34:17Z"
+      }
+    ],
+    "holdings": [],
+    "transactions": []
+  },
+  "goals": {
+    "aggressive_pct": 30,
+    "balanced_pct": 60,
+    "defensive_pct": 10,
+    "version": 0
+  },
+  "allocation": {
+    "items": [
+      {
+        "key": "AGGRESSIVE",
+        "value": 0,
+        "share_pct": 0.0,
+        "target_pct": 30,
+        "deviation_pct": -30.0
+      },
+      {
+        "key": "BALANCED",
+        "value": 0,
+        "share_pct": 0.0,
+        "target_pct": 60,
+        "deviation_pct": -60.0
+      },
+      {
+        "key": "DEFENSIVE",
+        "value": 10000,
+        "share_pct": 100.0,
+        "target_pct": 10,
+        "deviation_pct": 90.0
+      }
+    ],
+    "valid": true,
+    "drift_pct": 180.0,
+    "score": 10,
+    "largest_gap_pct": 90.0
+  },
+  "categories": [],
+  "month": "2026-09",
+  "base_currency": "CNY",
+  "base": {
+    "cash_balance_minor": 10000,
+    "holdings_value_minor": 0,
+    "holdings_cost_minor": 0,
+    "unrealized_profit_minor": 0,
+    "total_assets_minor": 10000,
+    "income_minor": 0,
+    "expense_minor": 0,
+    "net_cashflow_minor": 0
+  },
+  "by_currency": {
+    "CNY": {
+      "cash_balance_minor": 10000,
+      "holdings_value_minor": 0,
+      "holdings_cost_minor": 0,
+      "unrealized_profit_minor": 0,
+      "total_assets_minor": 10000,
+      "income_minor": 0,
+      "expense_minor": 0,
+      "net_cashflow_minor": 0
+    }
+  },
+  "accounts": [
+    {
+      "account_id": "acc_a37ad5ff3572451a91b25a3de1b4ceda",
+      "currency": "CNY",
+      "cash_balance_minor": 10000,
+      "holdings_value_minor": 0,
+      "holdings_cost_minor": 0,
+      "unrealized_profit_minor": 0,
+      "total_assets_minor": 10000,
+      "missing_price_count": 0,
+      "missing_cost_count": 0
+    }
+  ],
+  "excluded_currencies": [],
+  "price_refresh": {
+    "status": "unconfigured",
+    "updated_count": 0
+  }
+}

@@ -447,6 +447,25 @@ object Migration25To26 {
     }
 }
 
+/** v26 -> v27: add local financial planning and goal attribution for confirmed ledger rows. */
+object Migration26To27 {
+    val migration: Migration = object : Migration(26, 27) {
+        override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE transactions ADD COLUMN financialGoalId TEXT")
+            // Make the selected prototype look the default theme for both upgraded and fresh installs.
+            database.execSQL("UPDATE settings SET themeColor = 'olive', themeAppearance = 'light' WHERE themeColor = 'navy' AND themeAppearance = 'dark'")
+            database.execSQL("CREATE TABLE IF NOT EXISTS planning_profile (id INTEGER NOT NULL, monthlyIncome TEXT, monthlyExpenses TEXT, monthlyDebtPayment TEXT, essentialExpenses TEXT, reserveMonths INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            database.execSQL("CREATE TABLE IF NOT EXISTS financial_goals (id TEXT NOT NULL, name TEXT NOT NULL, targetAmount TEXT NOT NULL, allocatedAmount TEXT NOT NULL, monthlyContribution TEXT NOT NULL, targetDate TEXT NOT NULL, priority INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_financial_goals_priority ON financial_goals(priority)")
+            database.execSQL("CREATE TABLE IF NOT EXISTS financial_plan_versions (id TEXT NOT NULL, status TEXT NOT NULL, inputFingerprint TEXT NOT NULL, snapshotJson TEXT NOT NULL, resultJson TEXT NOT NULL, createdAt INTEGER NOT NULL, confirmedAt INTEGER, PRIMARY KEY(id))")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_financial_plan_versions_status ON financial_plan_versions(status)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_financial_plan_versions_createdAt ON financial_plan_versions(createdAt)")
+            database.execSQL("CREATE TABLE IF NOT EXISTS financial_plan_reviews (planId TEXT NOT NULL, month TEXT NOT NULL, actualIncome TEXT NOT NULL, actualExpenses TEXT NOT NULL, actualGoalContributionsJson TEXT NOT NULL, note TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(planId, month), FOREIGN KEY(planId) REFERENCES financial_plan_versions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_financial_plan_reviews_month ON financial_plan_reviews(month)")
+        }
+    }
+}
+
 /**
  * Provider for all database migrations.
  */
@@ -474,6 +493,7 @@ object DatabaseMigrations {
         Migration22To23.migration,
         Migration23To24.migration,
         Migration24To25.migration,
-        Migration25To26.migration
+        Migration25To26.migration,
+        Migration26To27.migration
     )
 }

@@ -1,0 +1,47 @@
+# Weekly: is the yfinance in backend/uv.lock still the latest release?
+#
+# Every price and dividend the app reads comes from Yahoo through yfinance, and
+# when a change at Yahoo broke yfinance, a new release mended it; the app gets
+# such a release only when its lock moves. This run moves nothing and opens
+# nothing. It resolves the lock as `uv lock --upgrade-package yfinance` would,
+# in the runner's own checkout (thrown away after), and fails when a newer
+# release resolves: GitHub mails a failed scheduled run to whoever last changed
+# the cron line below. The lock is then moved by hand, after the new release is
+# compared with the old one on live prices, since the suites fake Yahoo and
+# cannot tell whether it still answers.
+#
+# GitHub turns a schedule off in a public repository after 60 days without
+# activity in it; it runs on the default branch only.
+name: yfinance current
+
+on:
+  schedule:
+    - cron: "23 6 * * 1"  # Mondays, 06:23 UTC, away from the top of the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yfinance-current:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+      - name: The locked yfinance against the latest that resolves
+        run: |
+          locked_version() {
+            python3 -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "yfinance"))'
+          }
+          locked=$(locked_version)
+          uv lock --upgrade-package yfinance
+          latest=$(locked_version)
+          echo "yfinance: $locked in the lock, $latest the latest that resolves"
+          if [ "$locked" != "$latest" ]; then
+            echo "::error::yfinance $latest is out and backend/uv.lock holds $locked. Move the lock (uv lock --upgrade-package yfinance) once the new release has been compared with the old one on live prices."
+            exit 1
+          fi

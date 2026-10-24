@@ -25,16 +25,18 @@ import androidx.core.view.WindowCompat
  * 主题两个维度：配色方案 × 外观模式，对应 Web 端 finunity-color-tokens.css 的
  * data-theme-color / data-appearance 双轴设计（见 FinUnity-配色实现规范.md）。
  */
-enum class FinThemeColor { MINIMAL, NAVY }
+enum class FinThemeColor { MINIMAL, NAVY, OLIVE }
 enum class FinAppearance { SYSTEM, LIGHT, DARK }
 
 fun FinThemeColor.storageKey(): String = when (this) {
     FinThemeColor.MINIMAL -> "minimal"
     FinThemeColor.NAVY -> "navy"
+    FinThemeColor.OLIVE -> "olive"
 }
 
 fun finThemeColorFromKey(key: String): FinThemeColor = when (key) {
     "minimal" -> FinThemeColor.MINIMAL
+    "olive" -> FinThemeColor.OLIVE
     else -> FinThemeColor.NAVY
 }
 
@@ -257,6 +259,59 @@ private fun navyPalette(isDark: Boolean): FinPalette {
     )
 }
 
+// 暖白橄榄绿：取自家庭财务规划原型的视觉语言，并作为 FinUnity 的共享主题选项。
+private fun olivePalette(isDark: Boolean): FinPalette {
+    val base = minimalPalette(isDark)
+    val olive700 = Color(0xFF465039)
+    val olive600 = Color(0xFF606B4A)
+    val olive100 = if (isDark) Color(0xFF606B4A).copy(alpha = 0.22f) else Color(0xFFE8E9DE)
+    val olive050 = if (isDark) Color(0xFF606B4A).copy(alpha = 0.10f) else Color(0xFFF3F2E9)
+    val background = if (isDark) Color(0xFF171A14) else Color(0xFFF7F5EF)
+    val surface = if (isDark) Color(0xFF23271E) else Color(0xFFFFFEFA)
+    val inset = if (isDark) Color(0xFF2B3024) else Color(0xFFF2F0E7)
+    val primaryText = if (isDark) Color(0xFFF2F0E8) else Color(0xFF22251D)
+    val secondaryText = if (isDark) Color(0xFFB2B4A5) else Color(0xFF737568)
+    val hairline = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE8E4D9)
+    return base.copy(
+        bg = background,
+        bgElevated = surface,
+        bgInset = inset,
+        bgSunken = if (isDark) Color(0xFF1E221B) else Color(0xFFECE9DE),
+        hairline = hairline,
+        textPrimary = primaryText,
+        textSecondary = secondaryText,
+        textTertiary = if (isDark) Color(0xFF858879) else Color(0xFF98998B),
+        brand700 = olive700,
+        brand600 = olive600,
+        brand100 = olive100,
+        brand050 = olive050,
+        navBg = Brush.verticalGradient(listOf(background, background)),
+        navText = secondaryText,
+        navTextDim = secondaryText.copy(alpha = 0.72f),
+        navActiveBg = olive100,
+        navActiveText = olive700,
+        heroBg = Brush.linearGradient(
+            if (isDark) listOf(Color(0xFF39412F), Color(0xFF252A20))
+            else listOf(Color(0xFFF0EFE5), Color(0xFFE5E6D8))
+        ),
+        heroGlow = null,
+        heroLabelColor = secondaryText,
+        heroAmountColor = primaryText,
+        heroDeltaBg = PositiveRed.copy(alpha = if (isDark) 0.20f else 0.12f),
+        heroDeltaColor = PositiveRed,
+        heroDeltaNegative = if (isDark) HeroDeltaNegativeOnDark else NegativeGreen,
+        heroDeltaNegativeBg = NegativeGreen.copy(alpha = if (isDark) 0.20f else 0.12f),
+        heroMetaColor = secondaryText,
+        heroMetaStrong = primaryText,
+        heroMetaBorder = hairline,
+        heroBtnGhostBg = surface,
+        heroBtnGhostColor = primaryText,
+        heroBtnSolidBg = olive600,
+        heroBtnSolidColor = Color.White,
+        cardBorder = hairline
+    )
+}
+
 private data class NeutralTokens(
     val bg: Color, val bgElevated: Color, val bgInset: Color, val bgSunken: Color,
     val hairline: Color, val textPrimary: Color, val textSecondary: Color, val textTertiary: Color
@@ -285,6 +340,7 @@ fun resolveFinPalette(themeColor: FinThemeColor, appearance: FinAppearance, syst
     return when (themeColor) {
         FinThemeColor.MINIMAL -> minimalPalette(isDark)
         FinThemeColor.NAVY -> navyPalette(isDark)
+        FinThemeColor.OLIVE -> olivePalette(isDark)
     }
 }
 
@@ -310,8 +366,8 @@ val FinTypography = Typography(
 
 @Composable
 fun FinUnityTheme(
-    themeColor: FinThemeColor = FinThemeColor.NAVY,
-    appearance: FinAppearance = FinAppearance.DARK,
+    themeColor: FinThemeColor = FinThemeColor.OLIVE,
+    appearance: FinAppearance = FinAppearance.LIGHT,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()

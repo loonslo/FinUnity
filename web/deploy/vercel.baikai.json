@@ -1,0 +1,396 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build && python3 deploy/domain_variant.py dist",
+  "installCommand": "npm ci",
+  "outputDirectory": "dist",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "headers": {
+        "X-Content-Type-Options": "nosniff",
+        "Strict-Transport-Security": "max-age=31536000",
+        "Cache-Control": "no-cache",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
+      },
+      "continue": true
+    },
+    {
+      "src": "/assets/[^/]+-[A-Za-z0-9_-]{8,}\\.(?:js|css|woff2?|svg|png|jpe?g|webp|avif)",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "/((?:api|health)(?:/.*)?)",
+      "dest": "https://finunity.halfopen.dev/$1",
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "CDN-Cache-Control": "no-store",
+        "X-Vercel-Enable-Rewrite-Caching": "0"
+      }
+    },
+    {
+      "src": "/(?:login/?|register/?|demo(?:/(?:holdings|flows))?/?|app(?:/(?:holdings|flows))?/?)",
+      "headers": {
+        "X-Robots-Tag": "noindex"
+      },
+      "continue": true
+    },
+    {
+      "src": "/(?:login/?|register/?|demo(?:/(?:holdings|flows))?/?|app(?:/(?:holdings|flows))?/?)",
+      "dest": "/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/privacy",
+      "dest": "/privacy/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/terms",
+      "dest": "/terms/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/android-privacy",
+      "dest": "/android-privacy/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/product",
+      "headers": {
+        "Location": "/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/product",
+      "headers": {
+        "Location": "/en/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/guides/multi-currency",
+      "headers": {
+        "Location": "/guides/multi-currency/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/multi-currency",
+      "headers": {
+        "Location": "/en/guides/multi-currency/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/guides/holding-import",
+      "headers": {
+        "Location": "/guides/holding-import/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/holding-import",
+      "headers": {
+        "Location": "/en/guides/holding-import/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/android-privacy",
+      "headers": {
+        "Location": "/android-privacy/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/android-privacy/",
+      "dest": "/android-privacy/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/holding-import",
+      "headers": {
+        "Location": "/en/guides/holding-import/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/holding-import/",
+      "dest": "/en/guides/holding-import/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/multi-currency",
+      "headers": {
+        "Location": "/en/guides/multi-currency/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/guides/multi-currency/",
+      "dest": "/en/guides/multi-currency/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/product",
+      "headers": {
+        "Location": "/en/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/product/",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Location": "/en/about/"
+      },
+      "status": 308
+    },
+    {
+      "src": "/guides/holding-import",
+      "headers": {
+        "Location": "/guides/holding-import/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/guides/holding-import/",
+      "dest": "/guides/holding-import/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/guides/multi-currency",
+      "headers": {
+        "Location": "/guides/multi-currency/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/guides/multi-currency/",
+      "dest": "/guides/multi-currency/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/privacy",
+      "headers": {
+        "Location": "/privacy/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/privacy/",
+      "dest": "/privacy/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/product",
+      "headers": {
+        "Location": "/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/product/",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "headers": {
+        "Location": "/about/"
+      },
+      "status": 308
+    },
+    {
+      "src": "/terms",
+      "headers": {
+        "Location": "/terms/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/terms/",
+      "dest": "/terms/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/",
+      "dest": "/home.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en",
+      "headers": {
+        "Location": "/en/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/",
+      "dest": "/en/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/about",
+      "headers": {
+        "Location": "/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/about",
+      "headers": {
+        "Location": "/en/about/"
+      },
+      "status": 308,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/about/",
+      "dest": "/about/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "src": "/en/about/",
+      "dest": "/en/about/index.html",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "status": 404,
+      "headers": {
+        "Cache-Control": "no-cache",
+        "X-Robots-Tag": "noindex"
+      }
+    }
+  ]
+}

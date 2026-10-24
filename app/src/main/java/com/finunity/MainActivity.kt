@@ -41,6 +41,7 @@ import com.finunity.ui.screens.HistoryScreen
 import com.finunity.ui.screens.PriceChangeScreen
 import com.finunity.ui.screens.PriceHistoryScreen
 import com.finunity.ui.screens.PrivacyScreen
+import com.finunity.ui.screens.FinancialPlannerScreen
 import com.finunity.ui.screens.PrototypeAccountsScreen
 import com.finunity.ui.screens.PrototypeAddSourceScreen
 import com.finunity.ui.screens.PrototypeAllocationScreen
@@ -76,6 +77,19 @@ import com.finunity.worker.ReviewReminderWorker
 import com.finunity.worker.SnapshotWorker
 import com.finunity.worker.RecurringRuleWorker
 import com.finunity.data.repository.FinancialReportRepository
+import com.finunity.data.repository.FinancialPlannerRepository
+import com.finunity.data.repository.HoldingLedgerRepository
+import com.finunity.data.repository.ConfirmFinancialPlanResult
+import com.finunity.data.repository.PriceRepository
+import com.finunity.data.local.entity.FinancialGoal
+import com.finunity.data.local.entity.FinancialPlanVersion
+import com.finunity.data.local.entity.PlanningProfile
+import com.finunity.data.local.entity.Transaction
+import com.finunity.data.model.FinancialPlanSnapshot
+import com.finunity.data.model.FinancialPlannerEngine
+import com.finunity.data.local.entity.FinancialPlanReview
+import java.math.BigDecimal
+import java.time.YearMonth
 import com.finunity.viewmodel.ReconciliationResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -122,8 +136,8 @@ class MainActivity : ComponentActivity() {
             // 重复订阅代价很小。
             val themeSettings by database.settingsDao().getSettings().collectAsStateWithLifecycle(initialValue = null)
             FinUnityTheme(
-                themeColor = themeSettings?.themeColor?.let(::finThemeColorFromKey) ?: FinThemeColor.NAVY,
-                appearance = themeSettings?.themeAppearance?.let(::finAppearanceFromKey) ?: FinAppearance.DARK
+                themeColor = themeSettings?.themeColor?.let(::finThemeColorFromKey) ?: FinThemeColor.OLIVE,
+                appearance = themeSettings?.themeAppearance?.let(::finAppearanceFromKey) ?: FinAppearance.LIGHT
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -163,6 +177,7 @@ sealed class Screen {
     data object Settings : Screen()
     data object Privacy : Screen()
     data object Planning : Screen()
+    data object FinancialPlanner : Screen()
     data object MonthlyReview : Screen()
     data object ExpenseSimulation : Screen()
     data object StressTest : Screen()
@@ -208,6 +223,7 @@ private fun encodeScreen(screen: Screen): String = when (screen) {
     Screen.Settings -> "Settings"
     Screen.Privacy -> "Privacy"
     Screen.Planning -> "Planning"
+    Screen.FinancialPlanner -> "FinancialPlanner"
     Screen.MonthlyReview -> "MonthlyReview"
     Screen.ExpenseSimulation -> "ExpenseSimulation"
     Screen.StressTest -> "StressTest"
@@ -258,6 +274,7 @@ private val screenSaver = Saver<Screen, String>(
             "Settings" -> Screen.Settings
             "Privacy" -> Screen.Privacy
             "Planning" -> Screen.Planning
+            "FinancialPlanner" -> Screen.FinancialPlanner
             "MonthlyReview" -> Screen.MonthlyReview
             "ExpenseSimulation" -> Screen.ExpenseSimulation
             "StressTest" -> Screen.StressTest
@@ -313,12 +330,17 @@ fun FinUnityApp(
         factory = MainViewModel.Factory(database)
     )
     val historyRepository = remember { HistoryRepository(database) }
+    val financialPlannerRepository = remember { FinancialPlannerRepository(database) }
 
     val portfolioSummary by viewModel.portfolioSummary.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val priceHealth by viewModel.priceHealth.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val planningProfile by financialPlannerRepository.observeProfile().collectAsStateWithLifecycle(initialValue = null)
+    val financialGoals by financialPlannerRepository.observeGoals().collectAsStateWithLifecycle(initialValue = emptyList())
+    val financialPlans by financialPlannerRepository.observePlans().collectAsStateWithLifecycle(initialValue = emptyList())
+    val financialPlanReviews by financialPlannerRepository.observeReviews().collectAsStateWithLifecycle(initialValue = emptyList())
     AmountVisibility.visible = settings.amountsVisible
 
     val initialScreen = remember(openScreen) {
@@ -342,6 +364,17 @@ fun FinUnityApp(
     val lastPriceUpdated = remember(allPrices) {
         allPrices.maxOfOrNull { it.updatedAt }
     }
+    val plannerCash = remember(portfolioSummary) {
+        portfolioSummary?.assetRecords.orEmpty()
+            .filter { !it.record.locked && it.record.assetType == AssetType.CASH }
+            .fold(BigDecimal.ZERO) { total, record -> total + BigDecimal.valueOf(record.currentValue) }
+    }
+    val plannerCashKnown = portfolioSummary?.let { summary ->
+        val missingRates = summary.missingExchangeRateCurrencies.map(String::uppercase).toSet()
+        summary.assetRecords
+            .filter { !it.record.locked && it.record.assetType == AssetType.CASH }
+            .none { it.record.currency.uppercase() in missingRates }
+    } ?: false
 
     fun showMessage(message: String) {
         scope.launch {
@@ -683,7 +716,74 @@ fun FinUnityApp(
                 onOpenHistory = { navigateTo(Screen.History) },
                 onSimulateExpense = { navigateTo(Screen.ExpenseSimulation) },
                 onOpenLandingPoints = { navigateTo(Screen.LandingPoints) },
-                onOpenStressTest = { navigateTo(Screen.StressTest) }
+                onOpenStressTest = { navigateTo(Screen.StressTest) },
+                onOpenFinancialPlanner = { navigateTo(Screen.FinancialPlanner) }
+            )
+        }
+
+        is Screen.FinancialPlanner -> {
+            FinancialPlannerScreen(
+                profile = planningProfile,
+                goals = financialGoals,
+                plans = financialPlans,
+                reviews = financialPlanReviews,
+                availableCash = plannerCash,
+                availableCashKnown = plannerCashKnown,
+                baseCurrency = portfolioSummary?.baseCurrency ?: settings.baseCurrency,
+                accounts = portfolioSummary?.accounts.orEmpty().map { it.account },
+                transactions = allTransactions,
+                onBack = { navigateBack() },
+                onSaveProfile = { profile ->
+                    scope.launch { financialPlannerRepository.saveProfile(profile); showMessage("财务资料已保存") }
+                },
+                onSaveGoal = { goal ->
+                    scope.launch { financialPlannerRepository.saveGoal(goal); showMessage("目标已保存") }
+                },
+                onDeleteGoal = { goal ->
+                    if (allTransactions.any { it.financialGoalId == goal.id }) {
+                        showMessage("该目标已有实际流水，暂不能删除")
+                    } else {
+                        scope.launch { financialPlannerRepository.deleteGoal(goal); showMessage("目标已删除") }
+                    }
+                },
+                onSaveDraft = { snapshot ->
+                    scope.launch {
+                        financialPlannerRepository.saveDraft(snapshot)
+                        showMessage("测算草案已保存")
+                    }
+                },
+                onConfirmPlan = { id, snapshot, acceptShortfalls ->
+                    scope.launch {
+                        when (financialPlannerRepository.confirm(id, snapshot, acceptShortfalls)) {
+                            ConfirmFinancialPlanResult.Confirmed -> showMessage("方案已确认")
+                            ConfirmFinancialPlanResult.Stale -> showMessage("资料已变化，请重新测算并保存草案")
+                            ConfirmFinancialPlanResult.Invalid -> showMessage("资料不完整或输入有误，暂不能确认")
+                            ConfirmFinancialPlanResult.NeedsShortfallAcceptance -> showMessage("请先确认已了解目标缺口")
+                        }
+                    }
+                },
+                onRecordTransfer = { goalId, fromId, toId, amount ->
+                    scope.launch {
+                        val ledger = HoldingLedgerRepository(database, PriceRepository(database.priceDao()))
+                        when (val result = ledger.transferCash(
+                            fromAccountId = fromId,
+                            toAccountId = toId,
+                            amount = amount,
+                            note = "财务目标实际投入",
+                            sourceFingerprint = "FINPLAN:$goalId:${java.util.UUID.randomUUID()}",
+                            financialGoalId = goalId
+                        )) {
+                            is LedgerResult.Success -> showMessage("实际投入已记入账本")
+                            is LedgerResult.Error -> showMessage(result.message)
+                        }
+                    }
+                },
+                onSaveReview = { plan, month, transactions, note ->
+                    scope.launch {
+                        financialPlannerRepository.saveReview(plan, month, transactions, note)
+                        showMessage("${month}复盘已保存")
+                    }
+                }
             )
         }
 

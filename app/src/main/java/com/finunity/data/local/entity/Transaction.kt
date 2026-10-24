@@ -42,7 +42,9 @@ data class Transaction(
     /** Structured category for personal cash-flow analysis. */
     val category: CashFlowCategory = CashFlowCategory.OTHER,
     /** Import batch id used to preview/rollback one import. */
-    val importBatchId: String = ""
+    val importBatchId: String = "",
+    /** Optional goal attribution; only user-confirmed ledger rows carry this value. */
+    val financialGoalId: String? = null
 )
 
 enum class TransactionType {

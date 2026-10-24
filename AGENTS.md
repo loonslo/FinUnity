@@ -47,3 +47,10 @@ gradlew.bat :app:testDebugUnitTest --tests "com.finunity.data.model.PortfolioCal
 - 同步契约说明和模板位于日常库 `output/项目进展同步/README.md`、`PROJECT_STATUS.template.md`；本节保留完整字段规则，项目离开共同工作区后仍适用。跨项目访问须遵守既有项目边界；仅在用户本次明确授权访问日常同步工具且工具可用时，从共同工作区执行 `py -3.14 -B notebook_obsidian/日常/output/项目进展同步/sync_project_status.py --check --project FinUnityWorkspace/FinUnity`，只检查格式和证据路径，不读取或写入待办。
 
 - 未使用同步工具时，仍须在本项目内逐项自检字段、状态与证据路径，并报告未通过项；不能跳过摘要维护。新建独立项目时先补齐本节约束和 PROJECT_STATUS.md，未知业务进度用 unknown，不因目录存在而推断完成。
+
+## Monorepo 模块边界
+
+- 仓库根目录是 Android Gradle 项目；`server/` 是 FastAPI API 服务；`web/` 是 React/Vite 客户端；`planner-prototype-reference/` 是只读迁移参考，不作为正式应用运行或部署。
+- Server、Web、Android 保持独立依赖、配置和构建命令。Web 与 Android 通过 Server 的 `/api/v1` 契约通信；Web 静态站与 API 服务分别部署。
+- 在模块内工作前读取该目录的 `AGENTS.md`。依赖文件、部署配置与测试命令从各模块根目录运行；涉及 Web 浏览器验收的 Server 测试先构建 `web/dist`。
+- 不复制模块的 `.git`、虚拟环境、依赖缓存、`tmp/`、数据库、密钥或本机部署数据；更新部署平台的仓库根目录设置前先完成本地验收。
