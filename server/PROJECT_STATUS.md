@@ -1,9 +1,10 @@
 ---
-project_id: FinUnityWorkspace-FinUnity-server
-updated: 2026-10-24
+project_id: FinUnity-server
+updated: 2026-10-25
 status: active
 overview: FinUnity Android 与 Web 的业务接口，统一行情、汇率、OCR 和账本数据。
 progress: >-
+  2026-10-25 monorepo 根路径改为 FinUnity/，同步本模块状态标识；业务代码、构建、测试和部署状态未重新验收。
   2026-10-24 纳入公开 FinUnity monorepo 的 server/ 模块；全量 pytest 140 项通过（一个 Starlette/httpx 弃用警告），Ruff 通过；构建 Web 后，Server 集成入口主页与 SPA 路由均返回 200，CSP 响应头存在。Windows 默认 pytest 临时目录权限不足，成功验收使用模块内忽略目录。未部署。
   2026-10-23 完成本地私有初始状态生成工具、来源/观察/计划分离记录和跨端投资纪律整改方案；13项新增合成数据测试、Ruff及实际初始批次核验通过，重复生成无重复写入。未修改现有账本接口、未导入真实账号、未部署。
   前次摘要（维护日期2026-10-21，本轮未复测其历史验收）：2026-10-21 本地新增当前用户显示名称接口与账本金额差字段，支持 Web 注册两字段后设置名称，以及服务端统一分仓差额；相关 29 项 pytest

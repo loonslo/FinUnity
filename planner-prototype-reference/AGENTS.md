@@ -11,4 +11,4 @@
 
 ## 项目摘要维护
 
-有实际进展时更新项目内验收记录，再更新 PROJECT_STATUS.md。摘要使用 YAML frontmatter，包含 project_id、updated、status、overview、progress、next、evidence；project_id 为 FinUnityWorkspace-FinUnity-planner-prototype-reference，status 使用 active/waiting/paused/unknown。evidence 只引用项目内现存非隐藏文档或源文件，不使用凭据、日志、临时目录或摘要自身。通过测试和实际验收确认状态，不用文件存在推断完成。不自动同步其他项目或日常库。
+有实际进展时更新项目内验收记录，再更新 PROJECT_STATUS.md。摘要使用 YAML frontmatter，包含 project_id、updated、status、overview、progress、next、evidence；project_id 为 FinUnity-planner-prototype-reference，status 使用 active/waiting/paused/unknown。evidence 只引用项目内现存非隐藏文档或源文件，不使用凭据、日志、临时目录或摘要自身。通过测试和实际验收确认状态，不用文件存在推断完成。不自动同步其他项目或日常库。

@@ -1,9 +1,10 @@
 ---
-project_id: FinUnityWorkspace-FinUnity-web
-updated: 2026-10-24
+project_id: FinUnity-web
+updated: 2026-10-25
 status: active
 overview: 衡仓（FinUnity）Web：打开即示例的家庭多币种资产账本，注册后原地切换本人数据。
 progress: >-
+  2026-10-25 monorepo 根路径改为 FinUnity/，同步本模块状态标识；业务代码、构建、测试和部署状态未重新验收。
   2026-10-24 纳入公开 FinUnity monorepo 的 web/ 模块；npm test 44 项通过、lint 与生产构建通过。服务端集成入口的主页及 SPA fallback 均返回 200，CSP 头存在。npm audit 报告 vite 与 source-map-js 有 2 个高危项，未自动升级。未部署。
   前次状态所引用的部分本机忽略验收资料未随源码迁入公开仓库；相关历史结论未作为本轮复测证据。
   2026-10-23 核对持仓导入、服务端快照和现有页面入口，完成投资纪律Web对接任务：今日安排、计划预览、成交一次联动、增量对账。仅新增方向文档，未修改业务界面，未重新构建或浏览器验收；保留此前未提交修改。
