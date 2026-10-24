@@ -12,6 +12,8 @@
 
 ## 启动
 
+本目录是历史参考快照，不再作为独立前端项目维护。公开 monorepo 已移除 `frontend/vite.config.ts`，因此 `npm run dev` 不再使用原来的 `5174` 端口及 `/api` 到本机 `8011` 的 Vite 代理。下面的启动方式属于历史说明，本次没有复验；当前前端请使用仓库根目录的 `web/` 模块。原始独立工作目录保留在 monorepo 外，供历史对照。
+
 需要 Python 3.12（由 uv 管理）、uv、Node.js 22+。
 
 在项目根目录运行：
@@ -48,6 +50,8 @@
 
 ## 开发与验证
 
+以下命令是原型归档时保留的历史说明。由于公开快照不再包含 Vite 配置，本目录的 React 开发服务器不再具有原先的端口与 API 代理设置；本次没有重新运行原型构建或测试。
+
 ```powershell
 # 后端
 cd backend
@@ -59,7 +63,7 @@ npm ci
 npm run dev
 ```
 
-前端开发端口为 5174，仅代理到本机 8011。`npm run build` 从后端 OpenAPI 自动生成类型。
+归档前端此前使用过开发端口 5174，并将 API 代理到本机 8011；对应 Vite 配置已从当前公开快照移除。`npm run build` 从后端 OpenAPI 自动生成类型。
 
 规划后端测试为 `backend/tests/test_financial_planner.py` 与 `backend/tests/test_planner_lifecycle.py`；前端纯函数测试可运行 `npm run test:planner`，真实 React + API 页面复验为 `npm run test:planner:browser`（先启动临时测试服务，见本次验收）。最新界面精简与复盘验收见 [改进记录](docs/UI_REVIEW_2026-10-19.md)；投入录入改进及验收见 [交互改进记录](docs/EXECUTION_INTERACTION_2026-10-19.md)，初版验收见 [docs/VALIDATION.md](docs/VALIDATION.md)，架构、状态与接口见 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)。
 

@@ -5,6 +5,7 @@ status: paused
 overview: 已归档的财务规划 React/FastAPI/SQLite 原型，保留在公开 FinUnity monorepo 中作历史实现参考；不再作为独立维护或部署项目。
 progress: >-
   2026-10-24 将旧原型干净工作树快照纳入 planner-prototype-reference/，标记为参考归档；未导入 Git 历史、运行数据、依赖缓存、凭据或生成构建产物。本次未重跑原型测试，不代表功能已与 Android 对齐。
+  2026-10-24 按要求从公开 monorepo 当前树移除归档前端的 frontend/vite.config.ts，并同步 README、TypeScript include 与归档记录；原型外部工作目录未修改，既有公开 Git 历史仍保留该文件。本次未运行构建/测试、未改部署配置。
   历史来源（2026-10-21，未于本次复测）：原型曾完成财务与生命周期整改、界面审美整改，并在原仓库/部署环境通过当时记录的测试和健康检查；部署与测试详情依旧证据文件。
 next: >-
 本目录无独立功能开发或部署计划；若后续需要迁移某项原型能力，先与 Android 正式实现对照并单独验收。旧目录和原远程保留作回滚及历史参照。
