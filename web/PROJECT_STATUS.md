@@ -4,13 +4,14 @@ updated: 2026-10-24
 status: active
 overview: 衡仓（FinUnity）Web：打开即示例的家庭多币种资产账本，注册后原地切换本人数据。
 progress: >-
-  2026-10-24 纳入公开 FinUnity monorepo 的 web/ 模块；npm test 44 项通过、lint 与生产构建通过。服务端集成入口的主页及 SPA fallback 均返回 200，CSP 头存在。npm audit 报告 vite 与 source-map-js 有 2 个高危项，未自动升级。未部署。
+  2026-10-24 纳入公开 FinUnity monorepo 的 web/ 模块；npm test 44 项通过、lint 与生产构建通过。服务端集成入口的主页及 SPA fallback 均返回 200，CSP 头存在。初次导入时 npm audit 曾报告 vite 与 source-map-js 有 2 个高危项，随后已在本轮修复。未部署。
+  2026-10-24 随后将 Vite 更新至 8.3.5、source-map-js 更新至 1.2.2；npm audit 为 0 项漏洞，44 项测试、lint 与生产构建通过。未更改线上部署。
   前次状态所引用的部分本机忽略验收资料未随源码迁入公开仓库；相关历史结论未作为本轮复测证据。
   2026-10-23 核对持仓导入、服务端快照和现有页面入口，完成投资纪律Web对接任务：今日安排、计划预览、成交一次联动、增量对账。仅新增方向文档，未修改业务界面，未重新构建或浏览器验收；保留此前未提交修改。
   前次摘要（维护日期2026-10-21，本轮未复测其历史验收）：2026-10-21 本地实施产品即首页 P0–P2：两入口、覆盖式认证与恢复码、设置和本人行确认带入、导览与分仓条、品牌与截图、独立示例回看。44 项 Node
   测试、类型检查/构建、lint，最终生产构建两组各 12 步浏览器检查及 59 项本地 HTTP 检查通过。个人中心改名及统一金额差字段依赖本次服务端接口。未提交、未推送、未部署，真实账号、真人与生产环境未验收。此前 2026-10-14/15
   的发布结果属于历史记录。
-next: 先配合服务端P0成交一致性与计划契约，再实现今日安排及成交/跳过/延后流程；部署切换时将 Vercel Root Directory 调整为 web/ 并重新验收线上路由。npm audit 中两个高危依赖待评估。前次入口改版配套发布与真实账号验收仍未完成。前次后续事项：复核并同批发布 Web 与服务端显示名称接口后，验收线上路由、真实账号与 OCR；完成真机和真人
+next: 先配合服务端P0成交一致性与计划契约，再实现今日安排及成交/跳过/延后流程；部署切换时将 Vercel Root Directory 调整为 web/ 并重新验收线上路由。前次入口改版配套发布与真实账号验收仍未完成。前次后续事项：复核并同批发布 Web 与服务端显示名称接口后，验收线上路由、真实账号与 OCR；完成真机和真人
   5 秒/30 秒测试。P3 统计及隐私政策仍待决定，带入来源关系仍未扩展。
 evidence:
 - docs/ENTRY_ONBOARDING_PLAN_2026-10-21.md
@@ -26,6 +27,7 @@ evidence:
 - public/android-privacy-en.html
 - docs/SEO.md
 - MONOREPO_INTEGRATION_2026-10-24.md
+- SECURITY_DEPENDENCY_REMEDIATION_2026-10-24.md
 - docs/SEO_PHASE3_ACCEPTANCE.md
 - docs/SEO_RELEASE_CHECKLIST.md
 - docs/SEO_RELEASE_CANDIDATE_ACCEPTANCE.md

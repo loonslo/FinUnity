@@ -40,3 +40,5 @@ Validated locally on 2026-10-24:
 - Dependency audit: `npm audit` reports two high severity advisories in `vite` and `source-map-js`. Dependency upgrades were not applied during this consolidation.
 
 Live hosting configuration is not changed by the branch. Vercel's Root Directory still needs to be set to `web/` when the Web deployment is switched to this repository.
+
+Dependency audit follow-up (2026-10-24): the initial Vite and `source-map-js` findings were fixed in the Web module; the current audit reports zero vulnerabilities. Details and verification are recorded in `web/SECURITY_DEPENDENCY_REMEDIATION_2026-10-24.md`.
