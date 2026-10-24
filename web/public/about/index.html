@@ -1,0 +1,21 @@
+<!doctype html>
+<html data-theme-color="minimal" lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>衡仓 · 把分散资产整理成一份清楚的账本</title><meta name="description" content="整理账户、现金、持仓与流水，核对汇率及截图导入，再观察三桶配置；数据由服务端处理，行情与识别结果需要核对。">
+<link rel="canonical" href="https://finunity.halfopen.dev/about/">
+<link rel="alternate" hreflang="zh-CN" href="https://finunity.halfopen.dev/about/">
+<link rel="alternate" hreflang="en" href="https://finunity.halfopen.dev/en/about/">
+<link rel="alternate" hreflang="x-default" href="https://finunity.halfopen.dev/about/">
+<link rel="stylesheet" href="/content.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head><body><a class="skip" href="#main">跳到正文</a>
+<header><a class="brand" href="/">衡仓</a><nav aria-label="主导航"><a href="/en/about/" lang="en">English</a></nav></header>
+<main id="main"><h1>把分散资产整理成一份清楚的账本</h1><p class="lede">给有多个账户、多种币种的家庭：把现金、持仓和流水放进同一份账本，一眼看出进取、稳健、防守三类资产离你设定的目标差多少。</p><div class="actions"><a class="primary" href="/app">试用示例账本（不用注册）</a><a href="/login">已有账号，登录</a></div>
+<p class="note">示例就是真实的工作台，数据全部虚构、改动不会保存；要保存自己的账本时才需要注册。</p>
+<figure class="shot"><img src="/demo/overview.zh.png" width="929" height="571" alt="衡仓示例账本的总览页截图：总资产 233,600 元；进取、稳健、防守实际占 19.0%、38.2%、42.8%，目标是 40%、40%、20%；顶部提示“示例账本：数字全部虚构”"><figcaption>示例账本的真实界面截图，数字全部虚构。美元、港币持仓不会折算进人民币总额，而是单独列出。</figcaption></figure>
+<h2>一份账本，三种整理工作</h2><div class="cards"><section><h3>汇总账户与币种</h3><p>期初现金与流水合成现金余额，持仓市值另行计入。不同币种先分开核对，缺失汇率明确保留未计入状态。</p><a href="/guides/multi-currency/">了解多币种汇总</a></section><section><h3>核对后导入持仓</h3><p>可按当前服务能力使用截图识别或表格录入。识别结果需要核对证券、币种、数量和成本，确认后才写入。</p><a href="/guides/holding-import/">查看导入检查顺序</a></section><section><h3>看清三桶配置</h3><p>把已有资产按进取、稳健、防守分类，与自己设置的目标比例比较。它是整理与复盘工具，不替你选择产品或执行交易。</p></section></div>
+<h2>用虚构账本看计算口径</h2><figure><img src="/ledger-example.zh.svg" width="820" height="480" alt="虚构账本示意：人民币账户现金10000、持仓5000，美元账户现金1000、持仓500；示例汇率7时折合人民币25500"><figcaption>自行绘制的合成账本界面示意，全部数字虚构。示例汇率不是现时行情，也不是用户账户。</figcaption></figure><p>人民币账户资产 15,000 元，美元账户资产 1,500 美元；只有示例 USD→CNY 汇率设为 7 时，才可计算 15,000 + 1,500 × 7 = 25,500 元。缺汇率时应保留两个币种结果，而不是硬凑总额。</p>
+<h2>常见问题</h2>
+<details><summary>数据保存在哪里？</summary><p>Web 客户端通过 FinUnity 服务端保存账户、持仓、流水和设置，因此不是完全离线账本。截图只有在你主动提交后才发送到服务端及配置的识别服务商；FinUnity 原图在请求内存中处理，结构化识别结果会留档，确认后才写入持仓。上游处理和留存以<a href="/privacy">隐私政策</a>为准，不能承诺第三方零留存。试用示例账本时不会向服务端发送任何数据。</p></details>
+<details><summary>注册之后怎么开始？</summary><ol><li>阅读隐私政策与用户协议，注册用户名和密码，不要求新账号提供邮箱。</li><li>保存一次性展示的恢复码，再进入工作区。不要把恢复码、密码或完整截图发给维护者。</li><li>进入空账本后按总览页的清单开始：录入或截图导入第一批持仓，设置三桶目标，再记下一笔流水；逐项确认。</li></ol><p>行情和识别都是待核对的参考数据，不承诺实时或完全准确。识别开关、配额或上游未就绪时，按界面提示处理，不能因指南存在就认为该能力已开放。</p></details>
+<div class="actions"><a class="primary" href="/register">注册，保存我自己的账本</a><a href="/guides/holding-import/">先看导入指南</a></div></main>
+<footer><p><a href="/privacy">隐私政策</a> · <a href="/terms">用户协议</a> · <a href="/login">登录</a> · <a href="/guides/multi-currency/">币种汇总指南</a> · <a href="/guides/holding-import/">持仓导入指南</a></p><p>由 半開 制作 · <a href="https://halfopen.dev/">作品集</a></p><p>说明更新：2026-10-21。功能状态与额度以实际服务为准。</p></footer></body></html>

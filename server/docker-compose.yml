@@ -1,0 +1,42 @@
+services:
+  finunity-server:
+    build:
+      context: .
+      args:
+        INSTALL_PADDLEOCR: "false"
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: finunity-server:${IMAGE_TAG:?Set IMAGE_TAG to a date or commit ID}
+    container_name: finunity-server
+    env_file:
+      - ${SERVER_ENV_FILE:-.env.production}
+    environment:
+      APP_ENV: production
+    command:
+      - uvicorn
+      - finunity_server.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${TRUSTED_PROXY_IPS:?Set this to the actual proxy source IP seen by the container}
+    init: true
+    # OCR uploads are buffered in memory and the host also runs other services (Dify): cap what
+    # this container may take. The PaddleOCR image needs more, e.g. FINUNITY_MEM_LIMIT=2g.
+    mem_limit: ${FINUNITY_MEM_LIMIT:-512m}
+    memswap_limit: ${FINUNITY_MEM_LIMIT:-512m}
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

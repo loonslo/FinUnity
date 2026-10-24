@@ -1,0 +1,5792 @@
+"""The tools the chat can call, and the one place their schemas come from.
+
+A tool is a function the model may ask for by name, mid-answer, and get an
+answer to before it finishes writing. The registry below is the whole list.
+
+NOTHING HERE IS TRANSCRIBED. A tool's arguments are a Pydantic model and its
+JSON schema is generated from it, by the SDK's own converter. This codebase
+has already paid for a hand-copied schema once — twenty-three interfaces typed
+out beside the API they described, two of which had quietly drifted, which is
+why `schema.d.ts` is generated now. A tool schema drifts the same way and
+fails worse: the model is told the function takes a field that no longer
+exists, calls it, and the failure surfaces as an argument error two layers
+away from the line that lied.
+
+Why there are read tools at all, when `chat.py` argues at length that reading
+needs none. The rule there is about the reader's OWN data: the picture is
+bounded, always relevant, and its value is that the model sees across sections
+the question did not name — so it travels whole, every turn, and a tool per
+section would buy latency and wrong-tool errors to save two thousand tokens.
+A read earns a tool when one of those three stops being true.
+
+`get_look_through` fails the first, and on NETWORK rather than on size.
+`composition.get_composition` answers from the cache when it is fresh and
+otherwise walks a waterfall of fund issuers — iShares, Vanguard, justETF,
+Yahoo — one per position. Folded into the context it would run on every turn,
+and "hello" would cost five HTTP fetches to fund issuers. As a tool it runs
+when the question is actually about what is inside the funds.
+
+`read_analysis` fails the second and the third at once, and it is the door
+this module opens onto the chain. A past verdict is a document of unbounded
+length that matters in one conversation out of ten; sent every turn it would be
+a month-old opinion sitting at the same prominence as a picture rebuilt this
+second. What the context carries instead is its date and its opening lines,
+which is what noticing staleness needs, and the rest is one call away.
+
+`search_catalogue` and `lookup_symbol` fail the FIRST in the plainest way:
+what they read is not the reader's data at all. The registry is thousands of
+funds and the lookup is the whole quotable universe, so they are searched
+rather than sent. They stay two tools for the reason `routers/instruments.py`
+already gives for keeping two endpoints — one answers from SQLite in
+milliseconds and the other is a network call, and behind a single function the
+instant lane waits for the slow one while an outage empties a list that had
+good local results in it.
+
+`search_web` fails the first too, and is the one read tool REGISTRY does not
+hold. What it reads is the web, through a request of its own to OpenRouter
+(`websearch`), and the pages it finds and what it costs belong to the turn
+that ran it, so the chat loop answers it. It is declared here like the others
+(`web_search`), for Anthropic's models only (brief AM).
+
+Tools that WRITE do not run from here. They are proposed: a card the reader
+confirms, and only then does the normal write path run — `crud`, a unit of
+work, `_columns`, `test_write_contract`. The chat does not get a service door
+the form does not have. Since brief AN (2026-10-10) that is said to the
+letter: each write builds the schema its page's form posts and calls the crud
+function the page's request calls, with the body that form would send, and a
+test holds the records after each card equal to the records after the form's
+request. There is one tool for each kind of record, never a generic
+`propose_change(entity, action, fields)`, which hands the model the job of
+knowing which fields fifteen entities have, and on fifteen entities it gets
+that wrong; a tool whose record has several actions (`write_flow`,
+`write_goal`, `update_profile`) takes the action as an argument, since its
+fields are the same record's in each.
+
+`suggest_instrument` is the one that goes through this machinery while writing
+nothing of the reader's: accepting it parks an idea on a watchlist that owns
+nothing and totals nowhere. It is a card anyway, because the reader decides
+what enters their app, and its accept button says "Add to watchlist" rather
+than "Confirm" — `Proposal.verb` — since "Confirm" over a card naming a
+security reads as approval of a purchase nobody proposed.
+
+`run_analysis` is a write like the others and stretches the word in one
+direction only: what it writes is a `ChainRun`, and what makes it a proposal is
+not that it is hard to undo but that it costs the reader a minute of waiting
+and a few cents before it produces anything. The card asks first and quotes the
+last run's measured time and price. It is also the only tool with a `walk`
+instead of a `run`, because a minute of silence is the thing a confirmation
+card should not buy you.
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import logging
+import re
+import time
+import uuid
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field, replace
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError, model_validator
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import (
+    advisor, analytics, cash_moves, catalogue, chain, composition, crud, dated, fx, model_list,
+    models, pac, positions, prices, questionnaire, schemas, sizing,
+)
+from app.database import unit_of_work
+
+logger = logging.getLogger(__name__)
+
+
+# The words a model writes for "nothing" in a field it may leave empty. In the
+# reader's test round (2026-10-08) two fund cards carried "symbol": "null", the
+# word and not JSON's null, and accepting them stored the symbol "NULL" on both
+# watchlist lines, which "Record a buy" then put in the ticker box. The schema
+# offers a null; a word that means one is read as one.
+_ABSENT = frozenset({"", "null", "none", "nil", "undefined", "n/a"})
+
+
+def _absent_is_none(value):
+    """`value`, or None when it is a string that says there is nothing."""
+    if isinstance(value, str) and value.strip().lower() in _ABSENT:
+        return None
+    return value
+
+
+# An optional text argument of a tool that writes: what the model wrote, or
+# nothing, never the word for nothing. A validator and not a type, so the
+# schema the model is shown is the one it was shown before.
+MaybeText = Annotated[str | None, BeforeValidator(_absent_is_none)]
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """What a write would do, described before it does it.
+
+    `title` is the whole change in one line, in the reader's terms and not the
+    schema's — "buy 5 VWCE.MI @ 128.40 · Broker A", not a field list.
+
+    `confirmation` is the rule the domain already has, and it is about
+    REVERSIBILITY rather than size. An event — a transaction, a dated
+    valuation — is a dated claim, verifiable, and undone by deleting it, so it
+    gets a light confirmation. A photograph is the record OF a day: editing a
+    snapshot restates what that day said, every projection anchored after it
+    moves with it, and deleting the edit does not bring the old day back. That
+    gets "diff", and `diff` has to be filled: an explicit line-by-line of what
+    that day says now against what it would say.
+
+    `fingerprint` is what this proposal DEPENDS ON, as it stands right now,
+    reduced to a string that changes when it does. The confirmation recomputes
+    it and refuses the card if it moved.
+
+    A clock cannot do this job. A ten-second-old card can be stale — the other
+    tab wrote while the reader was reading — and a three-day-old one can be
+    perfectly good, because nothing touched what it was about. Any age is
+    therefore both too strict and too loose at once. A fingerprint is neither:
+    it goes stale exactly when the thing the card was computed against changed,
+    and at no other time, which is also the only rule a test can pin.
+
+    What goes in it is the tool's own business, because only the tool knows
+    what it read. A photograph's is what that day currently says — the same
+    rows the diff was built from, so a card and its diff go stale together. An
+    event's is much smaller: appending a transaction overwrites nothing, so
+    little more than the continued existence of what it points at can
+    invalidate it. An empty fingerprint means "nothing this depends on can
+    move", and that is a claim, not a default to fall into.
+
+    `consequence` is the sentence above the diff: what confirming this costs
+    that the diff itself does not show. It belongs to the TOOL because only
+    the tool knows — editing a snapshot moves every figure anchored after it,
+    while replacing a survey answer moves nothing and simply loses the old one
+    — and the card that draws it renders every tool's proposals. One sentence
+    hard-coded there was right for the one card it was written for and wrong
+    for the next.
+
+    `verb` is the accept button's label, and it is here for the same reason
+    `consequence` is: the panel renders every tool's proposals and cannot know
+    what pressing the button does. Empty means "Confirm", which is right for
+    everything that writes to the reader's records. It is not right for a
+    suggestion — that one writes nothing of theirs, and "Confirm" over a card
+    naming a security reads as approval of a purchase nobody proposed.
+
+    `touches` names the record the card changes, as the reader would ("the
+    answer to "Your age?""), or is empty for a card that only adds a row. One
+    answer draws one card a record (`chat.stream`): confirming the first of two
+    would leave the second stale. Not stored with the card.
+
+    `warning` is what the card says, in a band of its own, of a model that
+    confirming it would call and that OpenRouter's list dates or no longer has
+    (brief BB): only the analysis's card calls a model, so only it has one.
+    """
+
+    title: str
+    fingerprint: str
+    confirmation: str = "light"  # light | diff
+    consequence: str = ""
+    verb: str = ""
+    diff: list[dict] = field(default_factory=list)
+    touches: str = ""
+    warning: str = ""
+
+
+@dataclass(frozen=True)
+class Working:
+    """One thing a long tool has FINISHED, said while it is still going.
+
+    Not a result and not a record: the result comes at the end and the record
+    is whatever the tool wrote. This is the answer to "what is the silence",
+    which is the same job `schemas.ChatTool` does for a tool that takes
+    seconds — and a tool that takes a minute needs it said more than once.
+
+    `label` is the step in the reader's words, because it is printed as it
+    arrives and there is no table anywhere that turns a slug into a sentence.
+    """
+
+    step_no: int
+    label: str
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class Tool:
+    """One callable the model may ask for.
+
+    `arguments` is the Pydantic model the model has to fill, and it is the
+    single source of the schema the model is shown — see `declarations`.
+    The body receives that model already validated, so a tool never parses
+    anything and never checks a type.
+
+    `propose` is what makes a tool a WRITE tool, and it is one field rather
+    than a flag because the two must not be able to disagree. A tool that has
+    it does not run when the model calls it: it describes what it would do,
+    the reader is shown that as a card, and the body runs from the confirm
+    endpoint or not at all. A tool without it runs immediately, which is what
+    reading means here.
+
+    `run` and `walk` are the same job at two lengths, and EXACTLY ONE of them
+    must be given — checked below rather than left to a comment, for the reason
+    `propose` is a callable and not a boolean. `run` returns the result. `walk`
+    yields a `Working` per finished step and RETURNS the result, and it exists
+    because a tool that takes a minute leaves the reader in front of a spinner
+    that cannot say which minute it is on. Anything that finishes while a
+    person is still looking at the screen should be a `run`.
+
+    The body must keep everything it does INSIDE the session it is handed. Two
+    windows confirming the same card at once both reach it, and only one of
+    them commits — the loser's transaction is rolled back under it. Which is
+    the right answer for rows and no answer at all for anything else: a body
+    that sent an email or wrote a file would do it twice, and there is no
+    transaction to take that back.
+    """
+
+    name: str
+    description: str
+    arguments: type[BaseModel]
+    run: Callable[[Session, BaseModel], dict] | None = None
+    walk: Callable[[Session, BaseModel], Iterator[Working]] | None = None
+    propose: Callable[[Session, BaseModel], Proposal] | None = None
+    # What a card calls each argument, for the reader: the name is the
+    # model's, the label is theirs ("based_on" was on the reader's cards,
+    # 2026-10-08). Every argument of a tool that writes has one (a test), so a
+    # new field cannot reach a card under its schema name.
+    labels: dict[str, str] = field(default_factory=dict)
+    # What was written, in words, from the tool's result: rows of (label,
+    # value, kind), kind "date" for a day the panel writes in the reader's
+    # language. The result itself stays as it is, for the model.
+    receipt: Callable[[dict], list[tuple[str, str, str]]] | None = None
+    # What a confirmed card says it is now, or how to tell it from the card
+    # (a tool with several actions: "Ended", "Deleted").
+    done: str | Callable[[dict], str] = "Recorded"
+    # An argument that is an amount, and the argument naming its currency: the
+    # card writes it as money in the reader's language, with its code (brief
+    # AQ: a suggestion's amounts), instead of a bare number.
+    currencies: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if (self.run is None) == (self.walk is None):
+            raise TypeError(
+                f"{self.name}: a tool declares exactly one of run and walk — "
+                "neither leaves it with no body, both leave two that can disagree."
+            )
+
+
+# --- The look-through --------------------------------------------------------
+
+
+class LookThroughArgs(BaseModel):
+    """What `get_look_through` takes."""
+
+    refresh: bool = Field(
+        default=False,
+        description=(
+            "Leave this false. False answers from the stored composition and "
+            "touches no network. True re-downloads every fund's holdings from "
+            "its issuer, one position at a time, and takes tens of seconds: "
+            "ask for it only when the reader has said they want the figures "
+            "re-fetched."
+        ),
+    )
+
+
+# What the numbers in the payload MEAN, travelling with them. The look-through
+# is the part of this app where a percentage is most easily misread: the axes
+# are shares of the investments as a whole and are deliberately NOT
+# renormalised to the part that could be decomposed, so "countries add up to
+# 30" is a fact about coverage and not about a rounding error. Sent as data
+# rather than trusted to the system prompt, because the prompt does not travel
+# with the tool result into the next turn's history and this does.
+#
+# "Of the investments", not "of the whole portfolio": the chat reads the cash
+# beside them in every turn, and "whole" read as all of it is how the first
+# analysis turned a share of the investments into a share of everything
+# (brief Z).
+_READING = (
+    "Every percentage here is a share of the investments as a whole (every "
+    "position, and none of the cash on the accounts) and is never "
+    "renormalised to the decomposed part: if the countries add up to 30, then "
+    "30% of the investments are in those countries and the rest could not be "
+    "looked inside.",
+    "total_value is the denominator: the investments, without the cash, in the "
+    "portfolio's own currency. An amount is pct / 100 * total_value.",
+    "coverage_pct is how much of the investments the look-through could see "
+    "inside. undecomposed_pct is the rest, and it is UNKNOWN, not empty.",
+    "companies and overlap are the twenty largest by weight. A name that is "
+    "not in them is not absent from the portfolio: it is below that cut, and "
+    "saying 'you do not hold it' would be wrong.",
+    "overlap lists the names held inside two or more positions, with the "
+    "positions holding them. Its percentage is a share of all the investments, "
+    "not of one position, and it is a floor: a fund whose source publishes only its top "
+    "holdings hides everything below that rank.",
+    "A row with decomposed=false carries the reason in `error`. 'No source "
+    "answered' and 'this fund holds nothing there' are different claims: say "
+    "which one you are making.",
+)
+
+
+def _look_through(db: Session, args: LookThroughArgs) -> dict:
+    """The whole look-through, as `compute_portfolio_composition` computes it.
+
+    Passed through rather than reshaped, so this cannot drift from the figures
+    the Portfolio page draws from the same call — one look-through, two
+    readers. What is added is `reading`: the qualifications the screen carries
+    as chart labels and axis titles, which a JSON payload would otherwise drop
+    on the floor."""
+    look_through = composition.compute_portfolio_composition(db, refresh=args.refresh)
+    return {**look_through, "reading": list(_READING)}
+
+
+# --- The instrument universe: two lanes, and they do not merge -----------------
+#
+# The exception to "reading needs no tool" applies here for the FIRST reason
+# rather than the network one: 4,544 catalogue rows are not the reader's data
+# and are not bounded, so they are searched rather than sent. Everything about
+# the reader still travels whole, every turn.
+#
+# TWO tools and not one, and the argument is already written out in
+# `routers/instruments.py` where the same split was made for the picker: the
+# catalogue answers from SQLite in milliseconds and the lookup is a network
+# call, so putting them behind one function makes the instant lane wait for the
+# slow one, and an outage empties a list that had perfectly good local results
+# in it. A model that wants both asks for both, and gets the fast one's answer
+# even when the other never comes back. The name `search_instruments` is the
+# HTTP handler's and is not free.
+
+
+class SearchCatalogueArgs(BaseModel):
+    """What `search_catalogue` takes."""
+
+    query: str = Field(
+        ...,
+        min_length=2,
+        description=(
+            "Free text: fund name, issuer, index, ticker, such as 'vanguard "
+            "all-world', 'msci emerging markets', 'VWCE'. Words are matched "
+            "together first and the search loosens only if that finds nothing."
+        ),
+    )
+    limit: int = Field(
+        default=8, ge=1, le=25, description="How many families to return, at most."
+    )
+
+
+# What a catalogue result MEANS, travelling with it. Two of these are the
+# reason `catalogue.py` opens with a warning: `base_ticker` and
+# `share_class_currency` are the two columns that look exactly like the fields
+# they must never fill, and they have already cost this repo a phantom 17%
+# gain. Sent as data rather than trusted to the system prompt, because the
+# prompt does not travel with the tool result into the next turn's history and
+# this does.
+_CATALOGUE_READING = (
+    "Every ISIN here exists in the local registry. A suggestion may name ONLY "
+    "an ISIN copied verbatim from these results: that is what makes an "
+    "invented fund impossible, so never type one from memory.",
+    "Results are FAMILIES, not rows. A quarter of the registry arrives in "
+    "pairs that share a name and differ only in what they do with dividends, "
+    "so both members are always shown together and you have to say which one "
+    "you mean: 'acc' accumulates dividends inside the fund, 'dist' pays them "
+    "out. The picture and the reader's pages call them accumulating and "
+    "distributing; these results carry the stored 'acc' / 'dist'.",
+    "base_ticker is NOT a Yahoo symbol and must never be offered as one: the "
+    "registry gives one code per fund (EUNL for iShares Core MSCI World), "
+    "while a holding trades on a listing with its own symbol. Symbols come "
+    "from `lookup_symbol` and nowhere else.",
+    "share_class_currency is the share class's own currency, NOT the currency "
+    "the fund trades in. It says USD for funds that quote in EUR in Milan, and "
+    "reading it as a trading currency is a documented source of invented "
+    "gains.",
+    "ter is the annual ongoing charge as a percentage; size_meur is the fund's "
+    "size in millions of euro.",
+    "replication says how a product holds what it tracks. 'Physically backed' "
+    "holds it itself: a metal in a vault, or coins. 'Swap based' holds none of "
+    "it and follows an index through a contract with a bank, which for a "
+    "commodity is an index of futures. 'Full replication' and the sampling "
+    "kinds hold the shares or the bonds of their index.",
+    "coverage says how the match was made. 'all' means every word was found; "
+    "'partial' means the search had to loosen to find anything, which is a "
+    "weaker claim about what was asked for and should be said out loud; 'none' "
+    "means nothing matched, a fact about THIS registry of `rows` funds "
+    "downloaded on `fetched_at`, never a claim that the instrument does not "
+    "exist.",
+)
+
+
+# Why the registry is empty, as the reader can be told it. On 2026-10-02 a model
+# given only the fields told the reader "0 righe" and "fetched_at: null", and
+# that the catalogue had to be filled, not how. Nobody fills it now: the app
+# downloads it by itself, so what the reader is owed is where that stands.
+_WHERE_THE_DOWNLOAD_STANDS = {
+    "downloading": "the app is downloading the list of funds from justETF right now, by itself",
+    "failed": (
+        "the app tried to download the list of funds from justETF and could not, "
+        "and tries again by itself when the app is next opened or reloaded, {when}"
+    ),
+    "not_started": (
+        "the app downloads the list of funds by itself when it is opened, and "
+        "has not been asked since the server last started; reloading the page "
+        "starts it"
+    ),
+}
+
+
+def _where_the_download_stands(state: dict) -> str:
+    """The middle of the sentence, for the state `catalogue.status` reports."""
+    said = _WHERE_THE_DOWNLOAD_STANDS.get(state.get("state"), _WHERE_THE_DOWNLOAD_STANDS["not_started"])
+    if state.get("state") != "failed":
+        return said
+    try:
+        wait = datetime.datetime.fromisoformat(state["retry_after"]) - catalogue._now()
+    except (KeyError, TypeError, ValueError):
+        wait = datetime.timedelta(0)
+    minutes = -(-int(wait.total_seconds()) // 60)  # rounded up
+    when = (
+        f"in {minutes} minute{'s' if minutes != 1 else ''} at the earliest"
+        if minutes > 0
+        else "which a reload now will do"
+    )
+    return said.format(when=when)
+
+
+def _search_catalogue(db: Session, args: SearchCatalogueArgs) -> dict:
+    """The local registry, searched exactly as the instrument picker searches it.
+
+    `catalogue.search` and nothing reshaped around it, so this cannot drift
+    from what the picker shows for the same words — one registry, two readers.
+    What is added is `reading`, which is the part a JSON payload drops on the
+    floor: the picker carries these qualifications as column labels and a
+    warning in its own module docstring, and a tool result carries none of
+    that unless it is sent. While the registry is empty there is nothing to
+    qualify, and `reading` says instead why it is empty, in plain words."""
+    found = catalogue.search(db, args.query, args.limit)
+    if not found["rows"]:
+        return {
+            **found,
+            "reading": [
+                "The local fund registry is empty: "
+                + _where_the_download_stands(found)
+                + ". Until it arrives nothing can be searched or suggested from "
+                "it, and that says nothing about whether any fund exists. Tell "
+                "the reader so in plain words, never in these fields' names, and "
+                "offer no card."
+            ],
+        }
+    return {**found, "reading": list(_CATALOGUE_READING)}
+
+
+class LookupSymbolArgs(BaseModel):
+    """What `lookup_symbol` takes."""
+
+    query: str = Field(
+        ...,
+        min_length=2,
+        description=(
+            "Free text: company, coin, ticker, such as 'siemens', 'bitcoin', 'SIE.DE'. "
+            "This is the live lane: shares, single stocks, crypto and futures, "
+            "i.e. everything the fund catalogue does not hold."
+        ),
+    )
+    limit: int = Field(
+        default=8, ge=1, le=25, description="How many candidates to return, at most."
+    )
+
+
+_LOOKUP_READING = (
+    "A symbol PRICES a listing; it does not identify an instrument. The same "
+    "company trades in five places under the same name, and only `exchange` "
+    "tells the rows apart.",
+    "price NEVER means anything without exchange beside it. This source "
+    "returns no currency, so the same share on two exchanges comes back as two "
+    "bare numbers in different money (38.60 and 33.60 for one company, which "
+    "look 15% apart and are the same value). Do not compare them and do not "
+    "quote one as 'the price'.",
+    "reachable=false with an empty list means the source did not answer. That "
+    "is NOT 'this instrument does not exist': saying so teaches the reader to "
+    "correct a symbol that was right.",
+    "A row whose quote_type is equity can be suggested as a share by its "
+    "exact symbol, and the card asks this source about it again. Nothing else "
+    "here can: a fund is suggested from `search_catalogue` by its ISIN, and a "
+    "coin or a future not at all.",
+)
+
+
+def _lookup_symbol(db: Session, args: LookupSymbolArgs) -> dict:
+    """The live lane, in the shape `/api/instruments/lookup` returns it.
+
+    `reachable` is inferred the same way the HTTP handler infers it, and it is
+    an inference rather than a measurement because `prices.lookup` swallows the
+    failure and returns [] — the picker's second lane must never go dark
+    because this one did. The two callers infer it identically on purpose: one
+    story about what an empty list means, not two."""
+    results = prices.lookup(args.query, args.limit)
+    return {
+        "results": results,
+        "reachable": bool(results),
+        "reading": list(_LOOKUP_READING),
+    }
+
+
+# --- How much: the figures an amount stands on, computed (brief AQ) ------------------
+#
+# A read and not part of the picture, for the look-through's reason and one of
+# its own: what a purchase would weigh walks the issuers for an instrument the
+# reader does not hold, and the room alone is three computations the picture
+# would carry on every "hello". `sizing` computes the room, `composition` the
+# weights, and a card that carries an amount reads both again from the same
+# functions (`_propose_suggestion`).
+
+
+class SizePurchaseArgs(BaseModel):
+    """What `size_purchase` takes: nothing, for the room alone; or an
+    instrument named as a card names it, and the amounts to weigh."""
+
+    isin: MaybeText = Field(
+        default=None,
+        min_length=12,
+        max_length=12,
+        description=(
+            "A FUND: its ISIN, copied from a `search_catalogue` result. Null for a "
+            "single share, and for the figures alone."
+        ),
+    )
+    symbol: MaybeText = Field(
+        default=None,
+        description=(
+            "A single SHARE: the exact symbol of a `lookup_symbol` result whose "
+            "quote_type is equity, with `isin` null. Null for a fund, and for the "
+            "figures alone."
+        ),
+    )
+    amount_now: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "A sum put in at once, in the base currency of the picture: what it "
+            "would weigh, and whether the cash above the reserve holds it."
+        ),
+    )
+    amount_monthly: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "A sum put in every month, in the base currency: its share of what is "
+            "left each month once the PACs and the goals' contributions are taken out."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_instrument_at_most(self):
+        if self.isin and (self.symbol or "").strip():
+            raise ValueError("Name a fund by its ISIN or a share by its symbol, not both.")
+        return self
+
+
+# What the figures MEAN, travelling with them, for the look-through's reason:
+# the prompt does not travel with a tool's result into the next turn, and this
+# does.
+_SIZE_READING = (
+    "Every figure here is computed by the app from their records. Quote them as "
+    "they are, with where they come from, and never work out a reserve, what is "
+    "left each month, a goal's need or a weight yourself.",
+    "on_the_accounts is every account's cash added up, an account below zero "
+    "netted in it, so the room above the reserve already counts that deficit: "
+    "covering it from another of their accounts is a transfer between them, "
+    "which leaves the sum and the room as they are. Never take it off the room "
+    "a second time.",
+    "The reserve is its months of the essential expenses in force, an expense "
+    "with no nature counted as essential. Its months come from where months_from "
+    "says: their answer in the Profile, or the app's default, which you say is "
+    "the app's and never theirs.",
+    "cash_above_reserve is the most a sum put in now may be, and "
+    "left_after_commitments the most a monthly amount may be: what the records "
+    "allow, not advice. An amount is chosen within them with its assumptions "
+    "said, and a card refuses one above them.",
+    "A goal's needs_a_month_with_no_growth stands beside what is recorded for it "
+    "and is not taken out of what is left; its recorded contribution is, and "
+    "lacks_a_month is what the need asks beyond it. "
+    "left_if_each_goal_gets_its_need is what is left each month were every goal "
+    "given its need. Say what you assume about a goal that lacks something.",
+    "null means the records cannot say: no expense in force sizes no reserve, "
+    "and no income or no expense in force leaves nothing to say about the "
+    "month. Say what they would have to enter, never a figure in its place.",
+    "In `weighs`, every percentage is a share of the investments, before and "
+    "after the purchase, read as the look-through reads them. looked_inside "
+    "false means no source could look inside it, which says nothing about what "
+    "it holds.",
+)
+
+
+def _listing_currency(symbol: str) -> str | None:
+    """The currency Yahoo quotes the listing in, as it spells it ("GBp" is
+    pence), or None when Yahoo names none or does not answer: never inferred
+    from the exchange."""
+    try:
+        return prices._fetch_currency(symbol)
+    except Exception as exc:  # silent Yahoo: the currency is "not given"
+        logger.info("Listing currency of %s not given: %s: %s", symbol, type(exc).__name__, exc)
+        return None
+
+
+def _fund_facts(row: models.Instrument) -> dict:
+    """A catalogue row as the chat reads it, every fact off the registry."""
+    return {
+        "kind": "fund",
+        "isin": row.isin,
+        "name": row.name,
+        "distribution": _POLICY_WORDS.get((row.distribution_policy or "").strip().lower()),
+        "ter_pct": row.ter,
+        "domicile": row.domicile,
+        "replication": row.replication,
+        "size_meur": row.size_meur,
+        "holdings": row.holdings_count,
+        "share_class_currency": row.share_class_currency,
+        "registry": "justETF's list of products for private investors in Europe, as the app downloaded it",
+    }
+
+
+def _share_facts(share: dict) -> dict:
+    """A share as Yahoo lists it, with the currency its listing is quoted in."""
+    return {
+        "kind": "share",
+        "symbol": share["symbol"],
+        "name": share["name"],
+        "exchange": share.get("exchange"),
+        "listing_currency": _listing_currency(share["symbol"]) or "not given by Yahoo",
+    }
+
+
+def _percent(part: float, whole: float | None) -> float | None:
+    return round(part / whole * 100, 2) if whole else None
+
+
+def _size_purchase(db: Session, args: SizePurchaseArgs) -> dict:
+    """The room an amount stands on (`sizing`), and for an instrument named as
+    a card names it and a sum, what that sum would weigh (`composition`).
+
+    An instrument the catalogue or Yahoo does not verify is said as refused,
+    with the reason a card would give, and the room comes back all the same:
+    the figures do not depend on it."""
+    found = sizing.room(db)
+    out: dict = {"room": sizing.as_dict(found)}
+    purchase = None
+    if args.isin or args.symbol:
+        try:
+            if args.isin:
+                row = _catalogue_row(db, args.isin)
+                out["instrument"] = _fund_facts(row)
+                purchase = {"name": row.name, "isin": row.isin}
+            else:
+                share = _listed_share(args.symbol)
+                out["instrument"] = _share_facts(share)
+                purchase = {"name": share["name"], "symbol": share["symbol"]}
+        except LookupError as exc:
+            out["instrument"] = {"refused": str(exc)}
+    if args.amount_now is not None:
+        room = found.cash_above_reserve
+        now: dict = {
+            "amount": args.amount_now,
+            "share_of_financial_wealth_pct": _percent(args.amount_now, found.financial_wealth),
+            "within_cash_above_reserve": None if room is None else args.amount_now <= room + 0.005,
+        }
+        if purchase is not None:
+            now["weighs"] = composition.weigh_purchase(
+                db, composition.Purchase(value=args.amount_now, **purchase)
+            )
+        out["now"] = now
+    if args.amount_monthly is not None:
+        left = found.left_after_commitments
+        out["each_month"] = {
+            "amount": args.amount_monthly,
+            "share_of_left_after_commitments_pct": (
+                _percent(args.amount_monthly, left) if left and left > 0 else None
+            ),
+            "within_left_after_commitments": None if left is None else args.amount_monthly <= left + 0.005,
+        }
+    out["reading"] = list(_SIZE_READING)
+    return out
+
+
+# --- The writes ---------------------------------------------------------------
+#
+# One tool per kind of record, not one `propose_change(entity, action, fields)`
+# for all of them: a generic tool hands the model the job of knowing which
+# fields each of fifteen entities has, and on fifteen entities it gets that
+# wrong.
+#
+# What that costs is sent on every turn, so it is worth having a figure rather
+# than a feeling. `len(json.dumps(declarations()))` is 19,333 characters for all
+# nine tools, on 2026-09-17 (17,696 on 2026-09-05, before the writes grew).
+# With the web search's declaration, ten made 24,260 at brief AM's close, and
+# fifteen make 32,979 since brief AN (2026-10-10), the rules every card shares
+# being said once in the system prompt rather than in each declaration. Since
+# brief AM a conversation's later turns read them from the cache.
+#
+# In tokens — measured on 2026-09-17 against `qwen/qwen3.8-max`, as the
+# difference between the same turn asked with the declarations and without
+# them — they are 4,842. That is the LARGEST single piece of a turn: bigger
+# than the financial picture they sit beside (3,748), and more than twice the
+# system prompt (2,284). The note that used to stand here said the opposite,
+# "it is real and it is not the expensive part", on the strength of a context
+# figure that was stale; `chat.py` has the whole breakdown and where today's
+# figures live.
+#
+# It is still the right trade, and now it can be stated as one rather than
+# assumed: 4,842 tokens buys every write the reader can confirm from the chat,
+# in a vocabulary the model does not have to guess at. What it does NOT buy is
+# a free lunch — a turn that needs no write pays for them too, and the day that
+# matters the lever is the number of tools, not their wording.
+#
+# What they do NOT do is take a `*Create` schema as their argument model, and
+# the reason is `institution_id`. The picture the model reads NAMES the
+# institutions and never numbers them — `build_context` prints "Broker A", not
+# "3" — so an argument typed as a foreign key is a field it can only guess at,
+# and a guessed foreign key records the purchase against somebody else's
+# account. The arguments below are the reader's vocabulary instead: an
+# institution by name, one flat list of fields per card. The `*Create` is built
+# from them in one place per tool. The JSON schema the model is shown is still
+# generated from these models and transcribed nowhere; what is written by hand
+# is a constructor call, which is the seam between two vocabularies and has to
+# be somewhere.
+
+
+# What a proposal that depends on nothing says, instead of "". The two read the
+# same from here and not from the other end: an empty fingerprint is also what
+# a tool that never thought about staleness produces, and `Proposal` asks for
+# the claim rather than letting it be defaulted into.
+_DEPENDS_ON_NOTHING = "nothing-can-move: every row this writes is new"
+
+
+def _institution(db: Session, name: str | None) -> models.Institution | None:
+    """The institution the reader named, or None when they named none.
+
+    A name that matches nothing RAISES rather than quietly becoming None. The
+    two are opposite claims — "this is not held anywhere in particular" against
+    "you said Broker A and I could not find it" — and a card showing the second
+    as the first would record a purchase against no institution for a reader
+    who named one. The refusal lists what does exist, because it is read by the
+    model, which can correct itself on the next round trip.
+    """
+    if name is None or not name.strip():
+        return None
+    known = crud.get_institutions(db)
+    wanted = name.strip().casefold()
+    for inst in known:
+        if inst.name.strip().casefold() == wanted:
+            return inst
+    have = ", ".join(i.name for i in known) or "none"
+    raise LookupError(f"There is no institution called {name!r}. On record: {have}.")
+
+
+# --- add_real_asset ----------------------------------------------------------
+
+
+class AddRealAssetArgs(BaseModel):
+    """A possession that is not held at an institution, and what it is worth."""
+
+    # What the cards share (the language of the data, names as the picture
+    # gives them, a currency with its code, today for a day not named) is said
+    # once in the system prompt, not in each declaration (brief AN).
+    name: str = Field(..., min_length=1, description="What the thing is.")
+    value: float = Field(
+        ...,
+        ge=0,
+        description="What it is worth as at `valued_on`. Not what it cost.",
+    )
+    # `ObservedDate`, so a future day is refused while the card is being drawn
+    # rather than after the reader has confirmed it. The same refusal the REST
+    # payload makes — this is the other way in.
+    valued_on: schemas.ObservedDate = Field(
+        default_factory=datetime.date.today,
+        description=(
+            "The date that valuation is true of. It cannot be a day that has not "
+            "happened yet: a valuation records what something was OBSERVED to be worth."
+        ),
+    )
+    category: MaybeText = Field(
+        default=None,
+        description=(
+            "One of: real_estate, vehicle, collectible, jewelry, art, other. "
+            "Null when none of them fits."
+        ),
+    )
+    currency: schemas.StatedCurrency = Field(..., description="ISO code the value is in.")
+    acquisition_date: datetime.date | None = Field(
+        default=None, description="When it was acquired, if the reader said."
+    )
+    acquisition_value: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "What it cost, if the reader said. A gift cost nothing and has "
+            "none: leave it null rather than repeating the present value here."
+        ),
+    )
+    notes: MaybeText = Field(default=None, description="Anything else worth keeping.")
+
+
+def _stored_currency(code: str) -> str:
+    """A currency code as a card stores it: upper case, except a code whose
+    case is its meaning. Those are fx._MINOR_EXACT's keys (GBp, pence, where
+    GBP is pounds, a hundred times more), read from that table rather than a
+    list of its own, so a case-significant unit added there is kept here
+    too. Everything else is upper-cased as before: a stored "usd" is the
+    EUR/eur comparison problem, and GBX, ZAC and ILA mean the same in any
+    case."""
+    return code if code in fx._MINOR_EXACT else code.upper()
+
+
+def _propose_real_asset(db: Session, args: AddRealAssetArgs) -> Proposal:
+    """An asset and its first valuation, described before either exists.
+
+    The fingerprint is the empty claim, and it is a claim: both rows are new. A
+    real asset has no unique column for a second window to collide with, and
+    the (asset, date) constraint on the valuation is against an asset that does
+    not exist yet, so nothing anybody else does can reach it. The one thing
+    another window CAN do is add a second necklace — and that is not this card
+    going stale, it is two necklaces."""
+    money = f"{args.value:.2f}"
+    return Proposal(
+        title=(
+            f"add real asset: {args.name.strip()}, {money} {_stored_currency(args.currency)} "
+            f"as at {args.valued_on.isoformat()}"
+        ),
+        fingerprint=_DEPENDS_ON_NOTHING,
+    )
+
+
+def _add_real_asset(db: Session, args: AddRealAssetArgs) -> dict:
+    """The asset and its valuation, or neither.
+
+    One unit of work around two writes. `chat.resume` already holds one when
+    this runs from a confirmed card, and `unit_of_work` is reentrant, so this
+    one costs nothing there — it is here because the guarantee belongs to the
+    tool. An asset saved without the valuation that says what it is worth is a
+    row every total counts as zero, and the reader was shown a figure."""
+    with unit_of_work(db):
+        asset = crud.create_real_asset(
+            db,
+            schemas.RealAssetCreate(
+                name=args.name.strip(),
+                category=args.category,
+                currency=_stored_currency(args.currency),
+                acquisition_date=args.acquisition_date,
+                acquisition_value=args.acquisition_value,
+                notes=args.notes,
+            ),
+        )
+        valuation = crud.create_real_asset_valuation(
+            db,
+            asset.id,
+            schemas.RealAssetValuationCreate(date=args.valued_on, value=args.value),
+        )
+    return {
+        "real_asset_id": asset.id,
+        "name": asset.name,
+        "category": asset.category,
+        "currency": asset.currency,
+        "valued_on": valuation.date,
+        "value": valuation.value,
+    }
+
+
+# What its card calls each argument, and what it says was written.
+_REAL_ASSET_LABELS = {
+    "name": "Asset",
+    "value": "Worth",
+    "valued_on": "Valued on",
+    "category": "Kind",
+    "currency": "Currency",
+    "acquisition_date": "Acquired on",
+    "acquisition_value": "Paid",
+    "notes": "Notes",
+}
+
+
+def _real_asset_receipt(result: dict) -> list[tuple]:
+    return [
+        ("Worth", result.get("value"), "amount", result.get("currency")),
+        ("Valued on", result.get("valued_on"), "date"),
+    ]
+
+
+# --- record_transaction ------------------------------------------------------
+
+
+class RecordTransactionArgs(BaseModel):
+    """One entry in the investment ledger, for something that ALREADY happened."""
+
+    # The four kinds are the ledger's own, and what each of them MEANS is
+    # written down in `models.Transaction`. Spelled as a Literal rather than a
+    # free string so the schema the model is shown carries the enum: a fifth
+    # kind cannot then be invented, only mis-chosen.
+    kind: Literal["buy", "sell", "dividend", "close"] = Field(
+        default="buy",
+        description=(
+            "buy: units in, cash out. sell: units out at their average cost, "
+            "cash in. dividend: cash in only, the position untouched; "
+            "`quantity` is the units held at the ex-date and `unit_price` the "
+            "dividend per share. close: the whole position goes and `amount` "
+            "is what came back, the only exit for something with no units to "
+            "sell."
+        ),
+    )
+    date: datetime.date = Field(
+        default_factory=datetime.date.today,
+        description=(
+            "The day it actually happened, which is not necessarily today. No "
+            "broker is connected here: this records a trade already made, it "
+            "never places one."
+        ),
+    )
+    asset_name: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "The instrument's own name. On a sell or a close this is not a "
+            "label: the ledger matches the entry back to the position it "
+            "settles by symbol OR by this string."
+        ),
+    )
+    symbol: MaybeText = Field(
+        default=None,
+        description=(
+            "Yahoo ticker, e.g. VWCE.MI. Required for a buy, a sell and a "
+            "dividend; a close may have none, because the rows that most need "
+            "an exit are the ones no ticker describes."
+        ),
+    )
+    isin: MaybeText = Field(default=None, description="ISIN, when the reader gave one.")
+    asset_class: MaybeText = Field(
+        default=None,
+        description="equity | bond | fund_etf | crypto | commodity | real_estate | other",
+    )
+    quantity: float = Field(
+        default=0.0,
+        ge=0,
+        description="Units moved; for a dividend, the units held at the ex-date.",
+    )
+    unit_price: float = Field(
+        default=0.0,
+        ge=0,
+        description="Price per unit; for a dividend, the dividend per share.",
+    )
+    fees: float = Field(
+        default=0.0, ge=0, description="Broker fees, if any were said, in `currency`."
+    )
+    currency: schemas.StatedCurrency = Field(
+        ...,
+        description=(
+            "ISO code of the cash that moved: what the account was debited or "
+            "credited in, and what `amount` and `fees` are in."
+        ),
+    )
+    price_currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description=(
+            "ISO code `unit_price` is in: the listing's currency, e.g. USD for "
+            "a New York share, EUR for VWCE.MI. Required for a buy, a sell and a "
+            "dividend; null for a close. When it differs from `currency` and "
+            "`amount` is null, the amount is worked out at the rate of `date`: the "
+            "ECB's, or Yahoo's for a currency the ECB does not publish."
+        ),
+    )
+    amount: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "The cash that actually moved, never negative, in `currency`. Leave "
+            "it null and it is derived: quantity*unit_price + fees for a buy, "
+            "minus fees for a sell or a dividend, converted at the rate of `date` "
+            "when the price is in another currency. If the reader quoted what "
+            "their statement shows, put that here: it is the real figure. A close "
+            "has no units to derive it from, so it must state it; 0 is allowed, "
+            "silence is not."
+        ),
+    )
+    institution: MaybeText = Field(
+        default=None,
+        description=(
+            "The institution holding the position. Required for a buy and for a "
+            "dividend: the cash has to move against a real account. On a sell or "
+            "a close it may be left null when the position being settled is "
+            "unambiguous: it is then taken from that position."
+        ),
+    )
+    cash_institution: MaybeText = Field(
+        default=None,
+        description=(
+            "The institution whose cash moved, when it is not the one holding "
+            "the position. Null means the same one."
+        ),
+    )
+    note: MaybeText = Field(default=None, description="Anything else worth keeping.")
+
+
+@dataclass(frozen=True)
+class _Ledger:
+    """One ledger entry resolved against the records, shared by propose and run.
+
+    Both need the same three answers — which rows these names are, which
+    position a disposal settles, and what `amount` the ledger will actually
+    store — and they must not answer them differently: the card quotes the
+    first two, and `settle` recomputes the fingerprint from them a moment
+    before the row is written."""
+
+    create: schemas.TransactionCreate
+    institution: models.Institution | None
+    cash_institution: models.Institution | None
+    settles: positions.Position | None
+    amount: float
+    fx_as_of: str | None
+
+
+# The two kinds that dispose of something already held. A buy and a dividend
+# append; these two settle, and only they need to find what they settle.
+_DISPOSALS = ("sell", "close")
+
+
+def _settled_position(
+    db: Session, args: RecordTransactionArgs, institution: models.Institution | None
+) -> positions.Position:
+    """The position a sell or a close would settle, as the records project it.
+
+    Matched the way the ledger itself matches one — by symbol, or by name where
+    there is no symbol (`models.Transaction`) — so a card cannot bind to a row
+    the projection would then read differently.
+
+    A disposal that matches NOTHING is refused rather than recorded, and this
+    is the one place a write tool is stricter than the form. `positions.replay`
+    sells at the running average cost, so a sell against a position with no
+    units books its whole proceeds as realized profit: a gain the reader never
+    made, on a position that does not exist. The form is driven by somebody
+    looking at the row; the model is not.
+
+    Holding FEWER units than the entry disposes of is not refused, and that
+    difference is deliberate. Nobody here knows whether you still own what the
+    last photograph said you owned — the app says so rather than pretending
+    otherwise — so records that are behind is exactly the case the reader is
+    correcting. It goes on the card instead, where they can see it."""
+    wanted_symbol = (args.symbol or "").strip().casefold()
+    wanted_name = args.asset_name.strip().casefold()
+    pool = positions.project(db)
+    if institution is not None:
+        pool = [p for p in pool if p.institution_id == institution.id]
+    hits = [
+        p
+        for p in pool
+        if (wanted_symbol and (p.symbol or "").strip().casefold() == wanted_symbol)
+        or p.asset_name.strip().casefold() == wanted_name
+    ]
+    if len(hits) == 1:
+        return hits[0]
+    what = args.symbol or args.asset_name
+    where = f" at {institution.name}" if institution is not None else ""
+    if not hits:
+        held = ", ".join(sorted(p.symbol or p.asset_name for p in pool)) or "nothing"
+        raise LookupError(
+            f"No open position{where} matches {what!r}, so there is nothing for "
+            f"a {args.kind} to settle. Held{where}: {held}. If the purchase is "
+            "simply missing, record that first."
+        )
+    raise LookupError(
+        f"{len(hits)} open positions match {what!r}. Say which institution this "
+        "one is at."
+    )
+
+
+def _no_dividend_beside_an_estimated_one(
+    db: Session, institution: models.Institution, symbol: str, day: datetime.date
+) -> None:
+    """Refuse a dividend the app may have recorded already, naming it and its
+    correction, or do nothing.
+
+    The catch-up records a dividend on its ex-date at the market's gross
+    figure, marked estimated, for the reader to correct with the broker's
+    credit; a second row for the same dividend was counted twice by the cash,
+    the dividends collected and the tax panel (measured by brief AI). The
+    ledger form offers the correction of every still-estimated dividend of the
+    same account and ticker dated on or before the one typed, since the
+    payment follows the ex-date (`sameDividend.estimatedDividends`, the rule
+    read here), and never refuses: a special dividend is real. The chat
+    refuses instead (brief AO, the reader's answer of 2026-10-10), since no one
+    looks at the row before its card is drawn, and says that a genuine second
+    dividend is entered on the form, which offers the correction first."""
+    wanted = symbol.casefold()
+    estimated = [
+        t for t in crud.get_transactions(db)
+        if t.kind == "dividend" and t.estimated and t.institution_id == institution.id
+        and (t.symbol or "").casefold() == wanted and t.date <= day.isoformat()
+    ]
+    if not estimated:
+        return
+    form = (
+        "A genuine second dividend, such as a special one, is entered on the ledger form on "
+        "the Portfolio page, which offers the same correction first."
+    )
+    if len(estimated) == 1:
+        (t,) = estimated
+        raise LookupError(
+            f"{symbol} at {institution.name} already has a dividend the app recorded on {t.date}: "
+            f"{t.amount:.2f} {t.currency}, the market's gross figure, still estimated. If this is "
+            "that dividend, correct it with their figures through `change_ledger_entry`, since a "
+            f"second row would count it twice. {form}"
+        )
+    named = "; ".join(f"{t.date}, {t.amount:.2f} {t.currency}" for t in estimated[:3])
+    older = len(estimated) - 3
+    more = f", and {older} older" if older > 0 else ""
+    raise LookupError(
+        f"{symbol} at {institution.name} already has dividends the app recorded, the market's "
+        f"gross figures, still estimated: {named}{more}. If this is one of them, correct it with "
+        "their figures through `change_ledger_entry`, since a second row would count it twice. "
+        f"{form}"
+    )
+
+
+def _ledger_entry(db: Session, args: RecordTransactionArgs) -> _Ledger:
+    """One entry, resolved: the names turned into rows, the shape checked by
+    the same schema the form posts through, and the cash figure taken from the
+    same function that will store it.
+
+    That last one is `crud._transaction_payload`, reached across a module
+    boundary on purpose. It holds the rule that a buy costs price*units PLUS
+    fees while a sell nets them off, and a card that computed its own copy of
+    that would be right until the day the rule moved — and would then quote a
+    figure the row it created does not carry.
+
+    Both callers go through here, which is what makes the institution check
+    below hold on both sides: `propose` cannot draw a card the ledger would
+    refuse, and `run` cannot write one after the last institution was deleted
+    out from under a card already drawn."""
+    institution = _institution(db, args.institution)
+    cash_institution = _institution(db, args.cash_institution)
+    settles = _settled_position(db, args, institution) if args.kind in _DISPOSALS else None
+    # A disposal that named no institution and matched exactly one position:
+    # that position's institution is the answer, and leaving it null instead
+    # would take the cash out of nowhere.
+    if institution is None and settles is not None and settles.institution_id is not None:
+        institution = crud.get_institution(db, settles.institution_id)
+    # And when nothing supplied one, the entry is refused rather than drawn.
+    #
+    # This closes the same hole the form's required select closes, at the other
+    # door. A row with no institution on either column is skipped by the cash
+    # register — it keeps the entries belonging to the institution it is
+    # computing, and null matches none of them — while the position it creates
+    # is counted in full, so the purchase adds its own cost to the net worth
+    # instead of moving it. Measured at 1000 cash: a 100 buy naming nobody took
+    # the net worth to 1100.
+    #
+    # Refused the way `_institution` refuses a name it does not know, and for
+    # the same reason: the model reads this and can correct itself on the next
+    # round trip, which it cannot do with a card that was never wrong enough to
+    # stop. Until now the guarded path was the HARSHER one going in — a name
+    # not on record was refused while silence was accepted — which is backwards.
+    #
+    # It catches one case beyond the buy: a disposal of a position that is
+    # itself held at no institution (the PAC makes those) has nothing for the
+    # adoption above to adopt, so it is refused too. That leaves such a
+    # position with no exit through the chat — it had one before, and it wrote
+    # a double-null row that destroyed value the same way a buy created it, so
+    # the refusal is the better of the two. Giving those positions a real home
+    # is the separate decision this commit deliberately did not take.
+    if institution is None:
+        have = ", ".join(i.name for i in crud.get_institutions(db)) or (
+            "none yet, and one has to exist before an entry can name it"
+        )
+        raise LookupError(
+            f"A {args.kind} has to say where the position is held: the cash "
+            f"moves against a real account, and an entry that names none "
+            f"spends money nothing ever loses. On record: {have}."
+        )
+    if args.kind == "dividend" and args.symbol:
+        _no_dividend_beside_an_estimated_one(db, institution, args.symbol.strip(), args.date)
+    create = schemas.TransactionCreate(
+        kind=args.kind,
+        date=args.date,
+        institution_id=institution.id if institution else None,
+        cash_institution_id=cash_institution.id if cash_institution else None,
+        asset_name=args.asset_name.strip(),
+        symbol=(args.symbol.strip() if args.symbol else None),
+        isin=args.isin,
+        asset_class=args.asset_class,
+        quantity=args.quantity,
+        unit_price=args.unit_price,
+        fees=args.fees,
+        amount=args.amount,
+        currency=_stored_currency(args.currency),
+        price_currency=_stored_currency(args.price_currency) if args.price_currency else None,
+        note=args.note,
+    )
+    try:
+        payload = crud._transaction_payload(db, create)
+    except crud.LedgerRateUnknown as exc:
+        # Refused the way an unknown institution is: the model reads it and
+        # can ask the reader for the figure on their statement.
+        raise LookupError(str(exc)) from exc
+    return _Ledger(
+        create=create,
+        institution=institution,
+        cash_institution=cash_institution,
+        settles=settles,
+        amount=payload["amount"],
+        fx_as_of=payload["fx_as_of"],
+    )
+
+
+def _propose_transaction(db: Session, args: RecordTransactionArgs) -> Proposal:
+    """The entry as the reader will read it, and what it depends on.
+
+    The fingerprint carries the two institutions by id and, for a disposal,
+    what the records currently say is held — the same figure the title quotes,
+    so the card and the sentence the reader believed go stale together. A buy
+    or a dividend appends and overwrites nothing, so there is no held figure in
+    either the title or the fingerprint, and saying so is the claim.
+
+    A rename or a deletion needs no entry of its own. `_institution` and
+    `_settled_position` simply stop resolving, `settle` cannot redraw the card
+    at all, and a card that can no longer be drawn is the strongest form of
+    stale there is."""
+    entry = _ledger_entry(db, args)
+    what = entry.create.symbol or entry.create.asset_name
+    cash = f"{entry.amount:.2f} {entry.create.currency}"
+    if entry.fx_as_of:
+        # A debit worked out here, not read off a statement: the card says so,
+        # and says which day's rate and whose, so the reader can check it
+        # against theirs.
+        rate = fx.rate_words(db, (entry.create.currency, entry.create.price_currency), entry.fx_as_of)
+        cash += f" (at {rate})"
+    if args.kind == "close":
+        body = f"{what} — {cash} back"
+    elif args.kind == "dividend":
+        body = f"{what} — {cash} on {args.quantity:g} units"
+    else:
+        body = (
+            f"{args.quantity:g} {what} @ {args.unit_price:.2f} "
+            f"{entry.create.price_currency} = {cash}"
+        )
+    where = f" · {entry.institution.name}" if entry.institution else ""
+    parts = [
+        f"inst={entry.institution.id if entry.institution else None}",
+        f"cash={entry.cash_institution.id if entry.cash_institution else None}",
+    ]
+    held = ""
+    if entry.settles is not None:
+        qty = entry.settles.quantity
+        held = (
+            f" (the records show {qty:g} units held)"
+            if qty is not None
+            else " (the records do not say how many units are held)"
+        )
+        parts.append(f"settles={entry.settles.symbol or entry.settles.asset_name}")
+        parts.append(f"held={'none' if qty is None else format(qty, '.6f')}")
+    return Proposal(
+        title=f"record {args.kind}: {body}{where} · {args.date.isoformat()}{held}",
+        fingerprint="|".join(parts),
+    )
+
+
+def _record_transaction(db: Session, args: RecordTransactionArgs) -> dict:
+    """The row, through the same door the form posts through.
+
+    Resolved a second time rather than carried over from the proposal.
+    `settle` redraws the card immediately before this runs and refuses if
+    anything it depends on moved, so both resolutions read the same records —
+    and nothing has to be smuggled from one call to the other through a
+    dataclass that would then be the real argument list."""
+    entry = _ledger_entry(db, args)
+    tx = crud.create_transaction(db, entry.create)
+    return {
+        "transaction_id": tx.id,
+        "kind": tx.kind,
+        "date": tx.date,
+        "asset_name": tx.asset_name,
+        "symbol": tx.symbol,
+        "quantity": tx.quantity,
+        "unit_price": tx.unit_price,
+        "fees": tx.fees,
+        "amount": tx.amount,
+        "currency": tx.currency,
+        "price_currency": tx.price_currency,
+        "fx_as_of": tx.fx_as_of,
+        "fx_source": _source(db, tx.fx_as_of, tx.currency, tx.price_currency),
+        "institution": entry.institution.name if entry.institution else None,
+    }
+
+
+_TRANSACTION_LABELS = {
+    "kind": "Entry",
+    "date": "Date",
+    "asset_name": "Asset",
+    "symbol": "Ticker",
+    "isin": "ISIN",
+    "asset_class": "Class",
+    "quantity": "Units",
+    "unit_price": "Price",
+    "fees": "Fees",
+    "currency": "Cash in",
+    "price_currency": "Price in",
+    "amount": "Amount",
+    "institution": "Held at",
+    "cash_institution": "Cash from",
+    "note": "Note",
+}
+
+
+def _transaction_receipt(result: dict) -> list[tuple]:
+    """The amount the app worked out and the day of the rate it took, which
+    the card's own fields cannot show."""
+    return [
+        ("Amount", result.get("amount"), "amount", result.get("currency")),
+        _rate_field(result),
+        ("Held at", result.get("institution"), "text"),
+    ]
+
+
+def _source(db: Session, day: str | None, *codes: str | None) -> str | None:
+    """Whose rate a sum fixed on `day` took (`fx.source_of`), None for none."""
+    return fx.source_of(db, codes, day) if day else None
+
+
+def _rate_field(result: dict) -> tuple:
+    """A receipt's line for the day of the rate a sum was worked out at, with
+    whose rate it was (brief BA). A card confirmed before brief BA kept no
+    `fx_source`, and every rate was the ECB's then. A result with no day
+    shows no line."""
+    source = result.get("fx_source") or "ECB"
+    return (f"At the {source} rate of", result.get("fx_as_of"), "date")
+
+
+# --- change_ledger_entry -------------------------------------------------------------
+#
+# An entry of the ledger, corrected or deleted as the ledger form on the
+# Portfolio page corrects and deletes one (brief AO): a correction is the
+# form's PUT, its amount sent back as the form sends it, through the function
+# its request calls; a deletion is the one function both doors call, which
+# leaves a PAC's occurrence or a dividend's day settled so the catch-up does
+# not write it again (`crud.delete_transaction`). The entry is named as the
+# reader sees it, by its day, its kind, its instrument and, when two match,
+# its amount: never by an id. Each card says what it moves, worked out by the
+# functions the pages read (the cash register and the projection), on the
+# ledger as the change would leave it.
+
+
+class ChangeLedgerEntryArgs(BaseModel):
+    """One entry of their investment ledger, corrected or deleted."""
+
+    action: Literal["correct", "delete"] = Field(
+        ...,
+        description="correct: the entry takes the figures of their statement. delete: the entry goes.",
+    )
+    date: datetime.date = Field(
+        ...,
+        description=(
+            "The entry's day, as the ledger in the picture shows it; for a PAC's buy, the "
+            "day it was bought or the occurrence it is for; for a dividend, its day or its "
+            "ex-date."
+        ),
+    )
+    kind: Literal["buy", "sell", "dividend", "close"] = Field(
+        ..., description="The entry's kind, as the ledger in the picture shows it."
+    )
+    instrument: str = Field(
+        ...,
+        min_length=1,
+        description="Its ticker as the picture shows it, or its name for an entry with no ticker.",
+    )
+    amount: float | None = Field(
+        default=None,
+        description=(
+            "Its amount as the picture shows it, only when two entries share the day, the "
+            "kind and the instrument."
+        ),
+    )
+    new_date: datetime.date | None = Field(
+        default=None,
+        description=(
+            "correct: the day it happened, or null to keep it. For a dividend, the day the "
+            "broker credited it; its ex-date stays, and the app finds it by that."
+        ),
+    )
+    new_quantity: float | None = Field(
+        default=None, gt=0, description="correct: the units, or null to keep them."
+    )
+    new_unit_price: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "correct: the price per unit (a dividend's, per share), in the price's "
+            "currency, or null to keep it."
+        ),
+    )
+    new_fees: float | None = Field(
+        default=None, ge=0, description="correct: the fees, in the cash's currency, or null to keep them."
+    )
+    new_amount: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "correct: the cash the account actually moved, from their statement (for a "
+            "close, what came back). Null keeps a figure they stated, and works out again "
+            "one the app derived."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _what_each_action_needs(self):
+        new = (self.new_date, self.new_quantity, self.new_unit_price, self.new_fees, self.new_amount)
+        if self.action == "correct" and all(v is None for v in new):
+            raise ValueError("correct needs at least one corrected figure.")
+        if self.action == "delete" and any(v is not None for v in new):
+            raise ValueError("delete takes no new figures.")
+        return self
+
+
+def _entry_text(t: models.Transaction) -> str:
+    """An entry in one line, as the ledger in the picture reads."""
+    what = t.symbol or t.asset_name
+    if t.kind == "close":
+        line = f"{t.date} close {what}: {t.amount:.2f} {t.currency} back"
+    else:
+        line = f"{t.date} {t.kind} {t.quantity:g} x {what} = {t.amount:.2f} {t.currency}"
+    if t.kind == "dividend" and t.ex_date and t.ex_date != t.date:
+        line += f", ex-date {t.ex_date}"
+    return line + (" (estimated)" if t.estimated else "")
+
+
+def _ledger_row(db: Session, args: ChangeLedgerEntryArgs) -> models.Transaction:
+    """The entry the reader means, by what they see, or a refusal the model
+    can act on. A PAC's buy answers to its occurrence's day as well as its
+    own, and a dividend to its ex-date (brief AZ), each being on its line in
+    the picture; an entry dated that day is preferred."""
+    rows = crud.get_transactions(db)
+    wanted = args.instrument.strip().casefold()
+    day = args.date.isoformat()
+
+    def named(t: models.Transaction) -> bool:
+        return (t.symbol or "").strip().casefold() == wanted or t.asset_name.strip().casefold() == wanted
+
+    hits = [
+        t for t in rows
+        if t.kind == args.kind and named(t) and day in (t.date, t.plan_occurrence, t.ex_date)
+    ]
+    hits = [t for t in hits if t.date == day] or hits
+    if len(hits) > 1 and args.amount is not None:
+        hits = [t for t in hits if abs(t.amount - args.amount) < 0.005] or hits
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        that_day = "; ".join(_entry_text(t) for t in rows if t.date == day) or "nothing"
+        raise LookupError(
+            f"No {args.kind} of {args.instrument} on {day} is in the ledger. On that day: {that_day}."
+        )
+    raise LookupError(
+        f"{len(hits)} entries match: {'; '.join(_entry_text(t) for t in hits)}. Say which by "
+        "its amount, as the picture shows it."
+    )
+
+
+def _ledger_body(tx: models.Transaction) -> dict:
+    """The body the ledger form PUTs for an entry opened and saved as it is
+    (`Portfolio.tsx`, `startEdit` then `submit`): a close with its proceeds and
+    nothing to price; any other entry with every box the form fills, the
+    ticker upper case, and the amount back only when the stored one is a
+    statement's (`crud.amount_was_stated`), empty, meaning "work it out",
+    otherwise. What the form has no box for (the paying account, the ISIN, the
+    class, the note) it does not send, and it stays as stored."""
+    if tx.kind == "close":
+        return {
+            "kind": "close",
+            "date": tx.date,
+            "institution_id": tx.institution_id,
+            "asset_name": tx.asset_name.strip(),
+            "symbol": (tx.symbol or "").strip().upper() or None,
+            "amount": tx.amount,
+            "currency": tx.currency.strip(),
+        }
+    return {
+        "kind": tx.kind,
+        "date": tx.date,
+        "institution_id": tx.institution_id,
+        "asset_name": tx.asset_name.strip(),
+        "symbol": (tx.symbol or "").strip().upper(),
+        "quantity": tx.quantity,
+        "unit_price": tx.unit_price,
+        "fees": tx.fees or 0,
+        "currency": tx.currency.strip(),
+        "price_currency": (tx.price_currency or tx.currency).strip(),
+        "amount": tx.amount if crud.amount_was_stated(tx) else None,
+    }
+
+
+@dataclass(frozen=True)
+class _LedgerChange:
+    """One card's change to the ledger, worked out once for the card and the
+    write, as `_Ledger` is for a new entry."""
+
+    tx: models.Transaction
+    body: dict | None  # the form's PUT body for a correction; None for a deletion
+    after: models.Transaction | None  # the entry as the correction leaves it, never stored
+
+
+def _refused_body(exc: ValidationError) -> str:
+    """A body the schema refuses, in its own sentences."""
+    return "; ".join(e["msg"].removeprefix("Value error, ") for e in exc.errors())
+
+
+def _ledger_change(db: Session, args: ChangeLedgerEntryArgs) -> _LedgerChange:
+    """The entry, and for a correction the body the form would send for it
+    and the entry as that body would leave it, or a refusal saying why."""
+    tx = _ledger_row(db, args)
+    if args.action == "delete":
+        return _LedgerChange(tx, None, None)
+    if tx.institution_id is None:
+        raise LookupError(
+            "This entry names no account: the ledger form on the Portfolio page saves it once "
+            "one is picked."
+        )
+    if tx.kind == "close" and any(
+        v is not None for v in (args.new_quantity, args.new_unit_price, args.new_fees)
+    ):
+        raise LookupError("A close has its day and what came back, and no units, price or fees.")
+    body = _ledger_body(tx)
+    for field_name, value in (
+        ("date", args.new_date.isoformat() if args.new_date else None),
+        ("quantity", args.new_quantity),
+        ("unit_price", args.new_unit_price),
+        ("fees", args.new_fees),
+        ("amount", args.new_amount),
+    ):
+        if value is not None:
+            body[field_name] = value
+    try:
+        changes = crud.transaction_as_corrected(db, tx, schemas.TransactionWrite(**body))
+    except ValidationError as exc:
+        raise LookupError(_refused_body(exc)) from exc
+    except crud.LedgerRateUnknown as exc:
+        raise LookupError(str(exc)) from exc
+    columns = {c.key: getattr(tx, c.key) for c in models.Transaction.__table__.columns}
+    return _LedgerChange(tx, body, models.Transaction(**{**columns, **changes}))
+
+
+def _units_text(quantity: float | None) -> str:
+    return "none" if not quantity else f"{quantity:g} units"
+
+
+def _price_text(value: float) -> str:
+    """A price as the reader typed it: two decimals at least, more when it
+    has them (a fund at 7.183 is not 7.18)."""
+    whole, _, cents = f"{value:.6f}".partition(".")
+    return f"{whole}.{cents.rstrip('0').ljust(2, '0')}"
+
+
+def _ledger_moves(db: Session, change: _LedgerChange) -> tuple[list[dict], list[str]]:
+    """What the change moves, read by the functions the pages read on the
+    ledger as it would leave it: the paying account's cash today, and for a
+    buy, a sell or a close the units of the entry's position and their
+    average cost, each a line of the diff when it moves. When the account's
+    latest balance or situation already holds the entry, the sentence that
+    says why its cash or its units do not move."""
+    tx, after = change.tx, change.after
+    today = dated.today()
+    conv = fx.Converter(db, on=today)
+    inputs = positions.load_projection_inputs(db)
+    ledger = [t for t in inputs.transactions if t.id != tx.id] + ([after] if after is not None else [])
+    days = {tx.date} | ({after.date} if after is not None else set())
+    lines: list[dict] = []
+    said: list[str] = []
+    base = conv.base
+
+    account_id = tx.cash_institution_id or tx.institution_id
+    account = crud.get_institution(db, account_id) if account_id is not None else None
+    if account is not None:
+        on = datetime.date.fromisoformat(today)
+        now = analytics.compute_cash_position(db, account.id, on, conv)
+        then = analytics.compute_cash_position(db, account.id, on, conv, transactions=ledger)
+        if round(now["projected"], 2) != round(then["projected"], 2):
+            lines.append({
+                "field": f"Cash at {account.name} today",
+                "now": f"{now['projected']:.2f} {base}",
+                "proposed": f"{then['projected']:.2f} {base}",
+            })
+        elif after is None or after.amount != tx.amount or after.date != tx.date:
+            anchor = now["anchor_date"]
+            if anchor is None:
+                said.append(f"{account.name} has no balance on record, so no cash is projected from it.")
+            elif all(d <= anchor.isoformat() for d in days):
+                said.append(
+                    f"{account.name}'s latest balance, of {anchor.isoformat()}, already holds it, so "
+                    "its cash today does not move."
+                )
+
+    holder = crud.get_institution(db, tx.institution_id) if tx.institution_id is not None else None
+    if tx.kind in ("buy", "sell", "close") and holder is not None:
+        what = tx.symbol or tx.asset_name
+
+        def position(projected):
+            return next(
+                (
+                    p for p in projected
+                    if p.institution_id == holder.id
+                    and (p.symbol == tx.symbol if tx.symbol else p.asset_name == tx.asset_name)
+                ),
+                None,
+            )
+
+        before = position(positions.project(db, conv, inputs=inputs))
+        later = position(positions.project(db, conv, inputs=replace(inputs, transactions=ledger)))
+        held = [p.quantity if p is not None else None for p in (before, later)]
+        if _units_text(held[0]) != _units_text(held[1]):
+            lines.append({
+                "field": f"{what} held at {holder.name}",
+                "now": _units_text(held[0]),
+                "proposed": _units_text(held[1]),
+            })
+        elif after is None or after.quantity != tx.quantity or after.date != tx.date:
+            snap = positions.latest_snapshot_by_institution(db, today).get(holder.id)
+            if snap is not None and all(d <= snap.date for d in days):
+                said.append(
+                    f"Its situation of {snap.date} at {holder.name} already holds its units, so "
+                    "they do not move."
+                )
+        costs = [
+            p.book_value / p.quantity if p is not None and p.quantity else None for p in (before, later)
+        ]
+
+        def paid(p) -> str:
+            """What the average is an average of, when not only prices paid
+            (brief AV): a blend's average read as a cost."""
+            if p.cost_known or not p.book_value:
+                return ""
+            if not p.book_paid:
+                return ", no cost on record"
+            return f", {p.book_paid / p.book_value * 100:.0f}% of it paid"
+
+        if None not in costs and f"{costs[0]:.2f}" != f"{costs[1]:.2f}":
+            lines.append({
+                "field": f"Average cost of {what} at {holder.name}",
+                "now": f"{costs[0]:.2f} {base}{paid(before)}",
+                "proposed": f"{costs[1]:.2f} {base}{paid(later)}",
+            })
+    return lines, said
+
+
+def _propose_ledger_change(db: Session, args: ChangeLedgerEntryArgs) -> Proposal:
+    """A ledger entry rewritten or deleted, so the diff: what changes on the
+    entry, what it moves, and what the catch-up does after it.
+
+    Its fingerprint is the entry as stored and everything the card says, the
+    figures it moves included: anything that would make the card say
+    something else makes it stale."""
+    change = _ledger_change(db, args)
+    tx = change.tx
+    what = tx.symbol or tx.asset_name
+    moves, why = _ledger_moves(db, change)
+    plan = db.get(models.AccumulationPlan, tx.plan_id) if tx.plan_id is not None else None
+    pac_buy = plan is not None and tx.kind == "buy" and bool(tx.plan_occurrence)
+
+    if change.after is None:
+        said = ["The entry goes, and nothing brings it back."]
+        diff = [{"field": "Entry", "now": _entry_text(tx), "proposed": "deleted"}, *moves]
+        if pac_buy:
+            others = sorted({
+                t.symbol or t.asset_name
+                for t in crud.get_transactions(db)
+                if t.id != tx.id and t.plan_id == tx.plan_id and t.plan_occurrence == tx.plan_occurrence
+            })
+            if others:
+                said.append(
+                    f"Its occurrence of {tx.plan_occurrence} keeps its other buy ({', '.join(others)}), "
+                    f'so the PAC "{plan.name}" does not buy {what} for it again.'
+                )
+            else:
+                said.append(f'The PAC "{plan.name}" will not buy its occurrence of {tx.plan_occurrence} again.')
+            if plan.carried_remainder:
+                source = (
+                    crud.get_institution(db, plan.source_institution_id)
+                    if plan.source_institution_id is not None
+                    else None
+                )
+                where = f"{source.name}'s cash" if source is not None else "the account's cash"
+                carried = f"{plan.carried_remainder:.2f} {plan.currency}"
+                said.append(f"The plan's carry, {carried}, goes to zero, and that money stays in {where}.")
+                diff.append({"field": f"Carried by {plan.name}", "now": carried, "proposed": f"0.00 {plan.currency}"})
+            said.append("If your broker did buy it, correct the entry with the figures from your statement instead.")
+        elif tx.kind == "dividend" and tx.symbol and tx.institution_id is not None:
+            holder = crud.get_institution(db, tx.institution_id)
+            which = (
+                f"the dividend of {tx.symbol} with ex-date {tx.ex_date} at {holder.name}"
+                if tx.ex_date
+                else f"a dividend of {tx.symbol} at {holder.name} on {tx.date}"
+            )
+            said.append(
+                f"The app will not record {which} again. If your broker paid it, correct it "
+                "with the credit from your statement instead."
+            )
+        said.extend(why)
+        title = f"delete {tx.kind}: {_entry_text(tx)}"
+    else:
+        after = change.after
+        fields = [("Day", tx.date, after.date)]
+        if tx.kind != "close":
+            fields += [
+                ("Units", f"{tx.quantity:g}", f"{after.quantity:g}"),
+                ("Price", f"{_price_text(tx.unit_price)} {tx.price_currency}", f"{_price_text(after.unit_price)} {after.price_currency}"),
+                ("Fees", f"{tx.fees or 0:.2f} {tx.currency}", f"{after.fees or 0:.2f} {after.currency}"),
+            ]
+        fields.append(("Amount", f"{tx.amount:.2f} {tx.currency}", f"{after.amount:.2f} {after.currency}"))
+        if tx.estimated:
+            fields.append(("Estimated", "yes", "no"))
+        diff = [{"field": f, "now": now, "proposed": then} for f, now, then in fields if now != then]
+        if not diff:
+            # An estimated entry confirmed as it is still changes: it is no
+            # longer an estimate, and its row says so.
+            raise LookupError(f"The entry already says that: {_entry_text(tx)}. Nothing would change.")
+        diff.extend(moves)
+        said = [
+            "A correction: the entry takes these figures"
+            + (", and it is no longer marked estimated." if tx.estimated else ".")
+        ]
+        if (
+            crud.amount_was_stated(tx)
+            and args.new_amount is None
+            and (after.quantity, after.unit_price, after.fees) != (tx.quantity, tx.unit_price, tx.fees)
+        ):
+            said.append(
+                f"Its amount, {tx.amount:.2f} {tx.currency}, is one stated rather than worked out, so "
+                "it stays as it is, as the ledger form keeps it: say the new amount if it changed."
+            )
+        if pac_buy:
+            keeps = (
+                f'It stays the buy of the PAC "{plan.name}" for its occurrence of '
+                f"{tx.plan_occurrence}, so the next start does not buy that occurrence again"
+            )
+            if plan.carried_remainder:
+                keeps += (
+                    f", and the plan's carry, {plan.carried_remainder:.2f} {plan.currency}, stays as "
+                    "it is: the plan's own reckoning of what whole units could not place at the estimate"
+                )
+            said.append(keeps + ".")
+        if tx.kind == "dividend" and tx.ex_date and after.date != tx.date:
+            said.append(
+                f"Its ex-date stays {tx.ex_date}: the app finds this dividend by that day, "
+                "whatever day it is dated."
+            )
+        said.extend(why)
+        title = f"correct {tx.kind}: {tx.date} {what}" + (
+            f", {tx.amount:.2f} → {after.amount:.2f} {tx.currency}" if after.amount != tx.amount else ""
+        )
+    stored = {c.key: getattr(tx, c.key) for c in models.Transaction.__table__.columns if c.key != "created_at"}
+    return Proposal(
+        title=title,
+        fingerprint=json.dumps({"entry": stored, "diff": diff, "said": said}, sort_keys=True, default=str),
+        confirmation="diff",
+        consequence=" ".join(said),
+        diff=diff,
+        touches=f"the {tx.kind} of {tx.date} {what}",
+    )
+
+
+def _change_ledger_entry(db: Session, args: ChangeLedgerEntryArgs) -> dict:
+    """The correction through the function the form's PUT calls, or the
+    deletion through the one both doors call."""
+    change = _ledger_change(db, args)
+    tx = change.tx
+    if change.body is None:
+        gone = _entry_text(tx)
+        crud.delete_transaction(db, tx.id)
+        return {"deleted": gone}
+    kept = crud.update_transaction(db, tx.id, schemas.TransactionWrite(**change.body))
+    return {
+        "entry": _entry_text(kept),
+        "amount": kept.amount,
+        "currency": kept.currency,
+        "fx_as_of": kept.fx_as_of,
+        "fx_source": _source(db, kept.fx_as_of, kept.currency, kept.price_currency),
+    }
+
+
+_LEDGER_LABELS = {
+    "action": "",
+    "date": "Entry of",
+    "kind": "Kind",
+    "instrument": "Instrument",
+    "amount": "Its amount",
+    "new_date": "New day",
+    "new_quantity": "New units",
+    "new_unit_price": "New price",
+    "new_fees": "New fees",
+    "new_amount": "New amount",
+}
+
+
+def _ledger_receipt(result: dict) -> list[tuple]:
+    """The entry as the ledger reads it now, or the one that went."""
+    if "deleted" in result:
+        return [("Deleted", result["deleted"], "text")]
+    return [
+        ("Now", result.get("entry"), "text"),
+        _rate_field(result),
+    ]
+
+
+def _ledger_done(card: dict) -> str:
+    return {"correct": "Corrected", "delete": "Deleted"}.get(
+        (card.get("arguments") or {}).get("action"), "Corrected"
+    )
+
+
+# --- update_profile ----------------------------------------------------------
+
+# The Profile form's own questions as the model is told them: each one's key,
+# its wording and what it takes, from the list the form draws itself from. A
+# question nobody has answered yet is nowhere in the picture, so without this
+# the model could neither name it nor know that it takes yes or no.
+_FORM_QUESTIONS = "; ".join(
+    f'{q.key} "{q.text}" ({questionnaire.takes(q)})' for q in questionnaire.QUESTIONS
+)
+
+
+class UpdateProfileArgs(BaseModel):
+    """One answer in the reader's questionnaire, written by key, or deleted."""
+
+    # Brief AN: an answer the chat recorded was shown nowhere and could not be
+    # taken back. The Profile page shows them now, and the chat deletes one
+    # as the page's Save would.
+    action: Literal["answer", "delete"] = Field(
+        default="answer",
+        description="answer: record or change the answer. delete: take the answer on record away.",
+    )
+    question: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "The question this answers. For a question of the Profile form, its "
+            "wording as listed under question_key. To CHANGE something already "
+            "on record, copy its wording from the profile section of the picture "
+            "you were given, exactly: a paraphrase files a second copy of the "
+            "same question under a new name. To record something the form never "
+            "asked, write the question you actually put to the reader."
+        ),
+    )
+    # Not `MaybeText`: "none" can be an answer ("How many dependants?").
+    answer: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "What they said, in their words, not summarised into a category. "
+            "The questionnaire is already full of boxes; what it is missing is "
+            "what a box cannot hold. A question of the Profile form takes only "
+            "what its entry under question_key says, written as it is written "
+            "there, and anything else is refused. Required to answer; null to delete."
+        ),
+    )
+    topic: MaybeText = Field(
+        default=None,
+        description=(
+            "Which heading to file a NEW question under: reuse one already in "
+            "the profile section when it fits. Ignored for a question that is "
+            "already on record, and for one of the Profile form's: those keep "
+            "the topic they have."
+        ),
+    )
+    question_key: MaybeText = Field(
+        default=None,
+        description=(
+            "For a question of the Profile form, its key; null for any other "
+            "question, which the question above then identifies. The form's "
+            "questions, as key, wording and what each takes: " + _FORM_QUESTIONS + "."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _an_answer_to_record(self):
+        if self.action == "answer" and not (self.answer or "").strip():
+            raise ValueError("answer needs the answer; to take one away, the action is delete.")
+        return self
+
+
+def _key(text: str) -> str:
+    """A question reduced to the shape a `question_key` has.
+
+    Two jobs, and them being one function is the point: it mints the key for a
+    question the form never asked, and it is the comparison that finds the row
+    a question already has. So "Your age?" and "your age" reach the same row,
+    and a new key cannot be minted for a question that is already there under a
+    spelling differing only in punctuation."""
+    letters = "".join(c if c.isalnum() else " " for c in text.casefold())
+    return "_".join(letters.split())[:60].strip("_")
+
+
+def _profile_row(
+    db: Session, args: UpdateProfileArgs
+) -> tuple[str, models.SurveyResponse | None]:
+    """The key this answer belongs under, and the row already there, if any.
+
+    A question of the Profile form is found by its key, or by its wording even
+    while nobody has answered it: it has no row to be found by then, and a
+    first answer to "Your age?" used to be filed under a key minted from those
+    words, which the form never shows and nothing checks. The form's question
+    wins over a row of the chat's that happens to read the same."""
+    rows = crud.get_survey_responses(db)
+    if (args.question_key or "").strip():
+        key = _key(args.question_key)
+    else:
+        wanted = _key(args.question)
+        form = next((q.key for q in questionnaire.QUESTIONS if _key(q.text) == wanted), None)
+        match = next((r for r in rows if r.question and _key(r.question) == wanted), None)
+        key = form or (match.question_key if match is not None else wanted)
+    if not key:
+        raise ValueError(f"{args.question!r} has no letters or digits to make a key from.")
+    return key, next((r for r in rows if r.question_key == key), None)
+
+
+def _stored_answer(key: str, answer: str) -> str:
+    """The answer as it is written under `key`: as the form stores it when the
+    Profile form asks that question (`questionnaire.fit`, which refuses what
+    the question does not take), else the words as they were given."""
+    form = questionnaire.BY_KEY.get(key)
+    return questionnaire.fit(form, answer) if form is not None else answer.strip()
+
+
+# What an overwritten answer costs, said on the card. Not the snapshot
+# sentence: a survey answer carries the day it was recorded and no history,
+# and nothing is anchored after it to move. There is only the previous answer
+# and its day, and afterwards there is not.
+_PROFILE_CONSEQUENCE = (
+    "This replaces the answer on record and the day it was recorded. Answers are "
+    "not kept in history, so the previous one does not survive anywhere."
+)
+
+
+def _propose_profile(db: Session, args: UpdateProfileArgs) -> Proposal:
+    """A new answer is an append; a changed one is a rewrite, and the two do
+    not get the same confirmation.
+
+    The rule is `Proposal`'s own and it is about REVERSIBILITY, not about size
+    or about which table is touched. Answering a question nobody had answered
+    adds a row and takes nothing away — light. Changing one destroys the only
+    copy of what the reader used to say, and the confidant reads exactly this
+    text to work out who they are, so it gets the diff.
+
+    The fingerprint is what that question says NOW, which is also what the diff
+    was drawn from: the two go stale together, so a card can never be confirmed
+    against a sentence other than the one the reader was shown.
+
+    A question of the Profile form is drawn with the form's own wording, and
+    only with an answer it takes: anything else is refused before any card is
+    drawn (`questionnaire.AnswerRefused`).
+
+    A delete is the third shape, with its diff (`_propose_profile_delete`).
+
+    A follow-up the form hides with the answers on record is refused, naming
+    the question to answer first; an answer that hides a follow-up answered
+    on record takes it away as the page's Save would (`_follow_ups`)."""
+    if args.action == "delete":
+        return _propose_profile_delete(db, args)
+    key, row = _profile_row(db, args)
+    answer = _stored_answer(key, args.answer)
+    form = questionnaire.BY_KEY.get(key)
+    if row is not None and row.question:
+        asked = row.question.strip()
+    else:
+        asked = (form.text if form is not None else args.question).strip()
+    touches = f'the answer to "{asked}"'
+    hidden = _follow_ups(db, key, answer)
+    if hidden:
+        return _propose_profile_hiding(db, row, asked, answer, hidden, touches)
+    if row is None or not (row.answer or "").strip():
+        return Proposal(
+            title=f"profile · {asked}: {answer}",
+            fingerprint=f"{key}=<unanswered>",
+            touches=touches,
+        )
+    return Proposal(
+        title=f"profile · {asked}: {row.answer} → {answer}",
+        fingerprint=f"{key}={row.answer}",
+        confirmation="diff",
+        consequence=_PROFILE_CONSEQUENCE,
+        diff=[{"field": asked, "now": row.answer, "proposed": answer}],
+        touches=touches,
+    )
+
+
+def _update_profile(db: Session, args: UpdateProfileArgs) -> dict:
+    """One answer, by key, leaving the other twenty-six where they are.
+
+    `crud.upsert_survey_response` is the only write path that can say that.
+    The other one deletes the whole questionnaire and reinserts it, which is
+    right for a form rendering every question and wrong for anything that knows
+    about one.
+
+    A question already on record keeps its own wording and its own topic: the
+    form owns those, and letting a paraphrase from a conversation rewrite the
+    label would change the question under an answer given to the old one. A
+    question of the Profile form answered for the first time takes the form's
+    wording and topic, and only an answer the form would store.
+
+    A delete goes through the page's own write instead (`_delete_profile`),
+    and so does an answer that hides a follow-up answered on record: the
+    page's Save drops that follow-up, so the card writes what the Save
+    writes."""
+    if args.action == "delete":
+        return _delete_profile(db, args)
+    key, row = _profile_row(db, args)
+    answer = _stored_answer(key, args.answer)
+    form = questionnaire.BY_KEY.get(key)
+    fresh = row is None or not row.question
+    # Read off the row BEFORE the write. `upsert_survey_response` mutates this
+    # same identity-mapped instance, so asking it afterwards what it used to
+    # say returns what it says now — a receipt that reports the change as
+    # having replaced itself.
+    replaced = row.answer if row is not None else None
+    hidden = _follow_ups(db, key, answer)
+    if hidden:
+        crud.replace_survey_responses(db, _profile_as_saved(db, answered=(key, answer)))
+        return {
+            "question_key": key,
+            "topic": form.topic,
+            "question": form.text,
+            "answer": answer,
+            "replaced": replaced,
+            "deleted": [
+                {"question_key": r.question_key, "question": r.question, "answer": r.answer}
+                for r in hidden
+            ],
+        }
+    if form is not None:
+        question, topic = form.text, form.topic
+    else:
+        question, topic = args.question.strip(), (args.topic or "").strip() or None
+    saved = crud.upsert_survey_response(
+        db,
+        key,
+        answer,
+        question=question if fresh else None,
+        topic=topic if fresh else None,
+    )
+    return {
+        "question_key": saved.question_key,
+        "topic": saved.topic,
+        "question": saved.question,
+        "answer": saved.answer,
+        "replaced": replaced,
+    }
+
+
+def _follow_ups(db: Session, key: str, answer: str) -> list[models.SurveyResponse]:
+    """The answers on record to follow-ups that `answer` under `key` would
+    hide, or a refusal when `key` is itself a follow-up the form hides with
+    the answers on record.
+
+    The Profile page's Save sends only the questions the form shows, so an
+    answer to a hidden follow-up was dropped at the next Save of anything on
+    that page, said nowhere (found by brief AN). The chat therefore never
+    writes one: it names the question to answer first. And an answer that
+    hides a follow-up already answered (home_buy from yes to no) takes that
+    answer away as the Save would, the card saying so."""
+    rows = crud.get_survey_responses(db)
+    answers = {r.question_key: r.answer for r in rows if (r.answer or "").strip()}
+    asked = questionnaire.BY_KEY.get(key)
+    if asked is not None and not questionnaire.visible(asked, answers):
+        first = questionnaire.BY_KEY[asked.show_if.key]
+        said = answers.get(first.key)
+        now = f'the answer on record is "{said}"' if said else "nothing is on record for it"
+        raise questionnaire.AnswerRefused(
+            f'"{asked.text}" is asked by the Profile form only when "{first.text}" is '
+            f'"{asked.show_if.equals}", and {now}: answer "{first.text}" first, so no '
+            "card was drawn."
+        )
+    waiting = {
+        q.key for q in questionnaire.QUESTIONS
+        if q.show_if is not None and q.show_if.key == key and answer != q.show_if.equals
+    }
+    return [r for r in rows if r.question_key in waiting and (r.answer or "").strip()]
+
+
+def _propose_profile_hiding(
+    db: Session, row, asked: str, answer: str, hidden: list, touches: str
+) -> Proposal:
+    """An answer that hides follow-ups answered on record: its diff names them
+    going, and its fingerprint is the whole questionnaire, which the Save's
+    body is drawn from."""
+    form = questionnaire.BY_KEY[hidden[0].question_key]
+    names = " and ".join(f'"{(r.question or r.question_key).strip()}"' for r in hidden)
+    answers = "its answer goes" if len(hidden) == 1 else "their answers go"
+    drops = "drops it" if len(hidden) == 1 else "drops them"
+    replaced = row is not None and (row.answer or "").strip()
+    return Proposal(
+        title=(
+            f"profile · {asked}: {row.answer} → {answer}" if replaced else f"profile · {asked}: {answer}"
+        ),
+        fingerprint=json.dumps(
+            [(r.question_key, r.question, r.answer) for r in crud.get_survey_responses(db)]
+        ),
+        confirmation="diff",
+        consequence=(
+            (f"{_PROFILE_CONSEQUENCE} " if replaced else "")
+            + f'The form asks {names} only when "{asked}" is "{form.show_if.equals}", so '
+            f"{answers} too, as the Profile page's Save {drops}."
+        ),
+        diff=[
+            {"field": asked, "now": row.answer if replaced else None, "proposed": answer},
+            *(
+                {"field": (r.question or r.question_key).strip(), "now": r.answer, "proposed": "deleted"}
+                for r in hidden
+            ),
+        ],
+        touches=touches,
+    )
+
+
+def _profile_as_saved(
+    db: Session, without: str | None = None, answered: tuple[str, str] | None = None
+) -> list[schemas.SurveyAnswer]:
+    """What the Profile page's Save sends once the answer under `without` is
+    taken away, or the form's question `answered[0]` is answered
+    `answered[1]`, and nothing else is touched (`save` in `Profile.tsx`): the
+    form's questions it shows with an answer, in its order, with its wording
+    and topic; then every other answer on record, as stored. A follow-up the
+    form no longer shows is left out, as the form leaves it out."""
+    rows = crud.get_survey_responses(db)
+    answers = {
+        r.question_key: r.answer for r in rows if r.answer is not None and r.question_key != without
+    }
+    if answered is not None:
+        answers[answered[0]] = answered[1]
+    own = {q.key for q in questionnaire.QUESTIONS}
+    form = [
+        schemas.SurveyAnswer(question_key=q.key, topic=q.topic, question=q.text, answer=answers[q.key])
+        for q in questionnaire.QUESTIONS
+        if questionnaire.visible(q, answers) and (answers.get(q.key) or "") != ""
+    ]
+    others = [
+        schemas.SurveyAnswer(question_key=r.question_key, topic=r.topic, question=r.question, answer=r.answer)
+        for r in rows
+        if r.question_key not in own and r.question_key != without and (r.answer or "").strip()
+    ]
+    return form + others
+
+
+def _profile_delete(db: Session, args: UpdateProfileArgs) -> tuple[models.SurveyResponse, list, list]:
+    """The answer to delete, the Save's body without it, and every answer that
+    body leaves out (the one asked for first), or a refusal."""
+    key, row = _profile_row(db, args)
+    if row is None or not (row.answer or "").strip():
+        raise LookupError(f"There is no answer on record to {args.question!r}, so there is nothing to delete.")
+    body = _profile_as_saved(db, without=key)
+    kept = {a.question_key for a in body}
+    gone = [row] + [
+        r for r in crud.get_survey_responses(db)
+        if r.question_key != key and (r.answer or "").strip() and r.question_key not in kept
+    ]
+    return row, body, gone
+
+
+def _propose_profile_delete(db: Session, args: UpdateProfileArgs) -> Proposal:
+    """A delete takes away the only copy of what the reader said, so its diff
+    and the sentence that nothing brings it back. The fingerprint is the whole
+    questionnaire, which the Save's body is drawn from."""
+    row, _, gone = _profile_delete(db, args)
+    asked = (row.question or row.question_key).strip()
+    also = ""
+    if len(gone) > 1:
+        follow = "; ".join(f'"{(r.question or r.question_key).strip()}"' for r in gone[1:])
+        also = (
+            " Taken away as the Profile page saves, it takes with it the answers to "
+            f"questions the form no longer shows without it: {follow}."
+        )
+    return Proposal(
+        title=f"profile · delete the answer to {asked}",
+        fingerprint=json.dumps(
+            [(r.question_key, r.question, r.answer) for r in crud.get_survey_responses(db)]
+        ),
+        confirmation="diff",
+        consequence=(
+            "The answer goes from their questionnaire, and nothing brings it back: the "
+            f"chat and the analyses no longer read it.{also}"
+        ),
+        diff=[
+            {"field": (r.question or r.question_key).strip(), "now": r.answer, "proposed": "deleted"}
+            for r in gone
+        ],
+        touches=f'the answer to "{asked}"',
+    )
+
+
+def _delete_profile(db: Session, args: UpdateProfileArgs) -> dict:
+    """The Profile page's own write, `crud.replace_survey_responses`, with
+    the body its Save sends without this answer."""
+    row, body, gone = _profile_delete(db, args)
+    deleted = [
+        {"question_key": r.question_key, "question": r.question, "answer": r.answer} for r in gone
+    ]
+    crud.replace_survey_responses(db, body)
+    return {"deleted": deleted}
+
+
+_PROFILE_LABELS = {
+    "action": "",
+    "question": "Question",
+    "answer": "Answer",
+    "topic": "Topic",
+    # The app's key for a question, not a word of the reader's: not shown.
+    "question_key": "",
+}
+
+
+def _profile_receipt(result: dict) -> list[tuple]:
+    gone = [
+        ("Deleted", (r.get("question") or r.get("question_key")), "text")
+        for r in result.get("deleted") or []
+    ]
+    if "answer" not in result:
+        return gone
+    return [
+        ("Answer now", result.get("answer"), "text"),
+        ("It replaced", result.get("replaced") or "nothing, it is a new answer", "text"),
+        *gone,
+    ]
+
+
+def _profile_done(card: dict) -> str:
+    return "Deleted" if (card.get("arguments") or {}).get("action") == "delete" else "Recorded"
+
+
+# --- write_flow ----------------------------------------------------------------
+#
+# An income or an expense, written as the Cash flow page writes it (brief AN):
+# through the schema its form posts (`IncomeSourceCreate`, `ExpenseCreate`) and
+# the crud function its request calls, with the body the form would send built
+# from the line as it is stored (`_form_body`). The form sends every field it
+# has a box for and no note, so a card writes the same, and a note on a line
+# survives every card as it survives every save of the form.
+#
+# Five actions on one kind of record, in one tool: the fields are the same
+# record's in each, and five declarations would be paid for by the first turn
+# of every conversation.
+
+# The form's choices (`CashFlow.tsx`), which the schemas' descriptions list too.
+_FLOW_CATEGORIES = {
+    "income": ("salary", "freelance", "business", "rental", "dividends", "interest", "pension", "other"),
+    "expense": (
+        "housing", "food", "transport", "utilities", "health", "insurance", "debt",
+        "leisure", "education", "other",
+    ),
+}
+_ANY_FLOW_CATEGORY = Literal[
+    "salary", "freelance", "business", "rental", "dividends", "interest", "pension",
+    "housing", "food", "transport", "utilities", "health", "insurance", "debt",
+    "leisure", "education", "other",
+]
+
+
+class WriteFlowArgs(BaseModel):
+    """One income or expense: added, corrected, changed from a day, ended or
+    deleted."""
+
+    action: Literal["add", "correct", "change_from", "end", "delete"] = Field(
+        ...,
+        description=(
+            "add: a new line. correct: the line was recorded wrong from the start, so "
+            "every payment it counts takes the new figures, past ones included. "
+            "change_from: its figures changed on a day (a raise, a new rent): the line "
+            "on record keeps its past and ends with its last payment before "
+            "first_payment, and a new line starts on first_payment. end: it stops, its "
+            "last payment being the last one on or before `end`. delete: the line goes "
+            "with every payment it counts. When their words could be a correction or a "
+            "change from a day, ask which before drawing a card."
+        ),
+    )
+    side: Literal["income", "expense"]
+    name: str = Field(
+        ...,
+        min_length=1,
+        description="add: the new line's name. Otherwise the line on record, as the picture names it.",
+    )
+    on_record_from: datetime.date | None = Field(
+        default=None,
+        description=(
+            "Only when two lines on record share the name: the first payment of the "
+            "one meant, as the picture shows it."
+        ),
+    )
+    account: MaybeText = Field(
+        default=None,
+        description=(
+            "The institution its cash is credited to (income) or paid from "
+            "(expense). add: null for a line on no account. correct, change_from: "
+            "an account other than the line's moves it there."
+        ),
+    )
+    amount: float | None = Field(
+        default=None,
+        ge=0,
+        description="Per payment. add: required. correct, change_from: the new figure, or null to keep it.",
+    )
+    currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description="add: null proposes the account's. correct, change_from: null keeps it.",
+    )
+    frequency: Literal["monthly", "quarterly", "semiannual", "annual", "one_off"] | None = Field(
+        default=None,
+        description="add: null is monthly, as on the form. correct, change_from: null keeps it.",
+    )
+    first_payment: datetime.date | None = Field(
+        default=None,
+        description=(
+            "The day it is first paid, which is also the day of the month it repeats "
+            "on. add: required. change_from: required, the first payment at the new "
+            "figures. correct: a corrected first payment, or null."
+        ),
+    )
+    end: datetime.date | None = Field(
+        default=None,
+        description="The last day it can be paid. end: required. add, correct: optional.",
+    )
+    kind: Literal["active", "passive"] | None = Field(
+        default=None, description="An income's: active stops when they stop working, passive does not."
+    )
+    nature: Literal["essential", "discretionary"] | None = Field(
+        default=None, description="An expense's: whether they could stop paying it."
+    )
+    category: _ANY_FLOW_CATEGORY | None = Field(
+        default=None, description="One of the side's categories, as the form lists them."
+    )
+
+    @model_validator(mode="after")
+    def _what_each_action_needs(self):
+        changes = (
+            self.amount, self.currency, self.frequency, self.account,
+            self.kind, self.nature, self.category,
+        )
+        if self.action == "add" and (self.amount is None or self.first_payment is None):
+            raise ValueError("add needs the amount and the first payment.")
+        if self.action == "change_from":
+            if self.first_payment is None:
+                raise ValueError("change_from needs first_payment, the first payment at the new figures.")
+            if all(c is None for c in changes):
+                raise ValueError("change_from needs at least one new figure.")
+        if self.action == "correct" and all(
+            c is None for c in (*changes, self.first_payment, self.end)
+        ):
+            raise ValueError("correct needs at least one corrected field.")
+        if self.action == "end" and self.end is None:
+            raise ValueError("end needs `end`, the last day it can be paid.")
+        if self.side == "income" and self.nature is not None:
+            raise ValueError("nature is an expense's; an income is active or passive (kind).")
+        if self.side == "expense" and self.kind is not None:
+            raise ValueError("kind is an income's; an expense is essential or discretionary (nature).")
+        if self.category is not None and self.category not in _FLOW_CATEGORIES[self.side]:
+            raise ValueError(
+                f"{self.category!r} is not an {self.side} category. The form's: "
+                + ", ".join(_FLOW_CATEGORIES[self.side])
+                + "."
+            )
+        return self
+
+
+@dataclass(frozen=True)
+class _FlowSide:
+    """What tells an income from an expense, for the one tool that writes both."""
+
+    model: type
+    schema: type[BaseModel]
+    create: Callable
+    update: Callable
+    delete: Callable
+    tag: str  # the field the two vocabularies disagree on: kind | nature
+    noun: str
+    moves: str  # how its cash moves on its account
+
+
+_FLOW_SIDES = {
+    "income": _FlowSide(
+        models.IncomeSource, schemas.IncomeSourceCreate, crud.create_income_source,
+        crud.update_income_source, crud.delete_income_source, "kind", "income", "credited to",
+    ),
+    "expense": _FlowSide(
+        models.Expense, schemas.ExpenseCreate, crud.create_expense,
+        crud.update_expense, crud.delete_expense, "nature", "expense", "paid from",
+    ),
+}
+
+
+def _form_body(row, side: _FlowSide) -> dict:
+    """The body the Cash flow form sends for a line as stored, when nothing in
+    it is touched (`toPayload` in `CashFlow.tsx`): every field it has a box
+    for, a blank one as null, and no note."""
+    return {
+        "name": row.name.strip(),
+        "category": row.category or None,
+        "amount": row.amount,
+        "currency": row.currency,
+        "frequency": row.frequency or None,
+        "institution_id": row.institution_id,
+        "start_date": row.start_date or None,
+        "end_date": row.end_date or None,
+        side.tag: getattr(row, side.tag) or None,
+    }
+
+
+def _flow_line_text(row, side: _FlowSide, db: Session) -> str:
+    """A line as the picture shows it, for a refusal the model reads."""
+    account = crud.get_institution(db, row.institution_id) if row.institution_id else None
+    where = f", {side.moves} {account.name}" if account is not None else ", on no account"
+    since = f", first paid {row.start_date}" if row.start_date else ""
+    until = f", until {row.end_date}" if row.end_date else ""
+    return f"{row.name} {row.amount:.2f} {row.currency} {row.frequency or 'monthly'}{where}{since}{until}"
+
+
+def _flow_row(db: Session, args: WriteFlowArgs, side: _FlowSide):
+    """The line on record the card is about, or a refusal the model can act on.
+
+    By name, as the picture names it; then, where two lines share it, by the
+    first payment the picture shows for each, by the account, and by being
+    still in force or to come (a raise leaves the old line ended beside the
+    new one, under one name)."""
+    rows = list(db.scalars(select(side.model).order_by(side.model.id)))
+    wanted = args.name.strip().casefold()
+    hits = [r for r in rows if r.name.strip().casefold() == wanted]
+    if not hits:
+        names = ", ".join(sorted({r.name for r in rows})) or "none"
+        raise LookupError(f"There is no {side.noun} called {args.name!r}. On record: {names}.")
+    if len(hits) > 1 and args.on_record_from is not None:
+        hits = [r for r in hits if r.start_date == args.on_record_from.isoformat()] or hits
+    if len(hits) > 1 and args.account:
+        inst = _institution(db, args.account)
+        hits = [r for r in hits if r.institution_id == inst.id] or hits
+    if len(hits) > 1:
+        today = dated.today()
+        hits = [r for r in hits if analytics.flow_status(r, today) != "ended"] or hits
+    if len(hits) > 1:
+        lines = "; ".join(_flow_line_text(r, side, db) for r in hits)
+        raise LookupError(
+            f"{len(hits)} {side.noun} lines are called {args.name!r}: {lines}. Say which "
+            "by its first payment (on_record_from)."
+        )
+    return hits[0]
+
+
+def _payment_days(first: datetime.date, frequency: str | None) -> str:
+    """When a line is paid, from its first payment, in words."""
+    if frequency == "one_off":
+        return f"Paid once, on {first.isoformat()}."
+    every = {
+        "quarterly": "every three months",
+        "semiannual": "every six months",
+        "annual": "every year",
+    }.get(frequency or "monthly", "every month")
+    if frequency == "annual":
+        return f"First paid on {first.isoformat()}, then on the same day {every}."
+    short = " (the last day of a shorter month)" if first.day > 28 else ""
+    return f"First paid on {first.isoformat()}, then on day {first.day}{short} {every}."
+
+
+def _in_the_balance(db: Session, institution_id: int | None) -> str:
+    """What a line's payments do to its account's cash, as the projection
+    counts them: those up to the account's latest balance are already in it."""
+    if institution_id is None:
+        return (
+            "It is on no account, so it moves no account's cash; it counts in the "
+            "monthly figures."
+        )
+    account = crud.get_institution(db, institution_id)
+    anchors = crud.get_cash_anchors_for_institution(db, institution_id)
+    if not anchors:
+        return f"{account.name} has no balance on record yet, so no cash is projected from it."
+    latest = anchors[-1].date
+    return (
+        f"Payments dated up to {latest}, the day of {account.name}'s latest balance, "
+        "are already in that balance; only those after it move its cash."
+    )
+
+
+def _last_payment(row, on_or_before: datetime.date) -> datetime.date | None:
+    """A line's last payment on or before a day, as the projection places its
+    payments (`analytics.recurrence`, a blank frequency as monthly), or None
+    when it has none by then."""
+    if not row.start_date:
+        return None
+    first = datetime.date.fromisoformat(row.start_date)
+    if first > on_or_before:
+        return None
+    if row.frequency == "one_off":
+        return first
+    step = analytics.STEP_MONTHS.get(row.frequency or "monthly", 1)
+    last = None
+    for day in analytics.recurrence(first, step, on_or_before):
+        last = day
+    return last
+
+
+@dataclass(frozen=True)
+class _FlowChange:
+    """One card's change to the income or the expenses, worked out once and read
+    by both the card and the write, as `_Ledger` is for an entry."""
+
+    side: _FlowSide
+    row: object | None  # the line on record; None for an add
+    update: dict | None  # the form's body for that line, as this change leaves it
+    create: dict | None  # the form's body for a new line
+    delete: bool
+    last_payment: datetime.date | None  # of the line on record, when it ends
+    account_id: int | None  # whose cash the line the card is about moves
+
+
+def _flow_change(db: Session, args: WriteFlowArgs) -> _FlowChange:
+    """The writes a card stands for, each body validated by the schema the
+    form posts through, or a refusal saying why there are none."""
+    side = _FLOW_SIDES[args.side]
+    if args.action == "add":
+        inst = _institution(db, args.account)
+        iid = inst.id if inst is not None else None
+        first = args.first_payment.isoformat()
+        body = {
+            "name": args.name.strip(),
+            "category": args.category,
+            "amount": args.amount,
+            "currency": _stored_currency(args.currency)
+            if args.currency
+            else crud.account_currency_on(db, iid, first) or fx.base_currency(db),
+            "frequency": args.frequency or "monthly",
+            "institution_id": iid,
+            "start_date": first,
+            "end_date": args.end.isoformat() if args.end else None,
+            side.tag: args.kind if args.side == "income" else args.nature,
+        }
+        side.schema(**body)
+        return _FlowChange(side, None, None, body, False, None, iid)
+
+    row = _flow_row(db, args, side)
+    if args.action == "delete":
+        return _FlowChange(side, row, None, None, True, None, row.institution_id)
+
+    stored = _form_body(row, side)
+    changed = dict(stored)
+    if args.amount is not None:
+        changed["amount"] = args.amount
+    if args.currency:
+        changed["currency"] = _stored_currency(args.currency)
+    if args.frequency is not None:
+        changed["frequency"] = args.frequency
+    if args.account:
+        changed["institution_id"] = _institution(db, args.account).id
+    if args.category is not None:
+        changed["category"] = args.category
+    tag = args.kind if args.side == "income" else args.nature
+    if tag is not None:
+        changed[side.tag] = tag
+
+    if args.action == "end":
+        if row.frequency == "one_off":
+            raise LookupError(
+                f"{row.name!r} is paid once, on its day: delete it, or correct its day."
+            )
+        last = _last_payment(row, args.end) if row.start_date else args.end
+        if last is None:
+            raise LookupError(
+                f"{row.name!r} is first paid on {row.start_date}, after {args.end.isoformat()}: "
+                "ending it before its first payment is deleting it."
+            )
+        ended = {**stored, "end_date": last.isoformat()}
+        side.schema(**ended)
+        return _FlowChange(side, row, ended, None, False, last, row.institution_id)
+
+    if args.action == "correct":
+        if args.first_payment is not None:
+            changed["start_date"] = args.first_payment.isoformat()
+        if args.end is not None:
+            changed["end_date"] = args.end.isoformat()
+        side.schema(**changed)
+        return _FlowChange(side, row, changed, None, False, None, changed["institution_id"])
+
+    # change_from: the line on record ends with its last payment before the new
+    # first one, and keeps its past; a new line starts on it.
+    first = args.first_payment
+    if row.frequency == "one_off":
+        raise LookupError(f"{row.name!r} is paid once: correct it instead.")
+    if row.start_date and first.isoformat() <= row.start_date:
+        raise LookupError(
+            f"{row.name!r} is first paid on {row.start_date}, so a change from "
+            f"{first.isoformat()} is a change of the whole line: that is a correction. "
+            "If it is not clear which they mean, ask."
+        )
+    if row.end_date and row.end_date < first.isoformat():
+        raise LookupError(
+            f"{row.name!r} ended on {row.end_date}, before {first.isoformat()}: there is "
+            "nothing to change from that day. Add a new line instead."
+        )
+    before = first - datetime.timedelta(days=1)
+    last = _last_payment(row, before) if row.start_date else before
+    ended = {**stored, "end_date": (last or before).isoformat()}
+    started = {**changed, "start_date": first.isoformat(), "end_date": row.end_date or None}
+    side.schema(**ended)
+    side.schema(**started)
+    return _FlowChange(side, row, ended, started, False, last or before, started["institution_id"])
+
+
+_FLOW_FIELDS = (
+    ("name", "Name"),
+    ("amount", "Amount"),
+    ("currency", "Currency"),
+    ("frequency", "How often"),
+    ("institution_id", "Account"),
+    ("start_date", "First payment"),
+    ("end_date", "Last payment"),
+    ("category", "Category"),
+)
+
+
+def _shown(db: Session, field: str, value) -> str | None:
+    """A field of a line as the card shows it: an account by its name."""
+    if value is None:
+        return None
+    if field == "institution_id":
+        inst = crud.get_institution(db, value)
+        return inst.name if inst is not None else None
+    if field == "amount":
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _flow_diff(db: Session, side: _FlowSide, now: dict, then: dict) -> list[dict]:
+    """The lines of a diff: each field the change moves, now and after."""
+    fields = (*_FLOW_FIELDS, (side.tag, "Kind" if side.tag == "kind" else "Nature"))
+    return [
+        {"field": label, "now": _shown(db, f, now.get(f)), "proposed": _shown(db, f, then.get(f))}
+        for f, label in fields
+        if now.get(f) != then.get(f)
+    ]
+
+
+def _flow_fingerprint(db: Session, change: _FlowChange) -> str:
+    """What the card was drawn against: the line on record as it is (or the
+    lines of the same name, for an add), and the account's latest balance,
+    which its sentences name."""
+    parts = []
+    if change.row is not None:
+        parts.append(json.dumps(_form_body(change.row, change.side), sort_keys=True, default=str))
+    else:
+        same = [
+            r.id for r in db.scalars(select(change.side.model))
+            if r.name.strip().casefold() == change.create["name"].casefold()
+        ]
+        parts.append(f"same name={same}|currency={change.create['currency']}")
+    for iid in sorted({change.account_id, change.row.institution_id if change.row else None} - {None}):
+        anchors = crud.get_cash_anchors_for_institution(db, iid)
+        parts.append(f"account {iid} latest={anchors[-1].date if anchors else None}")
+    return "|".join(parts)
+
+
+def _propose_flow(db: Session, args: WriteFlowArgs) -> Proposal:
+    """The card for one change to the income or the expenses.
+
+    An add is an append and gets the light confirmation; anything else
+    rewrites a line on record (or deletes it) and gets the diff and the
+    sentence of what it costs. Every card says when the line is paid, in the
+    reader's terms (the first payment's day is the day it repeats on), and
+    what the account's latest balance already holds."""
+    change = _flow_change(db, args)
+    side = change.side
+    fingerprint = _flow_fingerprint(db, change)
+    if args.action == "add":
+        body = change.create
+        first = datetime.date.fromisoformat(body["start_date"])
+        inst = crud.get_institution(db, body["institution_id"]) if body["institution_id"] else None
+        where = f" · {inst.name}" if inst is not None else ""
+        twins = [
+            _flow_line_text(r, side, db)
+            for r in db.scalars(select(side.model).order_by(side.model.id))
+            if r.name.strip().casefold() == body["name"].casefold()
+        ]
+        also = (
+            f" Already on record under that name: {'; '.join(twins)}. This adds another line."
+            if twins
+            else ""
+        )
+        return Proposal(
+            title=(
+                f"add {side.noun}: {body['name']}, {body['amount']:.2f} {body['currency']} "
+                f"{body['frequency']}{where}"
+            ),
+            fingerprint=fingerprint,
+            consequence=(
+                f"{_payment_days(first, body['frequency'])} "
+                f"{_in_the_balance(db, body['institution_id'])}{also}"
+            ),
+        )
+
+    row = change.row
+    touches = f'the {side.noun} "{row.name}"' + (
+        f" first paid on {row.start_date}" if row.start_date else ""
+    )
+    now = _form_body(row, side)
+    if args.action == "delete":
+        return Proposal(
+            title=f"delete {side.noun}: {_flow_line_text(row, side, db)}",
+            fingerprint=fingerprint,
+            confirmation="diff",
+            consequence=(
+                "The line goes, with every payment it counts, the past ones too: the "
+                "cash projected for its account loses those dated after its latest "
+                "balance. Nothing brings the line back. To stop it from a day and keep "
+                "its past, end it instead."
+            ),
+            diff=[{"field": "Line", "now": _flow_line_text(row, side, db), "proposed": "deleted"}],
+            touches=touches,
+        )
+    if args.action == "end":
+        return Proposal(
+            title=f"end {side.noun}: {row.name}, last payment {change.last_payment.isoformat()}",
+            fingerprint=fingerprint,
+            confirmation="diff",
+            consequence=(
+                f"Its last payment is the one of {change.last_payment.isoformat()}, the last "
+                f"on or before {args.end.isoformat()}; none is counted after it, and the "
+                "payments before it stay as they are."
+            ),
+            diff=_flow_diff(db, side, now, change.update),
+            touches=touches,
+        )
+    if args.action == "correct":
+        first = change.update["start_date"]
+        payments = (
+            f" {_payment_days(datetime.date.fromisoformat(first), change.update['frequency'])}"
+            if first
+            else ""
+        )
+        return Proposal(
+            title=f"correct {side.noun}: {row.name}",
+            fingerprint=fingerprint,
+            confirmation="diff",
+            consequence=(
+                "A correction: the line takes these figures as if it had been recorded so "
+                "from its first payment, and every payment it counts moves with them, the "
+                "past ones too. If they changed on a day instead, the old figures stay "
+                f"true before it: that is a change from that day.{payments} "
+                f"{_in_the_balance(db, change.update['institution_id'])}"
+            ),
+            diff=_flow_diff(db, side, now, change.update),
+            touches=touches,
+        )
+    first = datetime.date.fromisoformat(change.create["start_date"])
+    diff = [
+        {
+            "field": "Last payment of the line on record",
+            "now": row.end_date,
+            "proposed": change.last_payment.isoformat(),
+        },
+        *(
+            {**d, "field": f"From {first.isoformat()}: {d['field'].lower()}"}
+            for d in _flow_diff(db, side, now, change.create)
+            if d["field"] not in ("First payment", "Last payment")
+        ),
+    ]
+    return Proposal(
+        title=f"change {side.noun} from {first.isoformat()}: {row.name}",
+        fingerprint=fingerprint,
+        confirmation="diff",
+        consequence=(
+            "A change from a day: the line on record keeps its payments up to its last "
+            f"one, on {change.last_payment.isoformat()}, at the figures they had, and a new "
+            f"line takes the new figures. {_payment_days(first, change.create['frequency'])} "
+            "If they were wrong all along instead, that is a correction of the whole "
+            f"line. {_in_the_balance(db, change.create['institution_id'])}"
+        ),
+        diff=diff,
+        touches=touches,
+    )
+
+
+def _flow_result(row, side: _FlowSide) -> dict:
+    return {"side": side.noun, "id": row.id, **_form_body(row, side)}
+
+
+def _write_flow(db: Session, args: WriteFlowArgs) -> dict:
+    """The writes, each through the crud function the page's own request
+    calls, in one unit of work: a change from a day ends one line and starts
+    the next, both or neither."""
+    change = _flow_change(db, args)
+    side = change.side
+    with unit_of_work(db):
+        if change.delete:
+            gone = _flow_result(change.row, side)
+            side.delete(db, change.row.id)
+            return {"deleted": gone}
+        result: dict = {}
+        if change.update is not None:
+            kept = side.update(db, change.row.id, side.schema(**change.update))
+            result["line"] = _flow_result(kept, side)
+        if change.create is not None:
+            made = side.create(db, side.schema(**change.create))
+            result["new_line" if change.update is not None else "line"] = _flow_result(made, side)
+    return result
+
+
+_FLOW_LABELS = {
+    "action": "",
+    "side": "",
+    "name": "Line",
+    "on_record_from": "",
+    "account": "Account",
+    "amount": "Amount",
+    "currency": "Currency",
+    "frequency": "How often",
+    "first_payment": "First payment",
+    "end": "Last day",
+    "kind": "Kind",
+    "nature": "Nature",
+    "category": "Category",
+}
+
+
+def _flow_receipt(result: dict) -> list[tuple]:
+    """What the line looks like on the Cash flow page now."""
+    if "deleted" in result:
+        return [("Deleted", result["deleted"].get("name"), "text")]
+    line, new = result.get("line") or {}, result.get("new_line")
+    if new is not None:
+        return [
+            ("Line on record, last payment", line.get("end_date"), "date"),
+            ("New line, first payment", new.get("start_date"), "date"),
+        ]
+    return [
+        ("First payment", line.get("start_date"), "date"),
+        ("Last payment", line.get("end_date"), "date"),
+    ]
+
+
+def _flow_done(card: dict) -> str:
+    """What a confirmed card says it is now, by what it did."""
+    return {
+        "add": "Recorded",
+        "correct": "Corrected",
+        "change_from": "Changed",
+        "end": "Ended",
+        "delete": "Deleted",
+    }.get((card.get("arguments") or {}).get("action"), "Recorded")
+
+
+# --- record_transfer and set_cash_balance ---------------------------------------
+#
+# The cash, written as the Cash flow page records a transfer and an account's
+# page records a balance (brief AN): the schema each form posts, the crud
+# function its request calls, and each currency proposed as the form proposes
+# it, from the account's balance in force on the day (`crud.account_currency_on`).
+
+
+def _account(db: Session, name: str) -> models.Institution:
+    """An account the reader named: these two cards always need one."""
+    inst = _institution(db, name)
+    if inst is None:
+        raise LookupError("Name the account, as the picture names it.")
+    return inst
+
+
+def _currency_on(db: Session, inst: models.Institution, day: str, said: str | None) -> str:
+    """The currency stated, or the one the form proposes for this account on
+    this day: its balance in force then, else the base."""
+    if said:
+        return _stored_currency(said)
+    return crud.account_currency_on(db, inst.id, day) or fx.base_currency(db)
+
+
+def _latest_balance(db: Session, inst: models.Institution) -> str | None:
+    anchors = crud.get_cash_anchors_for_institution(db, inst.id)
+    return anchors[-1].date if anchors else None
+
+
+class RecordTransferArgs(BaseModel):
+    """Cash moved from one of their accounts to another."""
+
+    date: datetime.date = Field(..., description="The day it moved.")
+    from_account: str = Field(..., min_length=1, description="The account it left, by name.")
+    to_account: str = Field(..., min_length=1, description="The account it reached, by name.")
+    amount: float = Field(..., gt=0, description="What left the first account, in `currency`.")
+    currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description="What left it in; null proposes that account's.",
+    )
+    to_currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description="What reached the second in; null proposes that account's.",
+    )
+    arrived: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "What reached the second account, from its statement, when the two "
+            "currencies differ. Null works it out at the rate of the day (the ECB's, "
+            "or Yahoo's for a currency the ECB does not publish), and is refused when "
+            "that day has no final rate yet."
+        ),
+    )
+
+
+def _transfer_body(db: Session, args: RecordTransferArgs) -> tuple[dict, models.Institution, models.Institution]:
+    """The body the Cash flow form posts for this transfer (`TransferSection`'s
+    `submit`): both accounts, both currencies, and what arrived when it was
+    typed, else null for the app to work out."""
+    source, target = _account(db, args.from_account), _account(db, args.to_account)
+    if source.id == target.id:
+        raise LookupError("A transfer moves cash between two accounts: name two.")
+    day = args.date.isoformat()
+    body = {
+        "date": day,
+        "from_institution_id": source.id,
+        "to_institution_id": target.id,
+        "amount": args.amount,
+        "currency": _currency_on(db, source, day, args.currency),
+        "to_currency": _currency_on(db, target, day, args.to_currency),
+        "to_amount": args.arrived,
+    }
+    return body, source, target
+
+
+def _already_in(db: Session, inst: models.Institution, day: str) -> str:
+    """Whether a movement of `day` is already in the account's latest balance."""
+    latest = _latest_balance(db, inst)
+    if latest is not None and day <= latest:
+        return (
+            f" {inst.name}'s latest balance, of {latest}, already holds it, so its "
+            "cash today does not move."
+        )
+    return ""
+
+
+def _propose_transfer(db: Session, args: RecordTransferArgs) -> Proposal:
+    """A transfer as the reader will read it, with what arrived worked out by
+    the function that stores it (`crud._transfer_payload`), or the form's
+    refusal in words when its day has no final rate."""
+    body, source, target = _transfer_body(db, args)
+    try:
+        stored = crud._transfer_payload(db, schemas.TransferCreate(**body))
+    except crud.TransferRateUnknown as exc:
+        raise LookupError(str(exc)) from exc
+    left = f"{body['amount']:.2f} {body['currency']}"
+    reached = f"{stored['to_amount']:.2f} {body['to_currency']}"
+    rate = (
+        f" (at {fx.rate_words(db, (body['currency'], body['to_currency']), stored['fx_as_of'])})"
+        if stored.get("fx_as_of")
+        else ""
+    )
+    moved = left if left == reached else f"{left} → {reached}{rate}"
+    return Proposal(
+        title=f"transfer: {moved}, {source.name} to {target.name}, {body['date']}",
+        fingerprint=(
+            f"{source.id}>{target.id}|{body['currency']}>{body['to_currency']}|"
+            f"{stored['to_amount']}|{stored.get('fx_as_of')}|"
+            f"{_latest_balance(db, source)}|{_latest_balance(db, target)}"
+        ),
+        consequence=(
+            f"It lowers {source.name}'s cash by {left} and raises {target.name}'s by "
+            f"{reached} from {body['date']}."
+            + _already_in(db, source, body["date"])
+            + _already_in(db, target, body["date"])
+        ),
+    )
+
+
+def _record_transfer(db: Session, args: RecordTransferArgs) -> dict:
+    """The row, through the function the form's request calls."""
+    body, source, target = _transfer_body(db, args)
+    made = crud.create_transfer(db, schemas.TransferCreate(**body))
+    return {
+        "transfer_id": made.id,
+        "date": made.date,
+        "from": source.name,
+        "to": target.name,
+        "amount": made.amount,
+        "currency": made.currency,
+        "to_amount": made.to_amount,
+        "to_currency": made.to_currency,
+        "fx_as_of": made.fx_as_of,
+        "fx_source": _source(db, made.fx_as_of, made.currency, made.to_currency),
+    }
+
+
+_TRANSFER_LABELS = {
+    "date": "On",
+    "from_account": "From",
+    "to_account": "To",
+    "amount": "Left",
+    "currency": "In",
+    "to_currency": "Reached in",
+    "arrived": "Reached",
+}
+
+
+def _transfer_receipt(result: dict) -> list[tuple]:
+    return [
+        ("Reached", result.get("to_amount"), "amount", result.get("to_currency")),
+        _rate_field(result),
+    ]
+
+
+# --- change_transfer ------------------------------------------------------------
+#
+# A transfer on record, corrected or deleted as the Cash flow page's form does
+# (brief AP): its PUT, the whole `TransferCreate` the form sends for a row
+# opened and saved, through `crud.update_transfer`; its DELETE, through
+# `crud.delete_transfer`. The card says what each account's cash does from
+# the transfer's day (`cash_moves`), from the same function the page's Delete
+# asks with. The picture lists no transfer, only each account's totals, so a
+# transfer is named by its day and its accounts, as the reader names it, and
+# one that is not there is refused with those on record.
+
+
+class ChangeTransferArgs(BaseModel):
+    """One transfer on record, corrected or deleted."""
+
+    action: Literal["correct", "delete"] = Field(
+        ...,
+        description="correct: the transfer takes the figures of their statement. delete: it goes.",
+    )
+    date: datetime.date = Field(..., description="The transfer's day, as they name it.")
+    from_account: MaybeText = Field(
+        default=None,
+        description="The account it left, by name; null when it came from outside their accounts.",
+    )
+    to_account: MaybeText = Field(
+        default=None,
+        description="The account it reached, by name; null when it went outside their accounts.",
+    )
+    amount: float | None = Field(
+        default=None,
+        gt=0,
+        description="What left, only when two transfers share the day and the accounts.",
+    )
+    new_date: datetime.date | None = Field(default=None, description="correct: the day it moved, or null to keep it.")
+    new_from_account: MaybeText = Field(
+        default=None, description="correct: the account it left, by name, or null to keep it."
+    )
+    new_to_account: MaybeText = Field(
+        default=None, description="correct: the account it reached, by name, or null to keep it."
+    )
+    new_amount: float | None = Field(default=None, gt=0, description="correct: what left, or null to keep it.")
+    new_currency: schemas.StatedCurrency | None = Field(
+        default=None, description="correct: what it left in, or null to keep it."
+    )
+    new_to_currency: schemas.StatedCurrency | None = Field(
+        default=None, description="correct: what it reached the second account in, or null to keep it."
+    )
+    new_arrived: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "correct: what reached the second account, from its statement. Null keeps a "
+            "figure typed from a statement, and works out again one the app worked out, at "
+            "the rate of its day: the ECB's, or Yahoo's for a currency the ECB does not "
+            "publish."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _what_each_action_needs(self):
+        if self.from_account is None and self.to_account is None:
+            raise ValueError("Name the account it left or the one it reached, as the picture names them.")
+        new = (
+            self.new_date, self.new_from_account, self.new_to_account, self.new_amount,
+            self.new_currency, self.new_to_currency, self.new_arrived,
+        )
+        if self.action == "correct" and all(v is None for v in new):
+            raise ValueError("correct needs at least one new value.")
+        if self.action == "delete" and any(v is not None for v in new):
+            raise ValueError("delete takes no new values.")
+        return self
+
+
+def _side(db: Session, iid: int | None) -> str:
+    """A side of a transfer as the Cash flow page names it."""
+    inst = crud.get_institution(db, iid) if iid is not None else None
+    return inst.name if inst is not None else "External"
+
+
+def _same_sum(t) -> bool:
+    """The Cash flow page's `sameSum`: one currency, and what arrived is what
+    left, read in the destination's unit within half a cent and a hair.
+
+    One currency as `fx.same_currency` reads it (brief BA): a transfer stored
+    EUR to "eur", or GBP to GBp, was worked out with the minor-unit step and no
+    rate day (`crud._transfer_columns`), and compared as written it read as an
+    arrival typed from a statement."""
+    left = fx.within_currency(t.amount, t.currency, t.to_currency)
+    return left is not None and abs(t.to_amount - left) <= 0.005 + 1e-9
+
+
+def _transfer_text(db: Session, t) -> str:
+    """A transfer in one line, as the Cash flow page lists it."""
+    moved = f"{t.amount:.2f} {t.currency}"
+    if not _same_sum(t):
+        moved += f" → {t.to_amount:.2f} {t.to_currency}"
+    rate = f" at {fx.rate_words(db, (t.currency, t.to_currency), t.fx_as_of)}" if t.fx_as_of else ""
+    return f"{t.date} {_side(db, t.from_institution_id)} to {_side(db, t.to_institution_id)}: {moved}{rate}"
+
+
+def _transfer_row(db: Session, args: ChangeTransferArgs) -> models.Transfer:
+    """The transfer the reader means, by its day and its accounts, or a
+    refusal listing those on record, since the picture shows none. A side
+    left null is outside their accounts; when nothing matches both sides so,
+    a null side is read as one they did not say, and the named side must
+    still be the transfer's own."""
+    named = [_account(db, n).id if n else None for n in (args.from_account, args.to_account)]
+    rows = crud.get_transfers(db)
+    day = args.date.isoformat()
+    hits = [t for t in rows if t.date == day and [t.from_institution_id, t.to_institution_id] == named]
+    if not hits:
+        hits = [
+            t for t in rows
+            if t.date == day
+            and named[0] in (None, t.from_institution_id)
+            and named[1] in (None, t.to_institution_id)
+        ]
+    if len(hits) > 1 and args.amount is not None:
+        hits = [t for t in hits if abs(t.amount - args.amount) < 0.005] or hits
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise LookupError(
+            f"{len(hits)} transfers match: {'; '.join(_transfer_text(db, t) for t in hits)}. Say which "
+            "by what left."
+        )
+    theirs = [
+        t for t in rows
+        if {t.from_institution_id, t.to_institution_id} & ({i for i in named if i is not None})
+    ]
+    near = sorted(
+        theirs or rows, key=lambda t: abs((datetime.date.fromisoformat(t.date) - args.date).days)
+    )[:10]
+    on_record = "; ".join(_transfer_text(db, t) for t in near) or "none"
+    raise LookupError(f"No transfer of {day} between those accounts is on record. On record: {on_record}.")
+
+
+def _transfer_form_body(t: models.Transfer) -> dict:
+    """The body the Cash flow form PUTs for a transfer opened and saved as it
+    is (`TransferSection`'s `startEdit`, then `submit`): both sides, the
+    amount and both currencies as stored, and what arrived only when it was
+    typed from a statement (no rate day, and not the same sum), else empty,
+    for the app to work out again at the rate of the transfer's day."""
+    typed = t.fx_as_of is None and not _same_sum(t)
+    return {
+        "date": t.date,
+        "from_institution_id": t.from_institution_id,
+        "to_institution_id": t.to_institution_id,
+        "amount": t.amount,
+        "currency": t.currency.strip(),
+        "to_currency": t.to_currency.strip(),
+        "to_amount": t.to_amount if typed else None,
+    }
+
+
+@dataclass(frozen=True)
+class _TransferChange:
+    """One card's change to a transfer, worked out once for the card and the
+    write."""
+
+    row: models.Transfer
+    body: dict | None  # the form's PUT body for a correction; None for a deletion
+    after: models.Transfer | None  # the transfer as the correction leaves it, never stored
+
+
+def _transfer_change(db: Session, args: ChangeTransferArgs) -> _TransferChange:
+    """The transfer, and for a correction the body the form would send and
+    the transfer as that body would leave it, or the form's refusal in words."""
+    t = _transfer_row(db, args)
+    if args.action == "delete":
+        return _TransferChange(t, None, None)
+    body = _transfer_form_body(t)
+    for field_name, value in (
+        ("date", args.new_date.isoformat() if args.new_date else None),
+        ("from_institution_id", _account(db, args.new_from_account).id if args.new_from_account else None),
+        ("to_institution_id", _account(db, args.new_to_account).id if args.new_to_account else None),
+        ("amount", args.new_amount),
+        ("currency", _stored_currency(args.new_currency) if args.new_currency else None),
+        ("to_currency", _stored_currency(args.new_to_currency) if args.new_to_currency else None),
+        ("to_amount", args.new_arrived),
+    ):
+        if value is not None:
+            body[field_name] = value
+    if body["from_institution_id"] == body["to_institution_id"]:
+        raise LookupError("A transfer moves cash between two accounts: name two.")
+    try:
+        changes = crud.transfer_as_corrected(db, t, schemas.TransferCreate(**body))
+    except ValidationError as exc:
+        raise LookupError(_refused_body(exc)) from exc
+    except crud.TransferRateUnknown as exc:
+        raise LookupError(str(exc)) from exc
+    columns = {c.key: getattr(t, c.key) for c in models.Transfer.__table__.columns}
+    return _TransferChange(t, body, models.Transfer(**{**columns, **changes}))
+
+
+def _arrival(db: Session, t) -> str:
+    """How what arrived was had, in the reader's words, whose rate included."""
+    if t.fx_as_of:
+        return f"at {fx.rate_words(db, (t.currency, t.to_currency), t.fx_as_of)}"
+    return "the same sum" if _same_sum(t) else "from a statement"
+
+
+def _propose_transfer_change(db: Session, args: ChangeTransferArgs) -> Proposal:
+    """A transfer rewritten or deleted, so the diff: what changes on it, and
+    each account's cash today; and in words, from which days each account's
+    cash changes. Its fingerprint is the transfer as stored and everything
+    the card says, so anything that would change the card makes it stale."""
+    change = _transfer_change(db, args)
+    t, after = change.row, change.after
+    sides = f"{_side(db, t.from_institution_id)} to {_side(db, t.to_institution_id)}"
+    moves = cash_moves.transfer_moves(db, t, after)
+    if after is None:
+        diff = [{"field": "Transfer", "now": _transfer_text(db, t), "proposed": "deleted"}]
+        said = [cash_moves.GONE, *cash_moves.said(moves, [t.date], figures=False)]
+        title = f"delete transfer: {_transfer_text(db, t)}"
+    else:
+        fields = [
+            ("Day", t.date, after.date),
+            ("From", _side(db, t.from_institution_id), _side(db, after.from_institution_id)),
+            ("To", _side(db, t.to_institution_id), _side(db, after.to_institution_id)),
+            ("Left", f"{t.amount:.2f} {t.currency}", f"{after.amount:.2f} {after.currency}"),
+            ("Reached", f"{t.to_amount:.2f} {t.to_currency}", f"{after.to_amount:.2f} {after.to_currency}"),
+            ("What arrived is", _arrival(db, t), _arrival(db, after)),
+        ]
+        diff = [{"field": f, "now": now, "proposed": then} for f, now, then in fields if now != then]
+        if not diff:
+            raise LookupError(f"The transfer already says that: {_transfer_text(db, t)}. Nothing would change.")
+        said = ["A correction: the transfer takes these figures."]
+        typed = t.fx_as_of is None and not _same_sum(t)
+        if (
+            typed
+            and args.new_arrived is None
+            and (after.amount, after.currency, after.to_currency) != (t.amount, t.currency, t.to_currency)
+        ):
+            said.append(
+                f"What arrived, {t.to_amount:.2f} {t.to_currency}, is a figure typed from a "
+                "statement, so it stays as it is, as the Cash flow form keeps it: say the new "
+                "figure if it changed."
+            )
+        elif after.fx_as_of and (after.fx_as_of, after.to_amount) != (t.fx_as_of, t.to_amount):
+            said.append(
+                "What arrived is worked out again, at "
+                f"{fx.rate_words(db, (after.currency, after.to_currency), after.fx_as_of)}."
+            )
+        said.extend(cash_moves.said(moves, [t.date, after.date], figures=False))
+        title = f"correct transfer: {t.date} {sides}" + (
+            f", {t.amount:.2f} → {after.amount:.2f} {after.currency}" if after.amount != t.amount else ""
+        )
+    diff.extend(cash_moves.lines(moves))
+    stored = {c.key: getattr(t, c.key) for c in models.Transfer.__table__.columns if c.key != "created_at"}
+    return Proposal(
+        title=title,
+        fingerprint=json.dumps({"transfer": stored, "diff": diff, "said": said}, sort_keys=True, default=str),
+        confirmation="diff",
+        consequence=" ".join(said),
+        diff=diff,
+        touches=f"the transfer of {t.date} from {sides}",
+    )
+
+
+def _change_transfer(db: Session, args: ChangeTransferArgs) -> dict:
+    """The correction through the function the form's PUT calls, or the
+    deletion through the one its DELETE calls."""
+    change = _transfer_change(db, args)
+    t = change.row
+    if change.body is None:
+        gone = _transfer_text(db, t)
+        crud.delete_transfer(db, t.id)
+        return {"deleted": gone}
+    kept = crud.update_transfer(db, t.id, schemas.TransferCreate(**change.body))
+    return {
+        "transfer": _transfer_text(db, kept),
+        "to_amount": kept.to_amount,
+        "to_currency": kept.to_currency,
+        "fx_as_of": kept.fx_as_of,
+        "fx_source": _source(db, kept.fx_as_of, kept.currency, kept.to_currency),
+    }
+
+
+_CHANGE_TRANSFER_LABELS = {
+    "action": "",
+    "date": "Transfer of",
+    "from_account": "From",
+    "to_account": "To",
+    "amount": "What left",
+    "new_date": "New day",
+    "new_from_account": "New source",
+    "new_to_account": "New destination",
+    "new_amount": "New amount",
+    "new_currency": "Left in",
+    "new_to_currency": "Reached in",
+    "new_arrived": "Reached",
+}
+
+
+def _change_transfer_receipt(result: dict) -> list[tuple]:
+    """The transfer as the Cash flow page lists it now, or the one that went."""
+    if "deleted" in result:
+        return [("Deleted", result["deleted"], "text")]
+    return [
+        ("Now", result.get("transfer"), "text"),
+        _rate_field(result),
+    ]
+
+
+def _change_transfer_done(card: dict) -> str:
+    return {"correct": "Corrected", "delete": "Deleted"}.get(
+        (card.get("arguments") or {}).get("action"), "Corrected"
+    )
+
+
+class SetCashBalanceArgs(BaseModel):
+    """What one of their accounts held on a day."""
+
+    account: str = Field(..., min_length=1, description="The account, by name.")
+    # `ObservedDate`, so a day that has not happened is refused while the card
+    # is drawn, as the account page's form refuses it.
+    date: schemas.ObservedDate = Field(
+        default_factory=datetime.date.today,
+        description="The day of the balance, never after today; today when they said none.",
+    )
+    amount: float = Field(..., ge=0, description="The cash it held that day.")
+    currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description="Null proposes the account's.",
+    )
+
+
+@dataclass(frozen=True)
+class _Balance:
+    """One balance card, worked out once for the card and the write."""
+
+    account: models.Institution
+    body: dict
+    existing: models.CashAnchor | None
+
+
+def _balance(db: Session, args: SetCashBalanceArgs) -> _Balance:
+    """The account, the body the account page's form sends (`toPayload`: the
+    day, the amount, the currency), and the balance already on that day."""
+    inst = _account(db, args.account)
+    day = args.date.isoformat()
+    existing = next(
+        (a for a in crud.get_cash_anchors_for_institution(db, inst.id) if a.date == day), None
+    )
+    said = args.currency or (existing.currency if existing is not None else None)
+    body = {"date": day, "amount": args.amount, "currency": _currency_on(db, inst, day, said)}
+    schemas.CashAnchorCreate(**body)
+    return _Balance(inst, body, existing)
+
+
+def _propose_balance(db: Session, args: SetCashBalanceArgs) -> Proposal:
+    """A new balance appends a day to the account's series and is light; one
+    on a day that has a balance already replaces it, with the diff."""
+    b = _balance(db, args)
+    day, name = b.body["date"], b.account.name
+    held = f"{b.body['amount']:.2f} {b.body['currency']}"
+    latest = _latest_balance(db, b.account)
+    later = (
+        f" Its balance of {latest}, after this day, stays the one its cash today is "
+        "projected from."
+        if latest is not None and latest > day
+        else ""
+    )
+    said = (
+        f"From {day} {name} holds {held}: the income, expenses, transfers and ledger "
+        f"entries dated up to {day} count as already in it, and only those after it "
+        f"move its cash.{later}"
+    )
+    fingerprint = (
+        f"{b.account.id}|{day}|"
+        + (f"{b.existing.amount}|{b.existing.currency}" if b.existing else "none")
+        + f"|latest={latest}"
+    )
+    touches = f"{name}'s balance on {day}"
+    if b.existing is None:
+        return Proposal(
+            title=f"cash balance: {name} held {held} on {day}",
+            fingerprint=fingerprint,
+            consequence=said,
+            touches=touches,
+        )
+    # A day that has a balance has it corrected, and the card says in figures
+    # what that moves, from the function `change_cash_balance` and the page's
+    # Delete say it with (brief AP).
+    after = models.CashAnchor(
+        id=b.existing.id, institution_id=b.account.id, note=b.existing.note,
+        date=day, amount=b.body["amount"], currency=b.body["currency"],
+    )
+    moves = cash_moves.balance_moves(db, b.existing, after)
+    diff = [
+        {
+            "field": f"Balance on {day}",
+            "now": f"{b.existing.amount:.2f} {b.existing.currency}",
+            "proposed": held,
+        },
+        *cash_moves.lines(moves),
+    ]
+    consequence = " ".join(
+        [
+            f"This replaces the balance already on {day}, which does not come back. {said}",
+            *cash_moves.said(moves, [day], figures=False, held=cash_moves.AFTER_IT),
+        ]
+    )
+    return Proposal(
+        title=f"cash balance: {name} on {day}, {b.existing.amount:.2f} → {held}",
+        fingerprint=json.dumps(
+            {"balance": fingerprint, "diff": diff, "said": consequence}, sort_keys=True
+        ),
+        confirmation="diff",
+        consequence=consequence,
+        diff=diff,
+        touches=touches,
+    )
+
+
+def _set_cash_balance(db: Session, args: SetCashBalanceArgs) -> dict:
+    """The balance, through the function the form's request calls: a new day
+    is added, a day that has one is edited."""
+    b = _balance(db, args)
+    data = schemas.CashAnchorCreate(**b.body)
+    if b.existing is None:
+        anchor = crud.create_cash_anchor(db, b.account.id, data)
+    else:
+        anchor = crud.update_cash_anchor(db, b.existing.id, data)
+    return {
+        "account": b.account.name,
+        "date": anchor.date,
+        "amount": anchor.amount,
+        "currency": anchor.currency,
+        "replaced": (
+            f"{b.existing.amount:.2f} {b.existing.currency}" if b.existing is not None else None
+        ),
+    }
+
+
+_BALANCE_LABELS = {"account": "Account", "date": "On", "amount": "Held", "currency": "In"}
+
+
+def _balance_receipt(result: dict) -> list[tuple]:
+    return [
+        ("Held", result.get("amount"), "amount", result.get("currency")),
+        ("It replaced", result.get("replaced") or "nothing, a new day", "text"),
+    ]
+
+
+# --- change_cash_balance ----------------------------------------------------------
+#
+# A balance on record, corrected or deleted as the account's page does it
+# (brief AP): its ✎ and Save, the PUT of the day, the amount and the currency
+# (`DatedAmountEditor`'s `toPayload`), through `crud.update_cash_anchor`; its
+# Delete, through `crud.delete_cash_anchor`. The card says in figures what
+# that does to the account's cash today and on which past days its figures
+# change (`cash_moves`), from the function the page's Delete asks with. The
+# picture shows each account's latest balance only, so another is named by
+# its day, and one that is not there is refused with those on record.
+
+
+class ChangeCashBalanceArgs(BaseModel):
+    """One balance of one of their accounts, corrected or deleted."""
+
+    action: Literal["correct", "delete"] = Field(
+        ...,
+        description="correct: the balance takes the figures of their statement. delete: it goes.",
+    )
+    account: str = Field(..., min_length=1, description="The account, by name.")
+    date: datetime.date = Field(..., description="The balance's day, as they name it.")
+    # `ObservedDate`, so a day that has not happened is refused while the card
+    # is drawn, as the account page's form refuses it.
+    new_date: schemas.ObservedDate | None = Field(
+        default=None,
+        description="correct: the day it was held, never after today, or null to keep it.",
+    )
+    new_amount: float | None = Field(
+        default=None, ge=0, description="correct: the cash it held, or null to keep it."
+    )
+    new_currency: schemas.StatedCurrency | None = Field(
+        default=None, description="correct: what it was held in, or null to keep it."
+    )
+
+    @model_validator(mode="after")
+    def _what_each_action_needs(self):
+        new = (self.new_date, self.new_amount, self.new_currency)
+        if self.action == "correct" and all(v is None for v in new):
+            raise ValueError("correct needs at least one new value.")
+        if self.action == "delete" and any(v is not None for v in new):
+            raise ValueError("delete takes no new values.")
+        return self
+
+
+def _held(a) -> str:
+    return f"{a.amount:.2f} {a.currency}"
+
+
+def _balance_row(db: Session, args: ChangeCashBalanceArgs) -> models.CashAnchor:
+    """The balance the reader means, by its account and its day, or a refusal
+    listing the account's balances on record."""
+    inst = _account(db, args.account)
+    day = args.date.isoformat()
+    anchors = crud.get_cash_anchors_for_institution(db, inst.id)
+    found = next((a for a in anchors if a.date == day), None)
+    if found is not None:
+        return found
+    near = sorted(anchors, key=lambda a: abs((datetime.date.fromisoformat(a.date) - args.date).days))[:10]
+    on_record = "; ".join(f"{a.date} {_held(a)}" for a in sorted(near, key=lambda a: a.date)) or "none"
+    raise LookupError(f"{inst.name} has no balance on {day}. Its balances on record: {on_record}.")
+
+
+@dataclass(frozen=True)
+class _BalanceChange:
+    """One card's change to a balance, worked out once for the card and the
+    write."""
+
+    row: models.CashAnchor
+    body: dict | None  # the page's PUT body for a correction; None for a deletion
+    after: models.CashAnchor | None  # the balance as the correction leaves it, never stored
+
+
+def _balance_change(db: Session, args: ChangeCashBalanceArgs) -> _BalanceChange:
+    """The balance, and for a correction the body the page would send and the
+    balance as that body would leave it, or a refusal in words."""
+    a = _balance_row(db, args)
+    if args.action == "delete":
+        return _BalanceChange(a, None, None)
+    body = {
+        "date": args.new_date.isoformat() if args.new_date else a.date,
+        "amount": args.new_amount if args.new_amount is not None else a.amount,
+        "currency": _stored_currency(args.new_currency) if args.new_currency else a.currency,
+    }
+    try:
+        schemas.CashAnchorCreate(**body)
+    except ValidationError as exc:
+        raise LookupError(_refused_body(exc)) from exc
+    taken = next(
+        (
+            other for other in crud.get_cash_anchors_for_institution(db, a.institution_id)
+            if other.id != a.id and other.date == body["date"]
+        ),
+        None,
+    )
+    if taken is not None:
+        raise LookupError(
+            f"{a.institution.name} already has a balance on {taken.date}, {_held(taken)}: one "
+            "balance a day, as the account's page keeps them. Correct that one, or delete one of "
+            "the two first."
+        )
+    after = models.CashAnchor(
+        id=a.id, institution_id=a.institution_id, note=a.note,
+        date=body["date"], amount=body["amount"], currency=body["currency"],
+    )
+    return _BalanceChange(a, body, after)
+
+
+def _propose_balance_change(db: Session, args: ChangeCashBalanceArgs) -> Proposal:
+    """A balance rewritten or deleted, so the diff: what changes on it and the
+    account's cash today; and in words, on which days its figures change, and
+    what an account left with no balance becomes. Its fingerprint is the
+    account's balances as stored and everything the card says."""
+    change = _balance_change(db, args)
+    a, after = change.row, change.after
+    name = a.institution.name
+    moves = cash_moves.balance_moves(db, a, after)
+    if after is None:
+        diff = [{"field": "Balance", "now": f"{a.date}: {_held(a)}", "proposed": "deleted"}]
+        said = [cash_moves.GONE, *cash_moves.said(moves, [a.date], figures=False, held=cash_moves.AFTER_IT)]
+        if cash_moves.left_without_a_balance(db, a):
+            said.append(cash_moves.currency_after(db, name))
+        title = f"delete balance: {name}, {_held(a)} on {a.date}"
+    else:
+        fields = [("Day", a.date, after.date), ("Held", _held(a), _held(after))]
+        diff = [{"field": f, "now": now, "proposed": then} for f, now, then in fields if now != then]
+        if not diff:
+            raise LookupError(f"The balance already says that: {name} held {_held(a)} on {a.date}. Nothing would change.")
+        said = ["A correction: the balance takes these figures."]
+        said.extend(cash_moves.said(moves, [a.date, after.date], figures=False, held=cash_moves.AFTER_IT))
+        if after.currency != a.currency:
+            said.append(f"Where this balance is in force, the forms then propose {after.currency} for {name}'s amounts.")
+        title = (
+            f"correct balance: {name} on {a.date}"
+            + (f", moved to {after.date}" if after.date != a.date else "")
+            + (f", {_held(a)} → {_held(after)}" if _held(after) != _held(a) else "")
+        )
+    diff.extend(cash_moves.lines(moves))
+    stored = [
+        (b.id, b.date, b.amount, b.currency) for b in crud.get_cash_anchors_for_institution(db, a.institution_id)
+    ]
+    return Proposal(
+        title=title,
+        fingerprint=json.dumps({"balances": stored, "diff": diff, "said": said}, sort_keys=True, default=str),
+        confirmation="diff",
+        consequence=" ".join(said),
+        diff=diff,
+        touches=f"{name}'s balance on {a.date}",
+    )
+
+
+def _change_cash_balance(db: Session, args: ChangeCashBalanceArgs) -> dict:
+    """The correction through the function the page's PUT calls, or the
+    deletion through the one its Delete calls."""
+    change = _balance_change(db, args)
+    a = change.row
+    name = a.institution.name
+    if change.body is None:
+        gone = f"{a.date}: {_held(a)}"
+        crud.delete_cash_anchor(db, a.id)
+        return {"account": name, "deleted": gone}
+    kept = crud.update_cash_anchor(db, a.id, schemas.CashAnchorCreate(**change.body))
+    return {"account": name, "date": kept.date, "amount": kept.amount, "currency": kept.currency}
+
+
+_CHANGE_BALANCE_LABELS = {
+    "action": "",
+    "account": "Account",
+    "date": "Balance of",
+    "new_date": "New day",
+    "new_amount": "New amount",
+    "new_currency": "Held in",
+}
+
+
+def _change_balance_receipt(result: dict) -> list[tuple]:
+    """The balance as the account's page lists it now, or the one that went."""
+    if "deleted" in result:
+        return [("Deleted", result["deleted"], "text")]
+    return [
+        ("Held", result.get("amount"), "amount", result.get("currency")),
+        ("On", result.get("date"), "date"),
+    ]
+
+
+def _change_balance_done(card: dict) -> str:
+    return {"correct": "Corrected", "delete": "Deleted"}.get(
+        (card.get("arguments") or {}).get("action"), "Corrected"
+    )
+
+
+# --- write_goal ----------------------------------------------------------------
+#
+# A goal, written as the Profile page's Goals form writes it (brief AN): the
+# schema it posts (`GoalCreate`) and the crud function its request calls. It
+# replaces brief AL's rule, which told the chat that no tool writes a goal and
+# kept it from filing one as an answer in the questionnaire.
+
+# The form's types and their labels (`GOAL_TYPES` in `Goals.tsx`): a goal saved
+# with no name of its own is named by its type's label there.
+_GOAL_TYPES = {
+    "protect_inflation": "Protect from inflation",
+    "stable_income": "Stable / passive income",
+    "long_term_growth": "Long-term growth",
+    "emergency_fund": "Emergency fund",
+    "target_amount": "Target amount by a date",
+    "other": "Something else (describe it)",
+}
+_GOAL_TARGET = ("target_amount", "target_date", "current_amount", "monthly_contribution")
+
+
+class WriteGoalArgs(BaseModel):
+    """One of their goals: added, changed or deleted."""
+
+    action: Literal["add", "change", "delete"]
+    name: str = Field(
+        ...,
+        min_length=1,
+        description="add: the goal's name. change, delete: the goal on record, as the picture names it.",
+    )
+    new_name: MaybeText = Field(default=None, description="change: a new name, or null to keep it.")
+    type: Literal[
+        "protect_inflation", "stable_income", "long_term_growth", "emergency_fund",
+        "target_amount", "other",
+    ] | None = Field(
+        default=None,
+        description=(
+            "What it is for, as the form lists it. add: required. change: null keeps it. "
+            "Only target_amount carries an amount and a date."
+        ),
+    )
+    currency: schemas.StatedCurrency | None = Field(
+        default=None,
+        description="add: null proposes the base. change: null keeps it.",
+    )
+    target_amount: float | None = Field(default=None, ge=0, description="target_amount only: what they want to reach.")
+    target_date: datetime.date | None = Field(default=None, description="target_amount only: by when.")
+    current_amount: float | None = Field(default=None, ge=0, description="target_amount only: what is set aside for it now.")
+    monthly_contribution: float | None = Field(
+        default=None, ge=0, description="target_amount only: what they add to it each month."
+    )
+
+    @model_validator(mode="after")
+    def _what_each_action_needs(self):
+        if self.action == "add" and self.type is None:
+            raise ValueError("add needs the goal's type, as the form lists them.")
+        if self.action == "change" and all(
+            getattr(self, f) is None for f in ("new_name", "type", "currency", *_GOAL_TARGET)
+        ):
+            raise ValueError("change needs at least one new value.")
+        return self
+
+
+def _goal_body(goal) -> dict:
+    """The body the Goals form sends for a goal as stored, when nothing in it
+    is touched: the target's four figures only for a target_amount goal, no
+    note."""
+    target = goal.type == "target_amount"
+    return {
+        "name": goal.name.strip() or _GOAL_TYPES.get(goal.type, goal.type),
+        "type": goal.type,
+        "currency": goal.currency,
+        **{f: (getattr(goal, f) if target else None) for f in _GOAL_TARGET},
+    }
+
+
+@dataclass(frozen=True)
+class _GoalChange:
+    goal: models.Goal | None
+    body: dict | None
+
+
+def _goal_named(db: Session, args: WriteGoalArgs) -> models.Goal:
+    goals = crud.get_goals(db)
+    wanted = args.name.strip().casefold()
+    hits = [g for g in goals if g.name.strip().casefold() == wanted]
+    if len(hits) > 1 and args.type is not None:
+        hits = [g for g in hits if g.type == args.type] or hits
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        have = ", ".join(g.name for g in goals) or "none"
+        raise LookupError(f"There is no goal called {args.name!r}. On record: {have}.")
+    raise LookupError(f"{len(hits)} goals are called {args.name!r}: say which by its type.")
+
+
+def _goal_change(db: Session, args: WriteGoalArgs) -> _GoalChange:
+    """The goal on record and the body the form would send, validated by the
+    schema it posts through, or a refusal saying why."""
+    if args.action == "delete":
+        return _GoalChange(_goal_named(db, args), None)
+    goal = _goal_named(db, args) if args.action == "change" else None
+    if goal is None:
+        body = {"name": args.name.strip(), "type": args.type,
+                "currency": _stored_currency(args.currency) if args.currency else fx.base_currency(db)}
+        body.update({f: getattr(args, f) for f in _GOAL_TARGET})
+    else:
+        body = _goal_body(goal)
+        if args.new_name:
+            body["name"] = args.new_name.strip()
+        if args.type is not None:
+            body["type"] = args.type
+        if args.currency:
+            body["currency"] = _stored_currency(args.currency)
+        for f in _GOAL_TARGET:
+            if getattr(args, f) is not None:
+                body[f] = getattr(args, f)
+    if body["type"] != "target_amount":
+        given = [f for f in _GOAL_TARGET if getattr(args, f) is not None]
+        if given:
+            raise LookupError(
+                f"A goal of type {body['type']} stores no {', '.join(given)}: only a "
+                "target_amount goal has an amount and a date to reach it by."
+            )
+        body.update({f: None for f in _GOAL_TARGET})
+    body = {k: (v.isoformat() if isinstance(v, datetime.date) else v) for k, v in body.items()}
+    schemas.GoalCreate(**body)
+    return _GoalChange(goal, body)
+
+
+def _goal_text(body: dict) -> str:
+    """A goal in a line: its name, and its target when it has one."""
+    if body.get("type") == "target_amount" and body.get("target_amount") is not None:
+        by = f" by {body['target_date']}" if body.get("target_date") else ""
+        return f"{body['name']}, {body['target_amount']:.2f} {body['currency']}{by}"
+    return f"{body['name']} ({_GOAL_TYPES.get(body.get('type'), body.get('type'))})"
+
+
+_GOAL_FIELDS = (
+    ("name", "Name"), ("type", "For"), ("currency", "Currency"),
+    ("target_amount", "Target"), ("target_date", "By"),
+    ("current_amount", "Set aside now"), ("monthly_contribution", "Each month"),
+)
+
+
+def _propose_goal(db: Session, args: WriteGoalArgs) -> Proposal:
+    """A new goal is an append and gets the light confirmation; changing or
+    deleting one rewrites what is on record, with the diff."""
+    change = _goal_change(db, args)
+    if change.goal is None:
+        same = sorted(g.id for g in crud.get_goals(db) if g.name.strip().casefold() == change.body["name"].casefold())
+        return Proposal(
+            title=f"add goal: {_goal_text(change.body)}",
+            fingerprint=f"same name={same}|currency={change.body['currency']}",
+            consequence="It joins their goals on the Profile page, and the analyses read it.",
+        )
+    now = _goal_body(change.goal)
+    fingerprint = json.dumps(now, sort_keys=True, default=str)
+    touches = f'the goal "{change.goal.name}"'
+    if change.body is None:
+        return Proposal(
+            title=f"delete goal: {_goal_text(now)}",
+            fingerprint=fingerprint,
+            confirmation="diff",
+            consequence="The goal goes from their list, and nothing brings it back.",
+            diff=[{"field": "Goal", "now": _goal_text(now), "proposed": "deleted"}],
+            touches=touches,
+        )
+
+    def shown(value):
+        if value is None:
+            return None
+        return f"{value:.2f}" if isinstance(value, float) else str(value)
+
+    return Proposal(
+        title=f"change goal: {change.goal.name}",
+        fingerprint=fingerprint,
+        confirmation="diff",
+        consequence="This replaces what the goal says on record, and the old values do not come back.",
+        diff=[
+            {"field": label, "now": shown(now.get(f)), "proposed": shown(change.body.get(f))}
+            for f, label in _GOAL_FIELDS
+            if now.get(f) != change.body.get(f)
+        ],
+        touches=touches,
+    )
+
+
+def _write_goal(db: Session, args: WriteGoalArgs) -> dict:
+    """The goal, through the crud function the form's request calls."""
+    change = _goal_change(db, args)
+    if change.body is None:
+        gone = _goal_body(change.goal)
+        crud.delete_goal(db, change.goal.id)
+        return {"deleted": gone}
+    data = schemas.GoalCreate(**change.body)
+    goal = crud.create_goal(db, data) if change.goal is None else crud.update_goal(db, change.goal.id, data)
+    return {"goal_id": goal.id, **_goal_body(goal)}
+
+
+_GOAL_LABELS = {
+    "action": "",
+    "name": "Goal",
+    "new_name": "New name",
+    "type": "For",
+    "currency": "Currency",
+    "target_amount": "Target",
+    "target_date": "By",
+    "current_amount": "Set aside now",
+    "monthly_contribution": "Each month",
+}
+
+
+def _goal_receipt(result: dict) -> list[tuple]:
+    if "deleted" in result:
+        return [("Deleted", result["deleted"].get("name"), "text")]
+    return [
+        ("Goal", result.get("name"), "text"),
+        ("Target", result.get("target_amount"), "amount", result.get("currency")),
+        ("By", result.get("target_date"), "date"),
+    ]
+
+
+def _goal_done(card: dict) -> str:
+    return {"add": "Recorded", "change": "Changed", "delete": "Deleted"}.get(
+        (card.get("arguments") or {}).get("action"), "Recorded"
+    )
+
+
+# --- change_pac_amount -------------------------------------------------------------
+#
+# A PAC's amount, changed from its next occurrence as the PAC form's Save
+# changes it (brief AO): the whole plan as the form loads it with the amount
+# changed, through the function the form's request calls, which checks the
+# accounts the plan names. What the card adds is what the form leaves the
+# reader to work out: the occurrence the new amount buys first, whether that
+# one is due already, and the carry the change sets to zero. The schedule and
+# the funds stay with the form: a running plan's schedule edited can write
+# buys before today (the record's bullet of 2026-10-05), which no card does.
+
+
+class ChangePacAmountArgs(BaseModel):
+    """What a PAC buys with, from its next occurrence on."""
+
+    plan: str = Field(..., min_length=1, description="The PAC, as the picture names it.")
+    amount: float = Field(
+        ..., gt=0, description="What each occurrence buys with from now on, in the plan's currency."
+    )
+    first_buy: datetime.date | None = Field(
+        default=None,
+        description=(
+            "Only when two PACs share the name: the day of its first buy, as the "
+            "picture shows it."
+        ),
+    )
+
+
+def _plan_named(db: Session, args: ChangePacAmountArgs) -> models.AccumulationPlan:
+    """The plan on record the card is about, by name, or a refusal the model
+    can act on."""
+    plans = crud.get_accumulation_plans(db)
+    wanted = args.plan.strip().casefold()
+    hits = [p for p in plans if p.name.strip().casefold() == wanted]
+    if len(hits) > 1 and args.first_buy is not None:
+        hits = [p for p in hits if p.start_date == args.first_buy.isoformat()] or hits
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        have = ", ".join(p.name for p in plans) or "none"
+        raise LookupError(f"There is no PAC called {args.plan!r}. On record: {have}.")
+    raise LookupError(
+        f"{len(hits)} PACs are called {args.plan!r}: say which by the day of its first "
+        "buy (first_buy), as the picture shows it."
+    )
+
+
+def _plan_body(plan: models.AccumulationPlan) -> dict:
+    """The body the PAC form's Save sends for a plan as stored, when nothing in
+    it is touched (`CashFlow.tsx`, `startEdit` then `submit`): a blank
+    frequency or fill model as the form's defaults, every target that has a
+    ticker, no note."""
+    return {
+        "name": plan.name.strip(),
+        "amount": plan.amount,
+        "currency": plan.currency,
+        "frequency": plan.frequency or "monthly",
+        "execution": plan.execution or "whole_units",
+        "source_institution_id": plan.source_institution_id,
+        "start_date": plan.start_date or None,
+        "end_date": plan.end_date or None,
+        "targets": [
+            {
+                "symbol": t.symbol.strip(),
+                "isin": (t.isin or "").strip().upper() or None,
+                "asset_name": (t.asset_name or "").strip() or None,
+                "institution_id": t.institution_id,
+                "weight": t.weight if t.weight > 0 else 1,
+            }
+            for t in plan.targets
+            if (t.symbol or "").strip()
+        ],
+    }
+
+
+@dataclass(frozen=True)
+class _PacChange:
+    """One card's change of amount, worked out once for the card and the write."""
+
+    plan: models.AccumulationPlan
+    body: dict  # the PAC form's body, the amount changed
+    first: datetime.date  # the first occurrence the new amount buys
+    due: str  # that occurrence: "due" already, "today", or "later"
+
+
+def _pac_change(db: Session, args: ChangePacAmountArgs) -> _PacChange:
+    """The plan, the body the form would send for it, and the occurrence the
+    new amount reaches first, or a refusal saying why there is none."""
+    plan = _plan_named(db, args)
+    # The form will not save a plan with either end missing, and says so; the
+    # card says where it is saved with them.
+    if plan.source_institution_id is None:
+        raise LookupError(
+            f"{plan.name} does not say which account funds it: name it on the PAC's "
+            "form, under Records, Cash flow, which saves the plan only with one."
+        )
+    homeless = [t.symbol for t in plan.targets if t.institution_id is None]
+    if homeless:
+        raise LookupError(
+            f"{plan.name} does not say where {', '.join(homeless)} is held: name it on the "
+            "PAC's form, under Records, Cash flow."
+        )
+    if args.amount == plan.amount:
+        raise LookupError(
+            f"{plan.name} buys with {plan.amount:.2f} {plan.currency} already: nothing would change."
+        )
+    today = datetime.date.fromisoformat(dated.today())
+    first = pac.first_unsettled(db, plan, today)
+    if first is None:
+        last = f" (its last day is {plan.end_date})" if plan.end_date else ""
+        raise LookupError(
+            f"{plan.name} has no occurrence left to buy{last}: a new amount would buy nothing."
+        )
+    body = {**_plan_body(plan), "amount": args.amount}
+    schemas.AccumulationPlanWrite(**body)
+    due = "due" if first < today else "today" if first == today else "later"
+    return _PacChange(plan, body, first, due)
+
+
+def _propose_pac_amount(db: Session, args: ChangePacAmountArgs) -> Proposal:
+    """A plan rewritten, so the diff: the amount, and the carry the change
+    sets to zero; what the change reaches, and what it leaves to the form.
+
+    Its fingerprint is the plan as the form would send it, its carry, the
+    occurrences it has settled and the one the card names with its state: the
+    catch-up buying that occurrence at the old amount between the card and its
+    confirmation makes the card say something no longer true."""
+    change = _pac_change(db, args)
+    plan, first, cur = change.plan, change.first.isoformat(), change.plan.currency
+    new = f"{args.amount:.2f} {cur}"
+    fractional = (plan.execution or "whole_units") == "fractional"
+    carried = plan.carried_remainder or 0.0
+    diff = [{"field": "Amount per occurrence", "now": f"{plan.amount:.2f} {cur}", "proposed": new}]
+    if not fractional and carried:
+        diff.append({"field": "Carried", "now": f"{carried:.2f} {cur}", "proposed": f"0.00 {cur}"})
+    said = [f"From its occurrence of {first} on, each occurrence of {plan.name} buys with {new}."]
+    if change.due == "due":
+        said.append(
+            "That occurrence is due and not bought yet (it waits for its close, or for the "
+            "market to answer), so the next start buys it with the new amount."
+        )
+    elif change.due == "today":
+        said.append(
+            "That occurrence is today's: the first start after today's close buys it with "
+            "the new amount."
+        )
+    said.append("The occurrences already bought keep their buys.")
+    if fractional:
+        said.append("A fractional plan invests exactly its amount, so it carries nothing.")
+    elif carried:
+        source = crud.get_institution(db, plan.source_institution_id)
+        said.append(
+            f"The {carried:.2f} {cur} carried now (what whole units could not place) goes to "
+            "zero with the change, as a change of amount on the PAC's form does: that money "
+            f"never left {source.name}'s cash, and it stays there."
+        )
+    said.append(
+        "Its frequency, the day of its first buy and its funds stay as they are: they "
+        "change on the PAC's form, under Records, Cash flow, where a running plan's "
+        "schedule, once edited, can add buys before today."
+    )
+    fingerprint = json.dumps(
+        {
+            "plan": _plan_body(plan),
+            "carried": carried,
+            "settled": sorted(crud.get_plan_occurrences_settled(db, plan.id)),
+            "first": first,
+            "due": change.due,
+        },
+        sort_keys=True,
+    )
+    return Proposal(
+        title=f"change PAC amount: {plan.name}, {plan.amount:.2f} → {new} from {first}",
+        fingerprint=fingerprint,
+        confirmation="diff",
+        consequence=" ".join(said),
+        diff=diff,
+        touches=f'the PAC "{plan.name}"',
+    )
+
+
+def _change_pac_amount(db: Session, args: ChangePacAmountArgs) -> dict:
+    """The plan, through the function the form's request calls."""
+    change = _pac_change(db, args)
+    plan = crud.update_accumulation_plan(
+        db, change.plan.id, schemas.AccumulationPlanWrite(**change.body)
+    )
+    return {
+        "plan": plan.name,
+        "amount": plan.amount,
+        "currency": plan.currency,
+        "from": change.first.isoformat(),
+        "carried": plan.carried_remainder,
+    }
+
+
+_PAC_AMOUNT_LABELS = {"plan": "PAC", "amount": "New amount", "first_buy": ""}
+
+
+def _pac_amount_receipt(result: dict) -> list[tuple]:
+    return [
+        ("Each occurrence buys with", result.get("amount"), "amount", result.get("currency")),
+        ("From the occurrence of", result.get("from"), "date"),
+        ("Carried now", result.get("carried"), "amount", result.get("currency")),
+    ]
+
+
+# --- change_base_currency ----------------------------------------------------------
+#
+# The currency every total is shown in, changed as the Profile page's Save
+# changes it (brief AN): through `crud.change_base`, the function its request
+# calls. Changing it asks the ECB's feed for the new base's rates and stores
+# them before the setting moves, so it runs as the analysis runs, on the
+# stream and outside the confirmation's unit of work: a fetch inside it would
+# hold SQLite's write lock while the network answers.
+
+
+class ChangeBaseCurrencyArgs(BaseModel):
+    """The currency every total is to be shown in."""
+
+    currency: schemas.StatedCurrency = Field(
+        ..., description="An ISO code the ECB's reference rates quote, such as EUR, USD, GBP, CHF."
+    )
+
+
+def _base_change(db: Session, args: ChangeBaseCurrencyArgs) -> tuple[str, str]:
+    """(the base now, the one asked for), or a refusal in the settings
+    request's own words."""
+    now, wanted = fx.base_currency(db), args.currency.strip().upper()
+    if wanted == now:
+        raise LookupError(f"{now} is the base already: nothing would change.")
+    available = fx.feed_currencies(db)
+    if wanted not in available:
+        raise LookupError(
+            f"{wanted} is not a currency the ECB rate feed quotes, so no total could be "
+            f"converted into it. Choose one of: {', '.join(available)}."
+        )
+    return now, wanted
+
+
+def _propose_base(db: Session, args: ChangeBaseCurrencyArgs) -> Proposal:
+    """A setting rewritten, so the diff; what changes, what does not, and that
+    the ECB's feed is asked before anything moves."""
+    now, wanted = _base_change(db, args)
+    since = crud.earliest_dated_record(db)
+    reach = f"from {since} to today" if since else "for today"
+    return Proposal(
+        title=f"base currency: {now} → {wanted}",
+        fingerprint=f"base={now}",
+        confirmation="diff",
+        consequence=(
+            f"Every total and figure the app shows is shown in {wanted} from then on, "
+            "the net worth's history included. Nothing stored is rewritten: every "
+            "amount keeps the currency it was recorded in, and a sum fixed on its day "
+            "keeps its figure. Confirming asks the ECB's feed for its rates against "
+            f"{wanted} {reach} and stores them first; if the feed does not answer, "
+            "nothing changes."
+        ),
+        diff=[{"field": "Base currency", "now": now, "proposed": wanted}],
+        touches="the base currency",
+    )
+
+
+def _walk_base(db: Session, args: ChangeBaseCurrencyArgs) -> Iterator[Working]:
+    """The change, through the function the settings request calls, said as
+    one step once the rates are stored and the base has moved."""
+    started = time.monotonic()
+    try:
+        was = crud.change_base(db, args.currency)
+    except (fx.BaseRatesUnavailable, fx.BaseNotQuoted) as exc:
+        # Written for the reader already: the base is unchanged and why.
+        raise advisor.AdvisorError(str(exc)) from exc
+    base = fx.base_currency(db)
+    yield Working(
+        step_no=1,
+        label=f"The ECB's rates against {base} fetched and stored, and the base changed",
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+    return {"base_currency": base, "was": was}
+
+
+_BASE_LABELS = {"currency": "Base currency"}
+
+
+def _base_receipt(result: dict) -> list[tuple]:
+    return [
+        ("Base currency now", result.get("base_currency"), "text"),
+        ("It was", result.get("was"), "text"),
+    ]
+
+
+# --- suggest_instrument -------------------------------------------------------
+#
+# The one card that is NOT a write to the reader's records. Accepting it moves
+# no total, no allocation and no cash projection: it parks an idea, with what
+# the idea rested on, on a list that owns nothing. That is why a model is
+# allowed to raise it at all — and why its accept button says what it does
+# rather than "Confirm".
+#
+# The identity comes from the CATALOGUE and the argument model is built so that
+# it cannot come from anywhere else. The tool takes an ISIN and no name: the
+# name, the charge, the domicile and the distribution policy are all read off
+# the row here, so the worst a model can do is name a fund that does not exist,
+# which is refused, rather than attach a real ISIN to a wrong description. The
+# hallucinated ticker — the classic defect of a chatbot that talks about funds
+# — has nowhere to enter.
+#
+# `symbol` is the exception and it is optional, unverified, and labelled as
+# such. Nothing offline can confirm that a Yahoo symbol exists, and verifying
+# it with a network call would make the card go "stale" every time Yahoo is
+# slow, which is a lie about what staleness means. So it travels as a hint
+# beside a checkable ISIN, and never as the thing being watched.
+
+
+class SuggestInstrumentArgs(BaseModel):
+    """One instrument worth looking at, and the three things that have to
+    travel with it: a fund by its ISIN from the catalogue, or a single share by
+    the symbol Yahoo lists it under."""
+
+    isin: MaybeText = Field(
+        default=None,
+        min_length=12,
+        max_length=12,
+        description=(
+            "For a FUND: its ISIN, copied EXACTLY from a `search_catalogue` "
+            "result. Never written from memory: an ISIN that is not in the "
+            "local registry is refused, which is the point. Search first. Null "
+            "for a single share."
+        ),
+    )
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Why THIS one, in a sentence or two. Not a description of the "
+            "fund (the card already carries its charge, domicile and policy "
+            "from the registry) but what it would do in this reader's "
+            "situation."
+        ),
+    )
+    based_on: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "What the reader has DECLARED that this rests on: a position they "
+            "hold, an answer in their questionnaire, a goal, something they "
+            "said in this conversation. Name it specifically. If nothing in "
+            "the picture supports the idea, do not propose it."
+        ),
+    )
+    unknowns: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "What you do NOT know that would change this: their tax "
+            "situation, a horizon they never gave, whether they already hold "
+            "something equivalent elsewhere. This is the field a suggestion "
+            "gets wrong by leaving comfortable: it is read again in a month, "
+            "when what was missing is the whole question."
+        ),
+    )
+    symbol: MaybeText = Field(
+        default=None,
+        description=(
+            "For a single SHARE: the exact symbol of a `lookup_symbol` result "
+            "whose quote_type is equity, with `isin` null. The app asks Yahoo "
+            "about it again and takes the name from there. For a FUND: "
+            "optional, a quotable symbol from `lookup_symbol` and ONLY from "
+            "there, never the registry's `base_ticker`, which is not a Yahoo "
+            "symbol; it is stored as a hint for the reader to check."
+        ),
+    )
+    amount_now: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional: a sum to put in at once, in the base currency, chosen within "
+            "the cash above the reserve that `size_purchase` gave. The card refuses "
+            "one above it."
+        ),
+    )
+    amount_monthly: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional: a sum to put in every month, in the base currency, chosen "
+            "within what `size_purchase` gave as left each month after their "
+            "commitments. The card refuses one above it."
+        ),
+    )
+    amount_currency: MaybeText = Field(
+        default=None,
+        description="With an amount: the ISO code of the base currency, as the picture names it.",
+    )
+    amount_assumptions: MaybeText = Field(
+        default=None,
+        description=(
+            "With an amount, required: what you assumed in choosing it, in a sentence "
+            "or two: the reserve's months and whose they are, what each goal keeps, "
+            "why this much of what the records allow. Said on the card and kept on "
+            "the watchlist."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _names_one_instrument(self):
+        if not self.isin and not (self.symbol or "").strip():
+            raise ValueError("Name a fund by its ISIN, or a single share by its symbol.")
+        return self
+
+    @model_validator(mode="after")
+    def _an_amount_says_what_it_assumed(self):
+        sized = self.amount_now is not None or self.amount_monthly is not None
+        if sized and not (self.amount_assumptions or "").strip():
+            raise ValueError(
+                "An amount travels with what it assumed: say it in amount_assumptions."
+            )
+        if not sized and (self.amount_assumptions or "").strip():
+            raise ValueError(
+                "amount_assumptions goes with an amount: give amount_now, amount_monthly "
+                "or both, or leave it out."
+            )
+        return self
+
+
+_POLICY_WORDS = schemas.POLICY_WORDS
+
+# What accepting a suggestion does, said on the card. The whole sentence is
+# that nothing happens to their money: this is the one card whose confirmation
+# writes no record of theirs, and the reader has spent four other cards
+# learning that pressing the button changes the figures.
+_WATCH_CONSEQUENCE = (
+    "Nothing about your money changes. This parks the idea, with the reasoning "
+    "above, on your watchlist: no position, no total and no projection moves, "
+    "and no broker is connected to this app in any case."
+)
+
+
+def _catalogue_row(db: Session, isin: str) -> models.Instrument:
+    """The registry row for an ISIN, or a refusal that says which kind it is.
+
+    Two different refusals, because they have two different remedies and
+    presenting one as the other is the mistake this app names everywhere else:
+    an empty registry means nothing has been downloaded yet, and a missing row
+    in a full registry means this ISIN is not among the funds it holds. Neither
+    is "that fund does not exist"."""
+    key = (isin or "").strip().upper()
+    row = db.get(models.Instrument, key)
+    if row is not None:
+        return row
+    state = catalogue.status(db)
+    if not state["rows"]:
+        raise LookupError(
+            "The local fund registry is empty: "
+            + _where_the_download_stands(state)
+            + ". Nothing can be suggested from it until it arrives, and this is "
+            "not a statement about the fund. Say so in plain words and offer "
+            "no card."
+        )
+    raise LookupError(
+        f"{key!r} is not in the local registry ({state['rows']} funds, "
+        f"downloaded {state['fetched_at']}). A suggestion may only name a row "
+        "`search_catalogue` returned: search for it by name and copy the ISIN "
+        "from the result. Do not write one from memory."
+    )
+
+
+def _twin(db: Session, row: models.Instrument) -> models.Instrument | None:
+    """The same fund's other share class, if it has one.
+
+    `catalogue.search` returns families precisely so a twin is never shown
+    alone — showing one of a pair invites picking the wrong one without ever
+    revealing there was a choice — and a card is the narrowest result list
+    there is, so the pair has to be named on it too."""
+    siblings = (
+        db.query(models.Instrument)
+        .filter(
+            models.Instrument.family_key == row.family_key,
+            models.Instrument.isin != row.isin,
+        )
+        .order_by(models.Instrument.isin)
+        .all()
+    )
+    return siblings[0] if siblings else None
+
+
+def _registry_facts(row: models.Instrument) -> list[str]:
+    """The card's figures, all of them read off the row and none of them
+    written by the model."""
+    facts = []
+    policy = _POLICY_WORDS.get((row.distribution_policy or "").strip().lower())
+    if policy:
+        facts.append(policy)
+    if row.ter is not None:
+        facts.append(f"TER {row.ter}%")
+    if row.domicile:
+        facts.append(row.domicile)
+    # How it holds what it tracks (brief AQ): "Physically backed" holds the
+    # metal or the coins themselves, "Swap based" holds none of it and follows
+    # an index through a contract with a bank, which for a commodity is an index
+    # of futures. On the card, where a commodity is chosen or not.
+    if row.replication:
+        facts.append(row.replication)
+    if row.size_meur:
+        facts.append(f"{int(row.size_meur):,} M EUR".replace(",", " "))
+    return facts
+
+
+# A symbol shaped like an ISIN, with or without an exchange's suffix. On
+# 2026-10-06 Yahoo listed two Eni bonds only as IT0005521171.SG and
+# XS1023703090.SG, on Stuttgart, typed "equity" and with no name; a share
+# trades under a ticker, never under its ISIN.
+_ISIN_SYMBOL = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9](\.[A-Z]+)?")
+
+# What a share's card says beside what accepting it does.
+_SHARE_NAMED = (
+    " Yahoo lists it under this symbol, asked just now, and gives no ISIN, so "
+    "the symbol is what names it on your watchlist. A charge and a domicile "
+    "are a fund's, and a share has neither."
+)
+
+# The last line of every suggestion card (brief AQ): naming a security, with
+# or without an amount, is said for what it is.
+_NOT_ADVICE = " This is educational information, not personalised regulated advice."
+
+
+def _sized(db: Session, args: SuggestInstrumentArgs) -> tuple[str, str]:
+    """What a card's amounts stand on, in the app's words, to follow "The
+    amounts stand on" on the card and "Stood on" on the watchlist line, and
+    what they add to its fingerprint; ("", "") for a card with no amount. An amount the records
+    do not allow is refused in words, as one they cannot size is.
+
+    The figures are `size_purchase`'s own (`sizing.room`), so the card and the
+    answer that drew it cannot disagree. The bound is the reader's choice
+    (2026-10-12): a sum now within the cash above the reserve, a monthly one
+    within what is left each month once the PACs and the goals' recorded
+    contributions are taken out; what a goal would need is said beside them.
+    The fingerprint takes the figures the records decide and none the market
+    moves, which is why it holds no share of the wealth: "no live price enters
+    a fingerprint". What the sum would weigh in the investments is the
+    answer's to say, from `size_purchase`: the card does not walk the issuers
+    while a confirmation holds the database."""
+    if args.amount_now is None and args.amount_monthly is None:
+        return "", ""
+    found = sizing.room(db)
+    base = found.base
+    named = (args.amount_currency or "").strip().upper()
+    if named != base.upper():
+        raise ValueError(
+            f"The amounts are in the base currency, {base}: name it in amount_currency"
+            + (f", not {named}" if named else "")
+            + "."
+        )
+    held = found.reserve
+    whose = (
+        "your answer in the Profile"
+        if held.from_profile
+        else "the app's default, as your profile does not say"
+    )
+    parts = [f"your records of {found.on}."]
+    if args.amount_now is not None:
+        room = found.cash_above_reserve
+        if room is None:
+            raise ValueError(
+                "No reserve can be sized: no expense is in force, so nothing says what a "
+                "month costs, and no sum put in now can be weighed against one. Say so, "
+                "and that their expenses recorded under Records, Cash flow would size it."
+            )
+        if args.amount_now > room + 0.005:
+            raise ValueError(
+                f"{args.amount_now:.2f} {base} is more than the cash above the reserve, "
+                f"{room:.2f} {base} ({found.cash:.2f} {base} on the accounts, a reserve of "
+                f"{held.amount:.2f} {base}: {held.months:g} months of essential expenses, "
+                f"{whose}). Choose within it, or say there is no room for a sum now."
+            )
+        parts.append(
+            f"{found.cash:.2f} {base} on your accounts, {room:.2f} {base} of it above a reserve "
+            f"of {held.months:g} months of essential expenses ({whose}): "
+            f"{args.amount_now:.2f} {base} now would leave {room - args.amount_now:.2f} {base} "
+            f"above it, and is {_percent(args.amount_now, found.financial_wealth)}% of your "
+            "financial wealth."
+        )
+    if args.amount_monthly is not None:
+        left = found.left_after_commitments
+        if left is None:
+            raise ValueError(
+                "What is left each month cannot be said: no income or no expense is in "
+                "force. No monthly sum can be weighed against it: say so."
+            )
+        if args.amount_monthly > left + 0.005:
+            raise ValueError(
+                f"{args.amount_monthly:.2f} {base} a month is more than what is left each "
+                f"month once the PACs and the goals' contributions are taken out, "
+                f"{left:.2f} {base}. Choose within it."
+            )
+        parts.append(
+            f"{left:.2f} {base} is left each month once the PACs and the goals' recorded "
+            f"contributions are taken out: {args.amount_monthly:.2f} {base} a month is "
+            f"{_percent(args.amount_monthly, left)}% of it."
+        )
+    for goal in found.goals:
+        if goal.monthly_need is not None:
+            short = (
+                f", {goal.shortfall:.2f} {goal.currency} short" if goal.shortfall else ""
+            )
+            parts.append(
+                f'The goal "{goal.name}" needs {goal.monthly_need:.2f} {goal.currency} a month '
+                f"to {goal.by} with no growth, and {goal.recorded_monthly:.2f} {goal.currency} "
+                f"a month is recorded for it{short}."
+            )
+    if found.left_if_goals_met is not None and any(g.shortfall for g in found.goals):
+        parts.append(
+            f"Were every goal given its need, {found.left_if_goals_met:.2f} {base} would "
+            "be left each month."
+        )
+    fingerprint = (
+        f"{base}|{found.cash_above_reserve}|{held.months}|{held.from_profile}|"
+        f"{found.left_after_commitments}"
+    )
+    return " ".join(parts), fingerprint
+
+
+def _listed_share(symbol: str | None) -> dict:
+    """The share Yahoo lists under exactly `symbol`, asked now, or a refusal
+    that says which kind of no it is.
+
+    Each refusal has its own remedy. Yahoo did not answer: that says nothing
+    about the share, so no card until it does. It lists nothing there: look it
+    up and copy the symbol. It lists a fund there: a fund's card comes from the
+    catalogue, by ISIN, which is what keeps out a fund a saver in Europe cannot
+    buy. It lists something that is not a share: a coin, a future, an index, or
+    a bond quoted under its ISIN, none of which gets a card.
+
+    Yahoo's own type is not taken alone. On 2026-10-06 it typed VOOY, named
+    "XFUNDS Large Cap Income ETF", as an equity, and the two bonds above too;
+    so a name that says ETF, a symbol that is an ISIN and a listing with no
+    name are refused as well."""
+    wanted = (symbol or "").strip().upper()
+    try:
+        found = prices.listing(wanted)
+    except prices.MarketUnreachable as exc:
+        raise LookupError(
+            f"Yahoo did not answer just now ({exc}). That says nothing about "
+            f"whether {wanted} exists: offer no card for it until Yahoo answers, "
+            "and say so in plain words."
+        ) from exc
+    if found is None:
+        raise LookupError(
+            f"Yahoo lists nothing under {wanted!r}. A card for a share takes the "
+            "exact symbol a `lookup_symbol` result gave: look it up and copy it."
+        )
+    kind = (found.get("quote_type") or "").lower()
+    name = found.get("name") or ""
+    if kind in ("etf", "mutualfund") or re.search(r"\bETF\b", name, re.IGNORECASE):
+        raise LookupError(
+            f"Yahoo lists {wanted} ({name or 'no name'}) as a fund, not a share. "
+            "A fund gets a card only from the catalogue, by its ISIN: search for "
+            "it there. One the catalogue does not hold (a fund domiciled outside "
+            "the EU has no KID, so a saver in Europe cannot buy it) gets no card, "
+            "and the reader is told why."
+        )
+    if _ISIN_SYMBOL.fullmatch(wanted):
+        raise LookupError(
+            f"{wanted} is an ISIN, which is how Yahoo quotes bonds and funds on "
+            "some exchanges, never a share's ticker. A single bond gets no card: "
+            "nothing in this app can verify one."
+        )
+    if kind != "equity":
+        raise LookupError(
+            f"Yahoo lists {wanted} as {kind or 'something it does not name'}, not "
+            "as a share. A card names a fund from the catalogue or a share; a "
+            "coin, a future or an index gets none."
+        )
+    if not name:
+        raise LookupError(
+            f"Yahoo lists {wanted} with no name, so a card could not say what it "
+            "is. Offer no card for it."
+        )
+    return found
+
+
+def _propose_suggestion(db: Session, args: SuggestInstrumentArgs) -> Proposal:
+    """An idea, drawn from the registry row or the Yahoo listing it names.
+
+    Refuses outright when the ISIN is already on the watchlist: suggesting
+    something that is already there is not a second idea, it is the same one,
+    and a duplicate whose only difference is which day it was written makes the
+    list worse to read in exactly the month it exists to help.
+
+    The fingerprint is what the registry says about this fund RIGHT NOW — the
+    same fields the title quotes. The catalogue is replaced wholesale on every
+    refresh, so a fund can leave the market or change its charge between the
+    proposal and the confirmation, and when it does the card stops describing
+    what the reader was shown. Card and title go stale together, which is the
+    only rule a test can pin. A share has its own: `_propose_share`."""
+    if not args.isin:
+        return _propose_share(db, args)
+    row = _catalogue_row(db, args.isin)
+    watched = crud.find_watchlist_item(db, isin=row.isin)
+    if watched is not None:
+        raise ValueError(
+            f"{row.name} ({row.isin}) is already on the watchlist, added "
+            f"{watched.added_at}, because: {watched.reason}"
+        )
+    facts = _registry_facts(row)
+    twin = _twin(db, row)
+    consequence = _WATCH_CONSEQUENCE
+    if twin is not None:
+        other = _POLICY_WORDS.get(
+            (twin.distribution_policy or "").strip().lower(), "another"
+        )
+        consequence += (
+            f" The same fund also exists as {'an' if other[0] in 'aeiou' else 'a'} "
+            f"{other} share class ({twin.isin}); this card is for the one named "
+            "above."
+        )
+    figures, sized = _sized(db, args)
+    return Proposal(
+        title=(
+            f"watch: {row.name}, {row.isin}"
+            + (" · " + " · ".join(facts) if facts else "")
+        ),
+        fingerprint=(
+            f"{row.isin}|{row.name}|{row.ter}|{row.distribution_policy}|{row.domicile}"
+            + (f"|{sized}" if sized else "")
+        ),
+        consequence=consequence
+        + (f" The amounts stand on {figures}" if figures else "")
+        + _NOT_ADVICE,
+        verb="Add to watchlist",
+    )
+
+
+def _propose_share(db: Session, args: SuggestInstrumentArgs) -> Proposal:
+    """A single share, drawn from what Yahoo lists under its symbol now.
+
+    The fingerprint is Yahoo's answer: confirming asks again, as a fund's
+    confirmation reads the registry again, so a listing that changed in
+    between refuses the card, and one Yahoo is silent about leaves it pending.
+    Refused outright when the share is already on the watchlist, for the
+    reason a fund is."""
+    share = _listed_share(args.symbol)
+    watched = crud.find_watchlist_item(db, symbol=share["symbol"])
+    if watched is not None:
+        raise ValueError(
+            f"{watched.name} ({watched.symbol}) is already on the watchlist, added "
+            f"{watched.added_at}, because: {watched.reason}"
+        )
+    where = f" · {share['exchange']}" if share.get("exchange") else ""
+    # The listing's currency as Yahoo gives it (brief AQ), never inferred from
+    # the exchange; not in the fingerprint, since a silence about it is a
+    # blip and not the listing having changed.
+    quoted = _listing_currency(share["symbol"])
+    figures, sized = _sized(db, args)
+    return Proposal(
+        title=(
+            f"watch: {share['name']}, {share['symbol']} · share{where} · "
+            + (f"quoted in {quoted}" if quoted else "currency not given by Yahoo")
+        ),
+        fingerprint=(
+            f"{share['symbol']}|{share['name']}|{share.get('exchange')}|"
+            f"{share.get('quote_type')}"
+            + (f"|{sized}" if sized else "")
+        ),
+        consequence=_WATCH_CONSEQUENCE
+        + _SHARE_NAMED
+        + (f" The amounts stand on {figures}" if figures else "")
+        + _NOT_ADVICE,
+        verb="Add to watchlist",
+    )
+
+
+def _suggest_instrument(db: Session, args: SuggestInstrumentArgs) -> dict:
+    """Park the idea. One row, and every identifying field on it read off the
+    registry, or off Yahoo for a share, rather than off the arguments: the
+    model chose which instrument, not what it is called.
+
+    A share asks Yahoo once more here, a second or so after the confirmation's
+    own check. Nothing is written before it answers, and the transaction opens
+    at the first write (`database.unit_of_work`), so no lock is held while it
+    waits."""
+    if args.isin:
+        row = _catalogue_row(db, args.isin)
+        isin, symbol, name = row.isin, ((args.symbol or "").strip().upper() or None), row.name
+    else:
+        share = _listed_share(args.symbol)
+        isin, symbol, name = None, share["symbol"], share["name"]
+    # The amount the card carried, kept with what it stood on (brief AQ): the
+    # figures are read again here, from the records the confirmation has just
+    # checked against the card's fingerprint, so they are the card's.
+    figures, _ = _sized(db, args)
+    sized = bool(figures)
+    item = crud.create_watchlist_item(
+        db,
+        schemas.WatchlistItemCreate(
+            isin=isin,
+            symbol=symbol,
+            name=name,
+            reason=args.reason.strip(),
+            based_on=args.based_on.strip(),
+            unknowns=args.unknowns.strip(),
+            amount_now=args.amount_now,
+            amount_monthly=args.amount_monthly,
+            amount_currency=(args.amount_currency or "").strip().upper() if sized else None,
+            amount_assumptions=(args.amount_assumptions or "").strip() if sized else None,
+            amount_figures=figures or None,
+        ),
+    )
+    return {
+        "watchlist_id": item.id,
+        "isin": item.isin,
+        "symbol": item.symbol,
+        "name": item.name,
+        "added_at": item.added_at,
+        "amount_now": item.amount_now,
+        "amount_monthly": item.amount_monthly,
+        "amount_currency": item.amount_currency,
+    }
+
+
+_SUGGESTION_LABELS = {
+    "isin": "ISIN",
+    "symbol": "Ticker",
+    "reason": "Why this one",
+    "based_on": "Rests on",
+    "unknowns": "Not known",
+    "amount_now": "Now",
+    "amount_monthly": "Each month",
+    # Said with the amounts it is the currency of (`Tool.currencies`).
+    "amount_currency": "",
+    "amount_assumptions": "Assumes",
+}
+
+
+def _suggestion_receipt(result: dict) -> list[tuple]:
+    currency = result.get("amount_currency")
+    return [
+        ("On your watchlist since", result.get("added_at"), "date"),
+        ("Ticker", result.get("symbol"), "text"),
+        ("Now", result.get("amount_now"), "amount", currency),
+        ("Each month", result.get("amount_monthly"), "amount", currency),
+    ]
+
+
+# --- The analysis, run as sub-agents and read back ----------------------------
+#
+# The chat is the ORCHESTRATOR of the chain now, and the rule it orchestrates
+# under is the one thing about the chain that cannot bend: the analyst sees the
+# portfolio and not the person, the confidant sees the person and not one
+# figure. `chain.run_chain` guarantees that by construction — two builder
+# functions, `advisor.build_portfolio_context` and `advisor.build_person_context`
+# — and nothing here may add a third door. In particular NOTHING FROM THE
+# CONVERSATION reaches a sub-agent: a model asked to brief a colleague
+# summarises, a summary carries the numbers across, and two models that have
+# seen the same things converge into the agreeable mush the chain exists to
+# prevent. Which is also why `run_analysis` takes no arguments at all — a
+# `focus` field would be the orchestrator writing the sub-agents' prompts, one
+# sentence at a time.
+
+
+class RunAnalysisArgs(BaseModel):
+    """What `run_analysis` takes: NOTHING, and that is a decision.
+
+    Every argument this could have (what to look at, what to weigh, what the
+    reader is worried about) is the orchestrator telling the sub-agents what
+    to think, and their whole value is that they were not told. What they read
+    comes from a builder function or it does not come at all.
+    """
+
+
+def _seconds(run: models.ChainRun | None) -> int | None:
+    """How long a run took, from the steps it persisted. None when nothing has
+    run, or when a run predates the durations being recorded — an absence, not
+    a zero."""
+    if run is None:
+        return None
+    known = [s.duration_ms for s in run.steps if s.duration_ms is not None]
+    return round(sum(known) / 1000) if known else None
+
+
+def _spent(run: models.ChainRun | None) -> float | None:
+    """What a run cost, in USD, or None if any step did not say.
+
+    All or nothing on purpose. A sum over only the steps that reported a price
+    is a number smaller than the truth printed with the confidence of a total,
+    and the one thing this app does not do is show a figure that is missing
+    part of itself without saying so.
+    """
+    if run is None or not run.steps:
+        return None
+    costs = [s.cost for s in run.steps]
+    return round(sum(costs), 4) if all(c is not None for c in costs) else None
+
+
+def _propose_analysis(db: Session, args: RunAnalysisArgs) -> Proposal:
+    """The card that asks before the spend, quoting measurements only.
+
+    Three things the reader is owed before a minute of their attention goes:
+    how many steps, how long the last run took, and what it cost. The first is
+    a fact about the code; the other two are read off the last run and left
+    out entirely when there has never been one: "about a minute, a few cents"
+    would be a guess printed as a fact, and the reader would have no way to
+    tell it from the measured version of the same sentence.
+
+    And since brief AR, what a run may look up, with its bounds: the analyst's
+    steps can ask in rounds and search the web, so a run's cost moves with
+    what they look up, and the last run's price is one run's. No column of a
+    step says whether it looked anything up, and none was added for the card
+    (the reader's choice, 2026-10-12), so the card says the bounds and not
+    what the last run did. It said "model calls" until then, which a step
+    that asks in rounds made untrue.
+    """
+    run = crud.get_latest_chain_run(db)
+    took, spent = _seconds(run), _spent(run)
+    analyst = advisor.resolve_model(chain._model_for("analyst"))
+    confidant = advisor.resolve_model(chain._model_for("confidant"))
+    engines = sorted({analyst, confidant})
+    looks = (
+        "The analyst's steps may look things up first, in up to "
+        f"{chain.ROUNDS_PER_STEP} requests"
+        + (f" and {chain.SEARCHES_PER_STEP} web searches" if web_search(analyst) else "")
+        + " a step, so what a run costs moves with what they look up."
+    )
+
+    measured = []
+    if took is not None:
+        measured.append(f"took {took}s")
+    if spent is not None:
+        measured.append(f"cost ${spent:g}")
+    last = (
+        f"The last run {' and '.join(measured)}."
+        if measured
+        else "Nothing has run yet, so there is no measured time or cost to quote."
+    )
+
+    return Proposal(
+        title="Run the analyzer over everything on record",
+        fingerprint=_DEPENDS_ON_NOTHING,
+        touches="a new analysis",
+        consequence=(
+            f"{chain.MIN_STEPS} steps, up to {chain.MAX_STEPS} if the disagreement is "
+            f"real, on {' and '.join(engines)}. {looks} {last} A request OpenRouter "
+            "turns away with 500, 502 or 503, which it says it does not bill, is asked "
+            "once more."
+        ),
+        warning=_models_said(db, {"analyst": analyst, "confidant": confidant}),
+    )
+
+
+def _models_said(db: Session, roles: dict[str, str]) -> str:
+    """What the analysis's card says, before a run, of the models it would
+    call (brief BB): each role's model that OpenRouter's list of the day dates
+    within `model_list.WARN_DAYS`, has passed the day of, or no longer has,
+    with where it is set for the roles that take it; and the web search's
+    model, when the analyst may search. Empty when there is nothing to say."""
+    listing = model_list.known(db)
+    uses: dict[str, list[tuple[str, ...]]] = {}
+    for role, model in roles.items():
+        uses.setdefault(model, []).append(chain.ROLE_READS[role])
+    said = [model_list.warning(m, listing, model_list.where_set(m, *reads)) for m, reads in uses.items()]
+    if web_search(roles["analyst"]):
+        said.append(model_list.search_warning(listing))
+    return " ".join(s for s in said if s)
+
+
+def _walk_analysis(db: Session, args: RunAnalysisArgs) -> Iterator[Working]:
+    """The chain, reported step by step, returning what the orchestrator gets
+    back.
+
+    What comes back is deliberately NOT the verdict. The verdict is a document
+    — the synthesis is written to be one — and a document in a tool result is a
+    document in the card, in a 32%-wide column, and then in the history of
+    every turn after it for as long as the conversation lives, sitting at the
+    same prominence as the picture rebuilt this second. A past opinion at full
+    length is how today's question gets answered with last month's conclusion.
+    So the result carries what is bounded and always relevant — when it ran,
+    how deep it went, what it cost — plus its opening lines and the id to read
+    the rest with. `read_analysis` is the door to the whole of it, and a turn
+    that walks through it pays for the document once and never again.
+    """
+    walk = chain.run_chain(db)
+    while True:
+        try:
+            step = next(walk)
+        except StopIteration as done:
+            run = done.value
+            break
+        # A step OpenRouter turned away once and that was asked again says so
+        # on its own line, where the reader reads the run as it goes.
+        # And one that looked things up says how much, there too (brief AR).
+        said = "; ".join(s for s in (step.looked_up, step.asked_again) if s)
+        label = f"{step.title} ({said})" if said else step.title
+        yield Working(step_no=step.step_no, label=label, duration_ms=step.duration_ms)
+
+    return {
+        "run_id": run.id,
+        "finished": run.created_at,
+        "steps": len(run.steps),
+        "revision_rounds": sum(1 for s in run.steps if s.role == "revision"),
+        "seconds": _seconds(run),
+        "cost_usd": _spent(run),
+        "opening": opening(run.verdict),
+        "read_in_full": (
+            f"That is the opening of it. Call read_analysis with "
+            f"run_id={run.id} for the whole verdict."
+        ),
+    }
+
+
+def _analysis_receipt(result: dict) -> list[tuple]:
+    """How deep, how long and how much: the verdict itself is a link away."""
+    seconds = result.get("seconds")
+    return [
+        ("Steps", result.get("steps"), "number"),
+        ("Took", f"{seconds} s" if seconds is not None else None, "text"),
+        ("Cost", result.get("cost_usd"), "amount", "USD"),
+    ]
+
+
+# How much of a verdict travels as its digest. Enough for the opening claim of
+# a document that leads with what to do; short enough that a conversation
+# carrying it on every turn is carrying a paragraph and not a report.
+OPENING_CHARS = 400
+
+
+def opening(verdict: str | None) -> str:
+    """The first lines of a verdict, cut at a line boundary, saying it was cut.
+
+    An excerpt and never a summary. Summarising an analysis is another model
+    call with another chance to move a number; the opening of a document
+    written to lead with what to do is the informative part of it anyway, and
+    it can be quoted because it is quoted verbatim.
+    """
+    text = (verdict or "").strip()
+    if len(text) <= OPENING_CHARS:
+        return text
+    cut = text[:OPENING_CHARS]
+    line = cut.rfind("\n")
+    return (cut[:line] if line > OPENING_CHARS // 2 else cut).rstrip() + " […]"
+
+
+class ReadAnalysisArgs(BaseModel):
+    """What `read_analysis` takes: which run to read."""
+
+    run_id: int = Field(
+        description=(
+            "The id of the run, as the picture or a confirmed card names it. "
+            "The picture in this conversation carries the id of the latest one."
+        )
+    )
+
+
+def _read_analysis(db: Session, args: ReadAnalysisArgs) -> dict:
+    """One run's verdict, whole, plus what it took to get there.
+
+    The second deliberate exception to "reading needs no tools", and it is the
+    same exception as the look-through reached by a different road. That rule
+    is about the reader's OWN data: bounded, always relevant, worth sending
+    every turn. A past analysis fails "always relevant" — it matters in one
+    conversation out of ten — and fails "bounded", because it is a document
+    somebody's model wrote at whatever length it liked.
+
+    The steps come back as titles and measurements, not as their text. What
+    each role wrote is four more documents, and the reader can open the whole
+    argument on the page; a model that pulled all of it into its context would
+    be paying for the chain's reasoning to answer a question about its
+    conclusion.
+    """
+    run = db.get(models.ChainRun, args.run_id)
+    if run is None:
+        latest = crud.get_latest_chain_run(db)
+        raise LookupError(
+            f"There is no analysis run with id {args.run_id}. "
+            + (f"The most recent one is {latest.id}." if latest else "None has ever been run.")
+        )
+    return {
+        "run_id": run.id,
+        "finished": run.created_at,
+        "verdict": run.verdict,
+        "steps": [
+            {
+                "step_no": s.step_no,
+                "role": s.role,
+                "title": s.title,
+                "model": s.model,
+                "seconds": None if s.duration_ms is None else round(s.duration_ms / 1000, 1),
+            }
+            for s in run.steps
+        ],
+        "reading": (
+            "The verdict is what was written to the reader. The steps are the "
+            "argument behind it: the analyst judged the portfolio without "
+            "knowing whose it was, someone who knows them challenged it "
+            "without seeing a figure, and a revision step exists only where "
+            "that challenge was contested."
+        ),
+    }
+
+
+REGISTRY: dict[str, Tool] = {
+    t.name: t
+    for t in (
+        Tool(
+            name="get_look_through",
+            description=(
+                "What the reader's funds are made of underneath: the country, "
+                "sector and currency weights of the investments as a whole "
+                "(not the cash on the accounts) seen through the funds, the "
+                "largest single companies held, and "
+                "which companies sit inside more than one position. Use it "
+                "when the question is about exposure held THROUGH a fund "
+                "('how much NVIDIA do I own in total', 'do these two ETFs "
+                "overlap', 'how much of me is America'), none of which the "
+                "financial picture in the conversation can answer, because it "
+                "lists positions and not what is inside them. Always reports "
+                "what it could NOT look inside."
+            ),
+            arguments=LookThroughArgs,
+            run=_look_through,
+        ),
+        Tool(
+            name="search_catalogue",
+            description=(
+                "Search the LOCAL registry of UCITS funds and ETFs by name, "
+                "issuer, index or ticker. Instant and offline (it is a SQLite "
+                "table, not a web search), and it is the only place an ISIN "
+                "may come from: a fund you name from memory is a fund that "
+                "might not exist, and this is what makes the difference "
+                "checkable. Use it when the reader asks what is available, "
+                "what a fund's charge or domicile is, or before suggesting "
+                "anything. Results come back as FAMILIES: the accumulating "
+                "fund and its distributing twin share a name and are always "
+                "shown together, so say which one you mean."
+            ),
+            arguments=SearchCatalogueArgs,
+            run=_search_catalogue,
+        ),
+        Tool(
+            name="lookup_symbol",
+            description=(
+                "Find a quotable SYMBOL for shares, single stocks, crypto and "
+                "futures: everything the fund registry does not hold, and the "
+                "only source of a ticker that actually prices. A network call "
+                "of a few seconds, and deliberately separate from "
+                "`search_catalogue` so a slow or dead source can never empty a "
+                "result the local registry already had. Use it when the reader "
+                "asks what something trades as, to attach a symbol to a fund "
+                "you are suggesting, or to find the exact symbol of a share "
+                "before you suggest it. An empty answer can mean the source "
+                "did not reply: check `reachable` before saying an "
+                "instrument does not exist."
+            ),
+            arguments=LookupSymbolArgs,
+            run=_lookup_symbol,
+        ),
+        Tool(
+            name="size_purchase",
+            description=(
+                "Compute HOW MUCH from their records: the figures an amount stands "
+                "on, and what a purchase would weigh. With no argument: the cash on "
+                "their accounts, the reserve of essential expenses kept aside (its "
+                "months from their Profile, or the app's default), the cash above "
+                "it, what is left each month once the PACs and the goals' recorded "
+                "contributions are taken out, and what each goal needs a month. "
+                "With a fund's ISIN from `search_catalogue` or a share's exact "
+                "symbol from `lookup_symbol`, and a sum: what the sum would weigh "
+                "in their wealth and in their investments, and how the "
+                "look-through's countries, sectors, currencies and companies would "
+                "move. Call it before saying any amount, for a purchase or for what "
+                "they can put aside, and quote its figures. It only reads, and can "
+                "take seconds when an instrument's holdings have to be fetched."
+            ),
+            arguments=SizePurchaseArgs,
+            run=_size_purchase,
+        ),
+        Tool(
+            name="add_real_asset",
+            description=(
+                "Propose recording something the reader owns OUTRIGHT, held "
+                "at no institution (a piece of jewellery, a car, a flat, a "
+                "painting), together with what it is worth today. Two rows: "
+                "the asset, and the dated valuation that says what it is "
+                "worth, because a possession with no valuation counts as zero "
+                "everywhere it is totalled. Use it when the reader tells you "
+                "they have or were given something that is not in the picture."
+            ),
+            arguments=AddRealAssetArgs,
+            run=_add_real_asset,
+            propose=_propose_real_asset,
+            labels=_REAL_ASSET_LABELS,
+            receipt=_real_asset_receipt,
+        ),
+        Tool(
+            name="record_transaction",
+            description=(
+                "Propose one entry in the investment ledger for something that "
+                "has ALREADY happened: a purchase, a sale, a dividend "
+                "received, or the closing of a position. No broker is "
+                "connected to this app, so nothing here places a trade: "
+                "'buying from the chat' means recording the purchase you "
+                "already made, after the fact. Use it when the reader says "
+                "they bought, sold, closed something or were paid a dividend."
+            ),
+            arguments=RecordTransactionArgs,
+            run=_record_transaction,
+            propose=_propose_transaction,
+            labels=_TRANSACTION_LABELS,
+            receipt=_transaction_receipt,
+        ),
+        Tool(
+            name="change_ledger_entry",
+            description=(
+                "Propose correcting one entry of their investment ledger with the figures of "
+                "their statement, or deleting it, as the ledger form on the Portfolio page "
+                "corrects and deletes one. The entry is named as the ledger in the picture "
+                "shows it. A PAC's buy corrected stays its occurrence's; deleted, the PAC does "
+                "not buy that occurrence again, and a dividend deleted is not recorded again."
+            ),
+            arguments=ChangeLedgerEntryArgs,
+            run=_change_ledger_entry,
+            propose=_propose_ledger_change,
+            labels=_LEDGER_LABELS,
+            receipt=_ledger_receipt,
+            done=_ledger_done,
+        ),
+        Tool(
+            name="update_profile",
+            description=(
+                "Propose writing ONE answer to the reader's questionnaire, "
+                "the profile the analyses read to know who they are. Two uses, "
+                "and the second is the one that matters: correcting an answer "
+                "that has changed, and recording something the form never "
+                "thought to ask, in the reader's own words. The form is "
+                f"{len(questionnaire.QUESTIONS)} boxes; a temperament does not fit in a box. "
+                "Use it when the "
+                "conversation tells you something durable about them (how "
+                "they behaved when the market fell, what they would never give "
+                "up), not for a passing remark. A question of the Profile "
+                "form takes only the kind of answer the form offers (listed "
+                "under question_key); anything else is refused. Never a goal: "
+                "goals are a list of their own, written with `write_goal`. It "
+                "also deletes an answer they want gone (action delete), as the "
+                "Profile page's Save would."
+            ),
+            arguments=UpdateProfileArgs,
+            run=_update_profile,
+            propose=_propose_profile,
+            labels=_PROFILE_LABELS,
+            receipt=_profile_receipt,
+            done=_profile_done,
+        ),
+        Tool(
+            name="write_flow",
+            description=(
+                "Propose a change to their income or expenses, as the Cash flow page "
+                "makes it: add a line; correct one recorded wrong from the start; "
+                "change one from a day (a raise, a new rent), which ends the line on "
+                "record with its last payment before that day and starts a new one, "
+                "both on one card; end one; delete one. A line on record is named as "
+                "the picture names it."
+            ),
+            arguments=WriteFlowArgs,
+            run=_write_flow,
+            propose=_propose_flow,
+            labels=_FLOW_LABELS,
+            receipt=_flow_receipt,
+            done=_flow_done,
+        ),
+        Tool(
+            name="record_transfer",
+            description=(
+                "Propose recording cash moved from one of their accounts to another, "
+                "as the Cash flow page records a transfer: both sides, and what reached "
+                "the second account when the currencies differ."
+            ),
+            arguments=RecordTransferArgs,
+            run=_record_transfer,
+            propose=_propose_transfer,
+            labels=_TRANSFER_LABELS,
+            receipt=_transfer_receipt,
+        ),
+        Tool(
+            name="change_transfer",
+            description=(
+                "Propose correcting one transfer on record with the figures of their statement, "
+                "or deleting it, as the Cash flow page's form corrects and deletes one. The "
+                "picture lists no transfer, so name it by its day and its accounts as they do; "
+                "one that is not there is refused with those on record. The card says what each "
+                "account's cash does from that day."
+            ),
+            arguments=ChangeTransferArgs,
+            run=_change_transfer,
+            propose=_propose_transfer_change,
+            labels=_CHANGE_TRANSFER_LABELS,
+            receipt=_change_transfer_receipt,
+            done=_change_transfer_done,
+        ),
+        Tool(
+            name="set_cash_balance",
+            description=(
+                "Propose what one of their accounts held on a day, as its page records "
+                "a balance: a new day is added, a day that has one already is replaced. "
+                "From that day the account holds that figure, and everything dated up "
+                "to it counts as already in it."
+            ),
+            arguments=SetCashBalanceArgs,
+            run=_set_cash_balance,
+            propose=_propose_balance,
+            labels=_BALANCE_LABELS,
+            receipt=_balance_receipt,
+        ),
+        Tool(
+            name="change_cash_balance",
+            description=(
+                "Propose correcting one balance of one of their accounts (its day, its amount or "
+                "its currency) or deleting it, as the account's page corrects and deletes one. "
+                "The picture shows each account's latest balance only, so name another by its "
+                "day; one that is not there is refused with those on record. The card says in "
+                "figures what that does to the account's cash and on which days."
+            ),
+            arguments=ChangeCashBalanceArgs,
+            run=_change_cash_balance,
+            propose=_propose_balance_change,
+            labels=_CHANGE_BALANCE_LABELS,
+            receipt=_change_balance_receipt,
+            done=_change_balance_done,
+        ),
+        Tool(
+            name="write_goal",
+            description=(
+                "Propose adding, changing or deleting one of their goals, as the Goals "
+                "form on the Profile page writes it. A goal is its own list and never an "
+                "answer in the questionnaire."
+            ),
+            arguments=WriteGoalArgs,
+            run=_write_goal,
+            propose=_propose_goal,
+            labels=_GOAL_LABELS,
+            receipt=_goal_receipt,
+            done=_goal_done,
+        ),
+        Tool(
+            name="change_pac_amount",
+            description=(
+                "Propose changing what one of their PACs buys with, from its next "
+                "occurrence on, as the PAC's form under Records, Cash flow changes the "
+                "amount. The card names the first occurrence the new amount buys and what "
+                "happens to the carry; the plan's schedule and funds are not changed here."
+            ),
+            arguments=ChangePacAmountArgs,
+            run=_change_pac_amount,
+            propose=_propose_pac_amount,
+            labels=_PAC_AMOUNT_LABELS,
+            receipt=_pac_amount_receipt,
+            done="Changed",
+        ),
+        Tool(
+            name="change_base_currency",
+            description=(
+                "Propose changing the currency every total is shown in, as the Profile "
+                "page's Save changes it. Nothing stored is rewritten; confirming asks "
+                "the ECB's feed for the new base's rates first."
+            ),
+            arguments=ChangeBaseCurrencyArgs,
+            walk=_walk_base,
+            propose=_propose_base,
+            labels=_BASE_LABELS,
+            receipt=_base_receipt,
+            done="Base changed",
+        ),
+        Tool(
+            name="suggest_instrument",
+            description=(
+                "Put one instrument in front of the reader as an idea, and "
+                "park it on their watchlist if they accept. This buys nothing "
+                "and records nothing about their money: no broker is connected "
+                "to this app, so accepting moves no position, no total and no "
+                "projection; it keeps the idea, with your reasoning, where "
+                "they can find it in a month. A FUND comes from a "
+                "`search_catalogue` result and is named by its ISIN; its name, "
+                "charge, domicile and distribution policy are read from the "
+                "registry. A single SHARE comes from a `lookup_symbol` result "
+                "whose quote_type is equity and is named by that exact symbol, "
+                "with no ISIN; the app asks Yahoo about it again and reads its "
+                "name from there. Nothing else gets a card: not a fund the "
+                "catalogue lacks, not a coin, not a single bond. Three things "
+                "travel with it and all three are required: why this one, what "
+                "they DECLARED that it rests on, and what you do not know that "
+                "would change it. When they asked how much, it carries the "
+                "amount too: a sum now, a monthly sum or both, in the base "
+                "currency, chosen within what `size_purchase` computed, with what "
+                "you assumed; the card refuses an amount above what the records "
+                "allow. Use it when the reader ASKS YOU TO RECOMMEND "
+                "SOMETHING ('mi consigli un ETF per le small cap', 'what should "
+                "I buy for X', 'what would you look at' are the same request "
+                "and this is the answer to it), or to fill a gap you can point "
+                "to in their own records. It is also the ONLY way to name a "
+                "specific security: the card carries the reasoning a buy call "
+                "in prose would leave unsaid. Never unasked. When they ask for "
+                "several, up to three: one call each, all in the same reply, "
+                "because the answer ends on its cards."
+            ),
+            arguments=SuggestInstrumentArgs,
+            run=_suggest_instrument,
+            propose=_propose_suggestion,
+            labels=_SUGGESTION_LABELS,
+            receipt=_suggestion_receipt,
+            done="Added to your watchlist",
+            currencies={"amount_now": "amount_currency", "amount_monthly": "amount_currency"},
+        ),
+        Tool(
+            name="run_analysis",
+            description=(
+                "Propose running the ANALYZER over everything on record: a "
+                "quantitative analyst judges the portfolio without being told "
+                "whose it is, someone who knows the reader challenges those "
+                "findings without being shown a single figure, the analyst "
+                "answers point by point where the challenge is contested, and "
+                "a final step writes one answer with the remaining "
+                "disagreements left visible. That asymmetry is why it says "
+                "things you cannot: you see everything at once, and seeing "
+                "everything at once is what makes an analysis agreeable. "
+                "Propose it when the reader asks for an analysis or a review, "
+                "or when the last one on record predates what you can see: "
+                "positions, plans or goals it did not know about, or simply "
+                "weeks gone by. It costs the reader a minute of waiting and a "
+                "few cents, which is why it is a card they confirm and not "
+                "something you can start. You cannot steer it and must not "
+                "try: what it reads is built from the records, never from "
+                "this conversation."
+            ),
+            arguments=RunAnalysisArgs,
+            walk=_walk_analysis,
+            propose=_propose_analysis,
+            receipt=_analysis_receipt,
+        ),
+        Tool(
+            name="read_analysis",
+            description=(
+                "The full verdict of one analysis run, by id. The picture in "
+                "this conversation carries the latest run's date and its "
+                "opening lines only, because a whole analysis in every turn is "
+                "a past opinion sitting where the present picture should be. "
+                "Call this when the reader asks what an analysis actually "
+                "said, or when you need more of it than its opening to answer "
+                "them, not to check that one exists, which the picture "
+                "already tells you."
+            ),
+            arguments=ReadAnalysisArgs,
+            run=_read_analysis,
+        ),
+    )
+}
+
+
+# --- What the model is shown, and what comes back ----------------------------
+
+
+def declarations() -> list[dict]:
+    """Every tool as the API's `tools=` parameter wants it.
+
+    The conversion is `openai.pydantic_function_tool`, the SDK's own — so the
+    schema is generated twice over, once by Pydantic from the model and once
+    by the SDK into the strict dialect, and this module contributes no copy of
+    either. Written out by hand it would be the fourth place a field name
+    lives, after the model, the crud function and the column.
+
+    Through `advisor.sdk` rather than importing the package here, so a missing
+    `openai` says the one sentence that tells you how to fix it. This is the
+    first thing a turn touches, so a bare ImportError here would be caught as
+    an unexpected failure and reported as "the answer broke off" — a true
+    statement that helps nobody, in front of the specific one.
+    """
+    return [
+        advisor.sdk().pydantic_function_tool(
+            t.arguments, name=t.name, description=t.description
+        )
+        for t in REGISTRY.values()
+    ]
+
+
+# --- The web --------------------------------------------------------------------
+#
+# A tool of this app since brief AM (2026-10-09), and not one of REGISTRY's: a
+# search's pages and its cost belong to the turn that ran it (the reader is
+# shown the pages where the search ran, and the turn's cost includes the
+# search's), so the chat loop answers it (`chat._searches`), and the search is
+# a request of its own (`websearch`). Until then it was OpenRouter's server
+# tool, declared on every request of the chat, and brief AL's paid probe P1
+# (2026-10-08) found that a request declaring it keeps none of the cache's
+# markers but the last: no turn read the one before it.
+
+SEARCH_WEB = "search_web"
+
+
+class SearchWebArgs(BaseModel):
+    """What `search_web` takes."""
+
+    query: str = Field(
+        ...,
+        min_length=2,
+        # A query is words for a search engine, not a paragraph: a bound keeps
+        # the conversation from being pasted into one.
+        max_length=300,
+        description=(
+            "What to search for, as you would type it into a search engine: "
+            "words about instruments and facts, such as 'S&P 500 UCITS ETF "
+            "lowest ongoing charge' or 'ECB rate decision September 2026'."
+        ),
+    )
+
+
+_SEARCH_WEB_DESCRIPTION = (
+    "Search the web for ONE query and read what it finds: up to five pages, "
+    "each with its title, its address and an excerpt. For what neither the "
+    "reader's records, the catalogue nor `lookup_symbol` holds: news, recent "
+    "performance, comparisons, how a fund or an index works, and, before the "
+    "verdict on an instrument they ask about buying, what it is doing (its "
+    "results, valuation, risks and news). The query leaves "
+    "this app for a search engine, and the reader is shown it above the pages "
+    "it found: write it about instruments and facts, and never put the "
+    "reader's figures, names or anything else about them in it. Each search "
+    "costs a little, and the app caps how many one answer runs."
+)
+
+
+def web_search(model: str) -> list[dict]:
+    """`search_web`'s declaration for a model that is offered it, else nothing.
+
+    Anthropic's models only, the line brief AD drew for the cache and brief AG
+    for the web, and for the same reason: the web was measured with Opus 5.5
+    and Sonnet 4.6 and with no other family, and a model the reader can pick
+    from a menu is not where to find out what it does with a tool it has never
+    been measured with. A plain function since brief AM, so the other families
+    could be offered it as it is, once it has been measured with them.
+
+    Fixed, so the tools never change inside the prefix the provider caches."""
+    if not model.removeprefix("~").startswith("anthropic/"):
+        return []
+    return [
+        advisor.sdk().pydantic_function_tool(
+            SearchWebArgs, name=SEARCH_WEB, description=_SEARCH_WEB_DESCRIPTION
+        )
+    ]
+
+
+def search_query(call: advisor.ToolCall) -> str | dict:
+    """The query a `search_web` call asks for, or the outcome that says why its
+    arguments do not fit, for the model to correct on its next round."""
+    args = _parse(SearchWebArgs, call)
+    return args if isinstance(args, dict) else args.query
+
+
+# --- A card, in the reader's words -------------------------------------------
+
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?([+-]\d{2}:\d{2}|Z)?")
+
+
+def _humanized(name: str) -> str:
+    """A field name as words, for a tool that names no label: only a tool the
+    registry does not hold (a test's) ever needs it."""
+    return name.replace("_", " ").strip().capitalize()
+
+
+def _card_field(label: str, value, kind: str = "text", currency: str | None = None) -> dict | None:
+    """One line of a card, or None for a value that says nothing: absent, or
+    one of the words for nothing (`_ABSENT`). A day stays a day and a moment
+    becomes the reader's day (`dated.local_day`), so no timestamp reaches a
+    card; a number is left for the panel to write in the reader's language."""
+    value = _absent_is_none(value)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return {"label": label, "value": "yes" if value else "no", "kind": "text"}
+    if isinstance(value, (int, float)):
+        if kind == "amount" and currency:
+            return {"label": label, "value": str(value), "kind": "amount", "currency": currency}
+        return {"label": label, "value": str(value), "kind": "number"}
+    if not isinstance(value, str):
+        value = json.dumps(value, ensure_ascii=False)
+    text = value.strip()
+    if _INSTANT.fullmatch(text):
+        try:
+            return {"label": label, "value": dated.local_day(text), "kind": "date"}
+        except ValueError:
+            pass
+    if _DAY.fullmatch(text):
+        return {"label": label, "value": text, "kind": "date"}
+    return {"label": label, "value": text, "kind": "text"}
+
+
+def present(card: dict) -> dict:
+    """`card` as the reader reads it: with `fields`, its arguments under its
+    tool's labels (`Tool.labels`), the absent ones left out; `receipt`, what a
+    confirmed card wrote, in words (`Tool.receipt`); and `done`, what it is
+    called once confirmed.
+
+    Worked out whenever a card is sent or read back, and never stored, so the
+    cards of a conversation kept since before this read the same way, and the
+    model goes on reading the stored arguments and result as they are (the
+    run's id, which `read_analysis` takes, is in the result and on no card).
+    Brief AJ: the reader's cards showed "based_on", "unknowns", "symbol null",
+    and after a confirmation the row's id and an ISO timestamp under
+    "added_at"."""
+    tool = REGISTRY.get(card.get("tool") or "")
+    arguments = card.get("arguments") or {}
+    labels = tool.labels if tool is not None else {}
+    currencies = tool.currencies if tool is not None else {}
+    order = list(tool.arguments.model_fields) if tool is not None else []
+    order += [name for name in arguments if name not in order]
+    fields = []
+    for name in order:
+        if name not in arguments:
+            continue
+        label = labels.get(name, _humanized(name))
+        if not label:
+            continue
+        if name in currencies:
+            line = _card_field(label, arguments[name], "amount", arguments.get(currencies[name]))
+        else:
+            line = _card_field(label, arguments[name])
+        if line is not None:
+            fields.append(line)
+    receipt = []
+    result = card.get("result")
+    if card.get("outcome") == "confirmed" and isinstance(result, dict):
+        if tool is not None and tool.receipt is not None:
+            rows = tool.receipt(result)
+        else:
+            rows = [
+                (_humanized(name), value)
+                for name, value in result.items()
+                if name != "id" and not name.endswith("_id")
+            ]
+        receipt = [line for line in (_card_field(*row) for row in rows) if line is not None]
+    done = "Recorded"
+    if tool is not None:
+        done = tool.done(card) if callable(tool.done) else tool.done
+    return {**card, "fields": fields, "receipt": receipt, "done": done}
+
+
+def answer(db: Session, call: advisor.ToolCall) -> dict:
+    """What one tool call becomes: a card to be confirmed, or a result to feed
+    straight back to the model.
+
+    `{"card": {...}}` for a tool that writes — nothing has happened, and
+    nothing will until the reader says so. `{"ok": ...}` for a tool that
+    reads, and for any call that could not be made at all, since a name that
+    does not exist is not a write proposal either.
+    """
+    tool = REGISTRY.get(call.name)
+    if tool is None or tool.propose is None:
+        return invoke(db, call)
+
+    args = _parse(tool.arguments, call)
+    if isinstance(args, dict):  # it did not parse; the model is told why
+        return args
+
+    try:
+        proposal = tool.propose(db, args)
+    except questionnaire.AnswerRefused as exc:
+        # A rule refusing an answer, not a failure of the tool's: its sentence
+        # goes to the model and under the tool's line as it is, with no
+        # traceback logged and no exception's name in front of it.
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        logger.exception("drafting %s failed", call.name)
+        return {"ok": False, "error": f"{call.name} could not be drafted: {type(exc).__name__}: {exc}"}
+
+    try:
+        card = schemas.ChatCardBlock(
+            # Ours, not the provider's: the endpoint has to name one block out
+            # of a JSON list that has no keys, and a tool_call_id is only
+            # promised to be unique within the turn that produced it.
+            card_id=uuid.uuid4().hex,
+            call_id=call.id,
+            tool=call.name,
+            title=proposal.title,
+            arguments=args.model_dump(mode="json"),
+            confirmation=proposal.confirmation,
+            consequence=proposal.consequence,
+            verb=proposal.verb,
+            diff=proposal.diff,
+            warning=proposal.warning,
+            fingerprint=proposal.fingerprint,
+        )
+    except ValidationError as exc:
+        # Built through the schema, and here rather than at the panel, because
+        # a card is written into a JSON column and read back out through this
+        # same model. A tool that draws a malformed one — a `confirmation` the
+        # union does not have, a diff whose sides are numbers — would otherwise
+        # store a block that every later read of that conversation chokes on,
+        # and the conversation becomes permanently unreadable over a mistake
+        # made once. Refused at the boundary the mistake enters instead.
+        logger.exception("%s drew a card that could not be stored", call.name)
+        return {"ok": False, "error": f"{call.name} drew a card that cannot be stored: {exc}"}
+    # Stored without the reader's words, which `present` works out each time
+    # the card is shown. What it touches travels beside it, for the answer
+    # that draws it, and is not stored.
+    return {
+        "card": card.model_dump(mode="json", exclude={"fields", "receipt", "done"}),
+        "touches": proposal.touches,
+    }
+
+
+# Said when a card is refused as stale, and again to a later press on it: the
+# card is stored as stale (`chat.resume`) and is not decided again.
+STALE = (
+    "What this card was drawn against has changed since it was proposed, so "
+    "what it says would happen is no longer what would happen. Ask again and a "
+    "fresh one will be drawn."
+)
+
+
+def finish(walk: Iterator[Working]) -> dict:
+    """Drive a `walk` to its end with nobody watching, and hand back what it
+    returned. The steps it reports are dropped, which is what "nobody watching"
+    means — a caller that wants them iterates instead."""
+    while True:
+        try:
+            next(walk)
+        except StopIteration as done:
+            return done.value
+
+
+def settle(
+    db: Session, tool_name: str, arguments: dict, fingerprint: str
+) -> Iterator[Working]:
+    """Run a confirmed card's tool, having checked the ground did not move.
+
+    A GENERATOR: it yields what the tool has finished while it is still going,
+    and RETURNS `{"ok": True, "result": ...}` or `{"ok": False, "error": ...}`
+    with `stale` set when the refusal is that the world changed. A tool that
+    takes milliseconds yields nothing at all and the caller's loop runs zero
+    times; the one that takes a minute is the whole reason the caller has a
+    loop — see `finish` for the callers that do not want one.
+
+    The caller runs this inside its own unit of work when the tool is a `run`,
+    so a tool that raises leaves nothing behind — including the card's own
+    outcome, which must not read "confirmed" over a write that did not happen.
+    A `walk` cannot be held inside one: it is a minute of model calls, and a
+    transaction open across that is a lock held on a database for the length of
+    somebody else's network. It writes at its end, in the session it was
+    handed, and the caller closes the unit around the settling instead.
+    """
+    tool = REGISTRY.get(tool_name)
+    if tool is None or tool.propose is None:
+        return {"ok": False, "error": f"There is no write tool called {tool_name!r}."}
+
+    try:
+        args = tool.arguments.model_validate(arguments)
+    except ValidationError as exc:
+        return {"ok": False, "error": f"The stored arguments no longer fit {tool_name}: {exc}"}
+
+    try:
+        proposal = tool.propose(db, args)
+    except Exception as exc:
+        # A card that can no longer be DRAWN is the strongest form of the
+        # ground having moved: the institution it named has been renamed, the
+        # position it settles has been closed from another tab. Reported as
+        # stale because that is the same answer — what this card says would
+        # happen is no longer what would happen — and because the alternative
+        # is an exception escaping into `chat.resume`'s unit of work, where a
+        # merely out-of-date card becomes a 500.
+        logger.info("%s could not be redrawn, so the card is stale: %s", tool_name, exc)
+        return {"ok": False, "stale": True, "error": f"{STALE} ({exc})"}
+    if proposal.fingerprint != fingerprint:
+        return {"ok": False, "stale": True, "error": STALE}
+    try:
+        if tool.walk is not None:
+            produced = yield from tool.walk(db, args)
+        else:
+            produced = tool.run(db, args)
+    except advisor.AdvisorError as exc:
+        # Written for the reader already (a model that is gone says which one
+        # and where it is set), so it goes on as it is, not under the tool's
+        # name and an exception class.
+        logger.warning("write tool %s stopped: %s", tool_name, exc)
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        logger.exception("write tool %s failed", tool_name)
+        return {"ok": False, "error": f"{tool_name} failed: {type(exc).__name__}: {exc}"}
+    if not isinstance(produced, dict):
+        logger.error("%s returned %s, not a dict", tool_name, type(produced).__name__)
+        return {"ok": False, "error": f"{tool_name} returned a {type(produced).__name__}, not fields."}
+    return {"ok": True, "result": _storable(produced)}
+
+
+def _storable(produced: dict) -> dict:
+    """A tool's own output, reduced to what the blocks column can hold.
+
+    That column is JSON text and a card is read back through
+    `schemas.ChatCardBlock`, so a value JSON cannot carry does not just fail
+    here — it lands in the row, and every later read of that conversation
+    raises. A write tool returning a dated valuation is not a hypothesis, it is
+    the next thing this brief builds, and `datetime.date` is exactly such a
+    value.
+
+    Coerced rather than refused, unlike a malformed card: a date in a result is
+    a reasonable thing for a tool to return and its ISO string is the right way
+    to keep it, whereas a diff whose sides are numbers is a mistake with no
+    correct reading. The two are different errors and get different answers.
+    """
+    return json.loads(json.dumps(produced, ensure_ascii=False, default=str))
+
+
+def _parse(arguments: type[BaseModel], call: advisor.ToolCall):
+    """The call's arguments as `arguments`, the model its tool takes, or the
+    outcome that says why not: told apart by the caller with an isinstance,
+    since a validated model is never a dict."""
+    try:
+        return arguments.model_validate_json(call.arguments or "{}")
+    except ValidationError as exc:
+        # Pydantic reports "this is not JSON at all" as one more validation
+        # error in the list, and the two are different mistakes for the model:
+        # text that does not parse has to be rewritten, a field of the wrong
+        # type has to be corrected. Told apart here so the tool result says
+        # which, because "those arguments do not fit" is unhelpful advice about
+        # a string that was never arguments.
+        if any(e["type"] == "json_invalid" for e in exc.errors()):
+            return {
+                "ok": False,
+                "error": f"The arguments for {call.name} were not valid JSON: {exc}",
+            }
+        return {"ok": False, "error": f"Those arguments do not fit {call.name}: {exc}"}
+
+
+def invoke(db: Session, call: advisor.ToolCall) -> dict:
+    """Run one tool call and say how it went, in the shape the model reads back.
+
+    Always returns `{"ok": bool, ...}` and never raises. Every way this can go
+    wrong is a mistake the MODEL made and can correct on the next round trip —
+    a name it invented, arguments that are not JSON, a field of the wrong type
+    — so each becomes a tool result that says what was wrong, rather than an
+    exception that kills the answer. A stream that dies of a ValueError leaves
+    the reader with "the answer broke off" and gives the model nothing to fix.
+
+    The exception to that generosity is a tool body that raises. That is OUR
+    bug, not the model's, so it is logged with its traceback before being
+    reported — the reader still gets an answer, and the traceback still gets
+    read.
+    """
+    tool = REGISTRY.get(call.name)
+    if tool is None:
+        return {
+            "ok": False,
+            "error": (
+                f"There is no tool called {call.name!r}. The tools that exist "
+                f"are: {', '.join(sorted(REGISTRY)) or '(none)'}."
+            ),
+        }
+    args = _parse(tool.arguments, call)
+    if isinstance(args, dict):
+        return args
+
+    try:
+        # A read tool that reports as it goes is allowed by `Tool` and none
+        # exists yet; drained here rather than refused, so the day one does the
+        # failure is a missing progress line and not a 'there is no tool called'.
+        produced = tool.run(db, args) if tool.run is not None else finish(tool.walk(db, args))
+    except Exception as exc:
+        logger.exception("tool %s failed", call.name)
+        return {"ok": False, "error": f"{call.name} failed: {type(exc).__name__}: {exc}"}
+    return {"ok": True, "result": produced}
+
+
+def result_message(call: advisor.ToolCall, outcome: dict) -> dict:
+    """The `tool` turn that answers one `tool_call`, as the API needs it.
+
+    One of these per call in the assistant turn, or the next completion is
+    refused: the protocol pairs them by `tool_call_id` and a call left
+    unanswered is a malformed conversation. Which is why `invoke` never
+    raises — there is no shape of this loop where a call gets no reply."""
+    return {
+        "role": "tool",
+        "tool_call_id": call.id,
+        "content": json.dumps(outcome, ensure_ascii=False, default=str),
+    }
+
+
+def request_message(said: str, calls: list[advisor.ToolCall]) -> dict:
+    """The assistant turn that ASKED for the tools, put back in the history.
+
+    It carries the calls verbatim — the same ids and the same argument strings
+    the model wrote — because the tool turns after it answer those ids. A
+    model that wrote words before asking keeps them here too: dropping them
+    would delete a paragraph of its own answer from the history it is about to
+    read back."""
+    return {
+        "role": "assistant",
+        "content": said or None,
+        "tool_calls": [
+            {
+                "id": c.id,
+                "type": "function",
+                "function": {"name": c.name, "arguments": c.arguments},
+            }
+            for c in calls
+        ],
+    }

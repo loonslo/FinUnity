@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily FinUnity off-site backup
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=finunity-offsite-backup.service
+
+[Install]
+WantedBy=timers.target

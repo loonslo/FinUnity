@@ -1,0 +1,33 @@
+@import url('/design-tokens.css');
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--text-primary); background: var(--bg); font: 16px/1.8 "Microsoft YaHei UI", system-ui, sans-serif; }
+header, main, footer { width: min(100% - 40px, 1000px); margin: auto; }
+header { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; padding: 24px 0; border-bottom: 1px solid var(--hairline); }
+nav, .actions { display: flex; gap: 12px 24px; flex-wrap: wrap; }
+.brand { font-size: 22px; font-weight: 700; text-decoration: none; }
+.brand span { font-size: 14px; font-weight: 400; }
+main { padding: 36px 0; }
+h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.35; }
+h2 { font-size: 24px; margin-top: 36px; }
+h3 { font-size: 18px; }
+a { color: var(--brand-text); text-underline-offset: 4px; }
+p, li, h1, h2 { overflow-wrap: anywhere; }
+.lede { font-size: 20px; max-width: 820px; }
+.eyebrow, .note, figcaption { color: var(--text-secondary); font-size: 13px; }
+.actions { margin: 26px 0; }
+.actions a { padding: 10px 18px; border: 1px solid var(--brand-500); border-radius: 10px; text-decoration: none; }
+.actions .primary { color: var(--bg-elevated); background: var(--brand-text); }
+.cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.cards section, details { padding: 12px 22px; background: var(--bg-elevated); border: 1px solid var(--hairline); border-radius: 14px; }
+figure { margin: 24px 0; }
+figure img { width: 100%; height: auto; border: 1px solid var(--hairline); border-radius: 12px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
+li { margin: 12px 0; }
+footer { border-top: 1px solid var(--hairline); padding: 20px 0; font-size: 14px; }
+:focus-visible { outline: 2px solid var(--brand-text); outline-offset: 4px; }
+.skip { position: absolute; top: -60px; left: 20px; padding: 8px; background: var(--bg-elevated); }
+.skip:focus { top: 8px; }
+details { margin: 12px 0; }
+summary { cursor: pointer; padding: 10px 0; font-weight: 600; }

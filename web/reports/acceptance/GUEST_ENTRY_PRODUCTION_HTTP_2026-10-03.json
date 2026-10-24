@@ -1,0 +1,696 @@
+{
+  "date": "2026-10-03",
+  "checked_at": "2026-10-03T22:32:39+08:00",
+  "deployment": {
+    "id": "dpl_98QBpw71GX5pwaUmW7h85xfFnXgH",
+    "readyState": "READY",
+    "productionUrl": "https://finunity.halfopen.dev"
+  },
+  "checks": [
+    {
+      "name": "finunity:/assets/missing-guest.js",
+      "url": "https://finunity.halfopen.dev/assets/missing-guest.js",
+      "method": "GET",
+      "expected_status": 404,
+      "status": 404,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:/missing-guest-20261003",
+      "url": "https://finunity.halfopen.dev/missing-guest-20261003",
+      "method": "GET",
+      "expected_status": 404,
+      "status": 404,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:/robots.txt",
+      "url": "https://finunity.halfopen.dev/robots.txt",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:/sitemap.xml",
+      "url": "https://finunity.halfopen.dev/sitemap.xml",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "application/xml",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/app",
+      "url": "https://finunity.halfopen.dev/app",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/app/flows",
+      "url": "https://finunity.halfopen.dev/app/flows",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/app/holdings",
+      "url": "https://finunity.halfopen.dev/app/holdings",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/login",
+      "url": "https://finunity.halfopen.dev/login",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/login/",
+      "url": "https://finunity.halfopen.dev/login/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:app:/register",
+      "url": "https://finunity.halfopen.dev/register",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": "noindex",
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:auth-config",
+      "url": "https://finunity.halfopen.dev/api/v1/auth/config",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "application/json",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:me-private",
+      "url": "https://finunity.halfopen.dev/api/v1/me",
+      "method": "GET",
+      "expected_status": 401,
+      "status": 401,
+      "ok": true,
+      "errors": [],
+      "content_type": "application/json",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/",
+      "url": "https://finunity.halfopen.dev/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/",
+      "url": "https://finunity.halfopen.dev/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/android-privacy",
+      "url": "https://finunity.halfopen.dev/android-privacy",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/android-privacy",
+      "url": "https://finunity.halfopen.dev/android-privacy",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/android-privacy-en.html",
+      "url": "https://finunity.halfopen.dev/android-privacy-en.html",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/android-privacy-en.html",
+      "url": "https://finunity.halfopen.dev/android-privacy-en.html",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/",
+      "url": "https://finunity.halfopen.dev/en/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/",
+      "url": "https://finunity.halfopen.dev/en/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/guides/holding-import/",
+      "url": "https://finunity.halfopen.dev/en/guides/holding-import/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/guides/holding-import/",
+      "url": "https://finunity.halfopen.dev/en/guides/holding-import/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/guides/multi-currency/",
+      "url": "https://finunity.halfopen.dev/en/guides/multi-currency/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/en/guides/multi-currency/",
+      "url": "https://finunity.halfopen.dev/en/guides/multi-currency/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/guides/holding-import/",
+      "url": "https://finunity.halfopen.dev/guides/holding-import/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/guides/holding-import/",
+      "url": "https://finunity.halfopen.dev/guides/holding-import/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/guides/multi-currency/",
+      "url": "https://finunity.halfopen.dev/guides/multi-currency/",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/guides/multi-currency/",
+      "url": "https://finunity.halfopen.dev/guides/multi-currency/",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/privacy",
+      "url": "https://finunity.halfopen.dev/privacy",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/privacy",
+      "url": "https://finunity.halfopen.dev/privacy",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/privacy-en.html",
+      "url": "https://finunity.halfopen.dev/privacy-en.html",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/privacy-en.html",
+      "url": "https://finunity.halfopen.dev/privacy-en.html",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/terms",
+      "url": "https://finunity.halfopen.dev/terms",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/terms",
+      "url": "https://finunity.halfopen.dev/terms",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/terms-en.html",
+      "url": "https://finunity.halfopen.dev/terms-en.html",
+      "method": "HEAD",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:public:/terms-en.html",
+      "url": "https://finunity.halfopen.dev/terms-en.html",
+      "method": "GET",
+      "expected_status": 200,
+      "status": 200,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/html; charset=utf-8",
+      "x_robots_tag": null,
+      "location": null,
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:redirect:/en",
+      "url": "https://finunity.halfopen.dev/en",
+      "method": "GET",
+      "expected_status": 308,
+      "status": 308,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain",
+      "x_robots_tag": null,
+      "location": "/en/",
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:redirect:/en/product",
+      "url": "https://finunity.halfopen.dev/en/product",
+      "method": "GET",
+      "expected_status": 308,
+      "status": 308,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain",
+      "x_robots_tag": null,
+      "location": "/en/",
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:redirect:/en/product/",
+      "url": "https://finunity.halfopen.dev/en/product/",
+      "method": "GET",
+      "expected_status": 308,
+      "status": 308,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain",
+      "x_robots_tag": null,
+      "location": "/en/",
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:redirect:/product",
+      "url": "https://finunity.halfopen.dev/product",
+      "method": "GET",
+      "expected_status": 308,
+      "status": 308,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain",
+      "x_robots_tag": null,
+      "location": "/",
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:redirect:/product/",
+      "url": "https://finunity.halfopen.dev/product/",
+      "method": "GET",
+      "expected_status": 308,
+      "status": 308,
+      "ok": true,
+      "errors": [],
+      "content_type": "text/plain",
+      "x_robots_tag": null,
+      "location": "/",
+      "set_cookie_present": false
+    },
+    {
+      "name": "finunity:sitemap-exact",
+      "ok": true,
+      "pages": 12
+    }
+  ],
+  "build_bytes": [
+    {
+      "file": "android-privacy/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "android-privacy-en.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/browser-CmbbnXTP.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/charts-BEj-mqs5.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/icons-7zcV8yu0.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/index-C0qyEjPH.css",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/index-CodEnkx4.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/query-Dj4atod6.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/react-BTnYZbcc.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "assets/rolldown-runtime-hePW80VL.js",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "en/guides/holding-import/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "en/guides/multi-currency/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "en/product/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "favicon.svg",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "guides/holding-import/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "guides/multi-currency/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "landing.css",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "ledger-example.en.svg",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "ledger-example.zh.svg",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "og.png",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "policy.css",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "privacy/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "privacy-en.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "product/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "robots.txt",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "sitemap.xml",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "terms/index.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "file": "terms-en.html",
+      "status": 200,
+      "ok": true
+    }
+  ]
+}

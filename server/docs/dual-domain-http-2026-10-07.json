@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://finunity-api.halfopen.dev/health/ready",
+    "status": 200,
+    "expected": 200,
+    "ok": true
+  },
+  {
+    "url": "https://finunity-api.baikai.site/health/ready",
+    "status": 200,
+    "expected": 200,
+    "ok": true
+  }
+]

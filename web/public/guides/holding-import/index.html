@@ -1,0 +1,19 @@
+<!doctype html>
+<html data-theme-color="minimal" lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>持仓截图怎么导入｜识别、核对与确认 · 衡仓</title><meta name="description" content="了解截图上传与结构化记录的处理、证券币种数量成本核对，以及部分失败和保存未确认时的导入步骤。">
+<link rel="canonical" href="https://finunity.halfopen.dev/guides/holding-import/">
+<link rel="alternate" hreflang="zh-CN" href="https://finunity.halfopen.dev/guides/holding-import/">
+<link rel="alternate" hreflang="en" href="https://finunity.halfopen.dev/en/guides/holding-import/">
+<link rel="alternate" hreflang="x-default" href="https://finunity.halfopen.dev/guides/holding-import/">
+<link rel="stylesheet" href="/content.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head><body><a class="skip" href="#main">跳到正文</a>
+<header><a class="brand" href="/">衡仓</a><nav aria-label="主导航"><a href="/guides/multi-currency/">币种汇总</a><a href="/guides/holding-import/">持仓导入</a><a href="/en/guides/holding-import/" lang="en">English</a></nav></header>
+<main id="main"><p class="eyebrow">FINUNITY · 产品与使用说明</p><h1>持仓截图导入：识别以后，逐项核对</h1><p class="lede">截图识别只是准备记录。导入前核对来源、证券、币种、数量、价格与成本，确认写入后再检查账本结果。</p>
+<h2>上传前</h2><ol><li>确认有权处理图片，遮挡姓名、账号、证件号码等与持仓识别无关的信息。</li><li>保留证券名称或代码、币种、数量及必要成本信息，避免裁掉表头或单位。</li><li>阅读<a href="/privacy">数据处理说明</a>：截图会发送到服务器及配置的第三方识别服务，不是完全本机 OCR。</li><li>核对当前识别是否启用、配额与错误提示。不可用时使用界面提供的手工或表格方式，不反复上传敏感图尝试绕过限制。</li></ol>
+<h2>解析、预览、确认是三个步骤</h2><p>原图由 FinUnity 在请求内存中处理，不写入它的图片文件或数据库；第三方处理与留存仍适用其政策。识别出的结构化记录会在服务器留档，因此“不保存原图”不等于“不保存任何导入数据”。在预览里逐行编辑和核对，用户确认后才写入持仓。</p>
+<div class="table-wrap"><table><thead><tr><th>字段</th><th>核对方法</th></tr></thead><tbody><tr><td>证券与来源</td><td>代码、市场、名称和所属账户是否对应，不把同名产品合并</td></tr><tr><td>币种与单位</td><td>确认 CNY/USD 等；千元、份、股和金额不能混用</td></tr><tr><td>数量与价格</td><td>检查小数、符号、截图列名及价格口径</td></tr><tr><td>成本</td><td>确认原图是单位成本还是总成本，不把市值当作成本</td></tr><tr><td>写入动作</td><td>按界面实际提供的操作和预览检查，不把已存在持仓再次当成新增</td></tr></tbody></table></div>
+<h2>虚构的识别错误</h2><p>假设原图写“数量 12.5，单位成本 USD 80”，预览变成“125，CNY 80”。应先改正数量与币种，再核对成本列的含义；能读到证券名称并不意味着整行准确。这个例子是人为构造的错误，不是模型准确率测量。</p>
+<h2>部分失败与结果不确定</h2><ul><li>某张图识别失败：按界面重试该图，复核已成功记录，避免整批重复导入。</li><li>保存请求超时或结果未确认：保留原批次，按提示重试；不要建立一个新的相同批次来碰运气。</li><li>看到成功提示后：回到账本核对账户、数量、币种和汇总，不能只以网络返回成功证明记录正确。</li></ul><p>上游、配额和网络都可能导致失败。截图、表格或手工录入都需要同样的字段核对；本指南不宣称识别完全准确。</p>
+<h2>核对币种总额</h2><p>导入后的多币种总额还取决于汇率与服务端快照，继续看<a href="/guides/multi-currency/">多币种汇总口径</a>。准备好后<a href="/register">创建账号</a>或<a href="/login">登录</a>；注册时请保存一次性恢复码。</p></main>
+<footer><p><a href="/privacy">隐私政策</a> · <a href="/terms">用户协议</a> · <a href="/login">登录</a></p><p>由 半開 制作 · <a href="https://halfopen.dev/">作品集</a></p><p>说明更新：2026-10-03。功能状态与额度以实际服务为准。</p></footer></body></html>

@@ -1,0 +1,21 @@
+# Template: adjust User=, WorkingDirectory= and the paths to the production host before installing.
+# /etc/finunity-drill.env (optional, mode 600) overrides HC_PING_URL so the drill has its own heartbeat.
+[Unit]
+Description=FinUnity monthly restore drill (restores the newest off-site backup and audits it)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finunity
+WorkingDirectory=/srv/finunity/app
+EnvironmentFile=/etc/finunity-offsite.env
+EnvironmentFile=-/etc/finunity-drill.env
+ExecStart=/usr/bin/python3 ops/offsite_backup.py drill --log /var/lib/finunity-drill/restore-drill.jsonl
+# systemd creates /var/lib/finunity-drill owned by User= (a non-root user cannot create it under /var/lib);
+# a name of its own avoids re-owning any directory the existing production scripts already use.
+StateDirectory=finunity-drill
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

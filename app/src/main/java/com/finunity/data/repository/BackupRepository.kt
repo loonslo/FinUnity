@@ -17,6 +17,10 @@ import com.finunity.data.local.entity.legacyBucketToThreeBucket
 import com.finunity.data.local.entity.validateTargetAllocation
 import com.finunity.data.local.entity.Transaction
 import com.finunity.data.local.entity.RecurringRule
+import com.finunity.data.local.entity.PlanningProfile
+import com.finunity.data.local.entity.FinancialGoal
+import com.finunity.data.local.entity.FinancialPlanVersion
+import com.finunity.data.local.entity.FinancialPlanReview
 import com.finunity.data.model.normalizeSecurityCode
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -26,7 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-private const val CURRENT_BACKUP_VERSION = 9
+private const val CURRENT_BACKUP_VERSION = 10
 
 /**
  * 备份数据结构
@@ -44,7 +48,11 @@ data class BackupData(
     val assetSnapshots: List<AssetSnapshot> = emptyList(),
     val allocationTargets: List<AllocationTarget> = emptyList(),
     val recurringRules: List<RecurringRule> = emptyList(),
-    val settings: Settings? = Settings()
+    val settings: Settings? = Settings(),
+    val planningProfile: PlanningProfile? = null,
+    val financialGoals: List<FinancialGoal> = emptyList(),
+    val financialPlanVersions: List<FinancialPlanVersion> = emptyList(),
+    val financialPlanReviews: List<FinancialPlanReview> = emptyList()
 )
 
 data class BackupSummary(
@@ -54,7 +62,9 @@ data class BackupSummary(
     val assetCount: Int,
     val transactionCount: Int,
     val snapshotCount: Int,
-    val recurringRuleCount: Int
+    val recurringRuleCount: Int,
+    val financialGoalCount: Int = 0,
+    val financialPlanCount: Int = 0
 )
 
 /**
@@ -78,6 +88,10 @@ class BackupRepository(private val db: AppDatabase) {
         val assetSnapshots = db.assetSnapshotDao().getAllSnapshots().first()
         val allocationTargets = db.allocationTargetDao().getAllTargets().first()
         val recurringRules = db.recurringRuleDao().getAll().first()
+        val planningProfile = db.financialPlannerDao().observeProfile().first()
+        val financialGoals = db.financialPlannerDao().observeGoals().first()
+        val financialPlanVersions = db.financialPlannerDao().observePlans().first()
+        val financialPlanReviews = db.financialPlannerDao().observeReviews().first()
         val settings = db.settingsDao().getSettingsOnce() ?: Settings()
 
         val backup = BackupData(
@@ -90,7 +104,11 @@ class BackupRepository(private val db: AppDatabase) {
             assetSnapshots = assetSnapshots,
             allocationTargets = allocationTargets,
             recurringRules = recurringRules,
-            settings = settings
+            settings = settings,
+            planningProfile = planningProfile,
+            financialGoals = financialGoals,
+            financialPlanVersions = financialPlanVersions,
+            financialPlanReviews = financialPlanReviews
         )
         gson.toJson(backup)
     }
@@ -164,6 +182,32 @@ class BackupRepository(private val db: AppDatabase) {
             require(backup.recurringRules.orEmpty().map { it.id }.distinct().size == backup.recurringRules.orEmpty().size) {
                 "周期规则 ID 重复"
             }
+            val financialGoals = backup.financialGoals.orEmpty()
+            require(financialGoals.map { it.id }.distinct().size == financialGoals.size) { "财务目标 ID 重复" }
+            require(financialGoals.all { it.id.isNotBlank() && it.name.isNotBlank() }) { "财务目标数据不完整" }
+            val financialGoalIds = financialGoals.map { it.id }.toSet()
+            require(transactions.all { it.financialGoalId == null || it.financialGoalId in financialGoalIds }) {
+                "交易流水关联了不存在的财务目标"
+            }
+            financialGoals.forEach { goal ->
+                require(goal.targetAmount.toBigDecimalOrNull()?.let { it >= java.math.BigDecimal.ZERO } == true) { "财务目标金额无效" }
+                require(goal.allocatedAmount.toBigDecimalOrNull()?.let { it >= java.math.BigDecimal.ZERO } == true) { "目标已分配金额无效" }
+                require(goal.monthlyContribution.toBigDecimalOrNull()?.let { it >= java.math.BigDecimal.ZERO } == true) { "目标月投入无效" }
+                require(runCatching { java.time.LocalDate.parse(goal.targetDate) }.isSuccess) { "财务目标日期无效" }
+            }
+            val financialPlanVersions = backup.financialPlanVersions.orEmpty()
+            require(financialPlanVersions.map { it.id }.distinct().size == financialPlanVersions.size) { "财务方案版本 ID 重复" }
+            val planIds = financialPlanVersions.map { it.id }.toSet()
+            val financialPlanReviews = backup.financialPlanReviews.orEmpty()
+            require(financialPlanReviews.map { it.planId to it.month }.distinct().size == financialPlanReviews.size) { "财务复盘重复" }
+            require(financialPlanReviews.all { it.planId in planIds }) { "财务复盘关联了不存在的方案" }
+            backup.planningProfile?.let { profile ->
+                require(profile.id == 1 && profile.reserveMonths in 0..60) { "财务规划档案无效" }
+                listOf(profile.monthlyIncome, profile.monthlyExpenses, profile.monthlyDebtPayment, profile.essentialExpenses)
+                    .filterNotNull().forEach { amount ->
+                        require(amount.toBigDecimalOrNull()?.let { it >= java.math.BigDecimal.ZERO } == true) { "财务规划金额无效" }
+                    }
+            }
             validateFiniteAmounts(accounts, assetRecords, transactions, prices, priceHistory, backup.assetSnapshots.orEmpty(), backup.allocationTargets.orEmpty(), recurringRules)
 
             db.withTransaction {
@@ -177,6 +221,10 @@ class BackupRepository(private val db: AppDatabase) {
                 db.allocationTargetDao().deleteAll()
                 db.recurringRuleDao().deleteAll()
                 db.assetSnapshotDao().deleteAll()
+                db.financialPlannerDao().deleteReviews()
+                db.financialPlannerDao().deletePlans()
+                db.financialPlannerDao().deleteGoals()
+                db.financialPlannerDao().deleteProfiles()
 
                 // 按外键依赖顺序插入：账户 → 资产记录 → 交易 → 价格历史
                 accounts.forEach { db.accountDao().insert(it) }
@@ -187,6 +235,10 @@ class BackupRepository(private val db: AppDatabase) {
                 backup.assetSnapshots.orEmpty().forEach { db.assetSnapshotDao().insert(it) }
                 backup.allocationTargets.orEmpty().forEach { db.allocationTargetDao().upsert(it) }
                 recurringRules.forEach { db.recurringRuleDao().insert(it) }
+                backup.planningProfile?.let { db.financialPlannerDao().saveProfile(it) }
+                financialGoals.forEach { db.financialPlannerDao().saveGoal(it) }
+                financialPlanVersions.forEach { db.financialPlannerDao().savePlan(it) }
+                financialPlanReviews.forEach { db.financialPlannerDao().saveReview(it) }
                 db.settingsDao().insert(backup.settings ?: Settings())
             }
 
@@ -211,7 +263,9 @@ class BackupRepository(private val db: AppDatabase) {
             assetCount = backup.assetRecords.orEmpty().size + backup.positions.orEmpty().size,
             transactionCount = backup.transactions.orEmpty().size,
             snapshotCount = backup.assetSnapshots.orEmpty().size,
-            recurringRuleCount = backup.recurringRules.orEmpty().size
+            recurringRuleCount = backup.recurringRules.orEmpty().size,
+            financialGoalCount = backup.financialGoals.orEmpty().size,
+            financialPlanCount = backup.financialPlanVersions.orEmpty().size
         )
     }
 

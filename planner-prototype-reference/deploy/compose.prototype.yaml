@@ -1,0 +1,26 @@
+services:
+  planner:
+    build:
+      context: ..
+      dockerfile: Dockerfile.prototype
+    image: finunity-prototype:local
+    container_name: finunity-prototype
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    environment:
+      TZ: Asia/Shanghai
+      FINUNITY_DATABASE_URL: sqlite:////data/finunity-prototype.db
+    ports:
+      - "127.0.0.1:8011:8011"
+    volumes:
+      - ./prototype-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 768m

@@ -1,0 +1,146 @@
+[
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/health/ready",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/health/version",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/api/v1/app/config?platform=ANDROID&version_code=1",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/api/v1/me",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/docs",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity.halfopen.dev",
+    "path": "/openapi.json",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/health/ready",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/health/version",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/api/v1/app/config?platform=ANDROID&version_code=1",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/api/v1/me",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/docs",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity-api.halfopen.dev",
+    "path": "/openapi.json",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/health/ready",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/health/version",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/api/v1/app/config?platform=ANDROID&version_code=1",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/api/v1/me",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/docs",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity.baikai.site",
+    "path": "/openapi.json",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/health/ready",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/health/version",
+    "expected": 200,
+    "actual": 200
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/api/v1/app/config?platform=ANDROID&version_code=1",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/api/v1/me",
+    "expected": 401,
+    "actual": 401
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/docs",
+    "expected": 404,
+    "actual": 404
+  },
+  {
+    "host": "finunity-api.baikai.site",
+    "path": "/openapi.json",
+    "expected": 404,
+    "actual": 404
+  }
+]

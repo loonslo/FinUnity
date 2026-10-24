@@ -43,6 +43,7 @@ fun PlanningScreen(
     onSimulateExpense: () -> Unit = {},
     onOpenLandingPoints: () -> Unit = {},
     onOpenStressTest: () -> Unit = {},
+    onOpenFinancialPlanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val summary = portfolioSummary
@@ -151,6 +152,14 @@ fun PlanningScreen(
             }
 
             // 落点跟踪入口
+            item {
+                EntryRowCard(
+                    title = "目标规划",
+                    subtitle = "把家庭目标、每月预算和实际投入连起来",
+                    onClick = onOpenFinancialPlanner
+                )
+            }
+
             item {
                 EntryRowCard(
                     title = "落点跟踪",

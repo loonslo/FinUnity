@@ -379,7 +379,8 @@ class HoldingLedgerRepository(
         sourceFingerprint: String = "",
         category: CashFlowCategory = CashFlowCategory.OTHER,
         importBatchId: String = "",
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        financialGoalId: String? = null
     ): LedgerResult = database.withTransaction {
         if (sourceFingerprint.isNotBlank() && database.transactionDao().getBySourceFingerprint(sourceFingerprint) != null) {
             return@withTransaction LedgerResult.Success(emptyList())
@@ -413,7 +414,8 @@ class HoldingLedgerRepository(
                 origin = origin,
                 sourceFingerprint = sourceFingerprint,
                 category = normalizeCategory(type, category),
-                importBatchId = importBatchId
+                importBatchId = importBatchId,
+                financialGoalId = financialGoalId
             )
         )
         LedgerResult.Success(emptyList())
@@ -467,7 +469,8 @@ class HoldingLedgerRepository(
         amount: Double,
         note: String? = null,
         origin: TransactionOrigin = TransactionOrigin.CASH_FLOW,
-        sourceFingerprint: String = ""
+        sourceFingerprint: String = "",
+        financialGoalId: String? = null
     ): LedgerResult {
         if (amount <= 0.0) return LedgerResult.Error("金额必须大于 0")
         if (sourceFingerprint.isNotBlank() &&
@@ -547,7 +550,8 @@ class HoldingLedgerRepository(
                     origin = origin,
                     sourceFingerprint = sourceFingerprint.takeIf { it.isNotBlank() }?.plus(":in") ?: "",
                     category = CashFlowCategory.TRANSFER,
-                    importBatchId = ""
+                    importBatchId = "",
+                    financialGoalId = financialGoalId
                 )
             )
             LedgerResult.Success(emptyList())
