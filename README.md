@@ -58,6 +58,8 @@ app/src/main/java/com/finunity/
 - `web/`：React/Vite Web 客户端；Vercel 项目根目录应设为 `web/`。
 - `planner-prototype-reference/`：已归档的旧财务规划原型，仅供迁移对照，不作为正式运行或部署模块。
 
+后续统一在本 FinUnity 仓库维护。三个旧 GitHub 仓库已完整备份并归档，尚未删除；Vercel 主站已关联本仓库的 `web/`。核对结果和未完成事项见[单仓库整理记录](docs/REPOSITORY_CONSOLIDATION_2026-10-25.md)。
+
 从仓库根目录分别进入模块后，按模块 README 构建：Android 使用 `gradlew.bat assembleDebug`，Server 使用 `uv sync --extra dev` 和 `uv run --extra dev pytest -q`，Web 使用 `npm ci`、`npm test` 和 `npm run build`。Server Docker 部署配置仍独立位于 `server/`。
 
 ## 构建

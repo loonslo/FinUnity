@@ -40,3 +40,7 @@ Validated locally on 2026-10-24:
 - Dependency audit: `npm audit` reports two high severity advisories in `vite` and `source-map-js`. Dependency upgrades were not applied during this consolidation.
 
 Live hosting configuration is not changed by the branch. Vercel's Root Directory still needs to be set to `web/` when the Web deployment is switched to this repository.
+
+## 2026-10-25 follow-up
+
+The local workspace now has only the FinUnity working copy. All three former GitHub repositories were backed up with complete, verified Git bundles and archived. Deletion was requested but blocked before execution by automatic approval; the repositories still exist. Vercel's main Web project now uses `loonslo/FinUnity` with Root Directory `web`. See the [dated consolidation verification](REPOSITORY_CONSOLIDATION_2026-10-25.md) for current results, deployment boundaries, and remaining work. Statements above describe the original import date.
